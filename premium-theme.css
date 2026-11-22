@@ -1,0 +1,192 @@
+/* MendTrack Premium Design System — R0 foundation */
+:root {
+  color-scheme: light;
+  --mt-bg: #F4F6FB;
+  --mt-surface: #ffffff;
+  --mt-surface-muted: #EEF1F8;
+  --mt-text: #0F172A;
+  --mt-text-muted: #64748B;
+  --mt-border: #E4E8F1;
+  --mt-obsidian: #1B1E2D;
+  --mt-graphite: #252A3D;
+  --mt-champagne: #A9B5F5;
+  --mt-champagne-deep: #5560C8;
+  --mt-danger: #D1263A;
+  --mt-success: #0E9F6E;
+  --mt-shadow: 0 8px 28px rgba(15, 23, 42, .06);
+}
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --mt-bg: #1B1E2D;
+  --mt-surface: #252A3D;
+  --mt-surface-muted: #2D3350;
+  --mt-text: #E9EAF4;
+  --mt-text-muted: #A9ADC6;
+  --mt-border: #3A4160;
+}
+html[data-theme="dark"] body {
+  background-color: #1B1E2D !important;
+  color: #E9EAF4 !important;
+}
+/* Core Tailwind utility surfaces are recolored without changing their markup or IDs. */
+html[data-theme="dark"] .bg-white,
+html[data-theme="dark"] .bg-slate-50,
+html[data-theme="dark"] .bg-slate-100 {
+  background-color: #252A3D !important;
+}
+html[data-theme="dark"] .text-slate-900,
+html[data-theme="dark"] .text-slate-800,
+html[data-theme="dark"] .text-slate-700,
+html[data-theme="dark"] .text-slate-600 {
+  color: #E9EAF4 !important;
+}
+html[data-theme="dark"] .text-slate-500,
+html[data-theme="dark"] .text-slate-400 { color: #A9ADC6 !important; }
+/* Fix: legacy markup contains a hard-coded navy text utility. Keep it readable in dark mode. */
+html[data-theme="dark"] [class~="text-[#0B1220]"] {
+  color: #E9EAF4 !important;
+}
+
+html[data-theme="dark"] .border-slate-100,
+html[data-theme="dark"] .border-slate-200,
+html[data-theme="dark"] .border-slate-300,
+html[data-theme="dark"] .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
+  border-color: #3A4160 !important;
+}
+html[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]),
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea {
+  background-color: #1F2334 !important;
+  color: #EEF0F8 !important;
+  border-color: #444C70 !important;
+}
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder { color: #8A8FAE !important; }
+html[data-theme="dark"] .shadow-sm,
+html[data-theme="dark"] .shadow-md,
+html[data-theme="dark"] .shadow-xl { box-shadow: 0 8px 28px rgba(0,0,0,.22) !important; }
+html[data-theme="dark"] .hover\:bg-slate-50:hover,
+html[data-theme="dark"] .hover\:bg-slate-100:hover { background-color: #2F3552 !important; }
+html[data-theme="dark"] .bg-amber-50,
+html[data-theme="dark"] .bg-orange-50,
+html[data-theme="dark"] .bg-blue-50,
+html[data-theme="dark"] .bg-emerald-50,
+html[data-theme="dark"] .bg-rose-50 { background-color: #2D3350 !important; }
+html[data-theme="dark"] .text-amber-950,
+html[data-theme="dark"] .text-amber-900,
+html[data-theme="dark"] .text-amber-800 { color: #F7D9A0 !important; }
+html[data-theme="dark"] .bg-slate-800,
+html[data-theme="dark"] .bg-slate-900 { background-color: #1B1E2D !important; }
+
+/* Theme control */
+.mt-theme-toggle {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-width: 40px; height: 40px; padding: 0 11px; border-radius: 12px;
+  border: 1px solid rgba(141,160,255,.45); color: #B8C2FF;
+  background: rgba(255,255,255,.045); cursor: pointer; transition: .18s ease;
+}
+.mt-theme-toggle:hover { background: rgba(141,160,255,.14); border-color: var(--mt-champagne); }
+.mt-theme-toggle:focus-visible { outline: 2px solid var(--mt-champagne); outline-offset: 2px; }
+.mt-theme-toggle svg { width: 17px; height: 17px; }
+.mt-theme-toggle .mt-theme-label { font-size: 12px; font-weight: 600; }
+@media (max-width: 480px) { .mt-theme-toggle .mt-theme-label { display:none; } .mt-theme-toggle { width:40px; padding:0; } }
+
+/* Shared premium accents; legacy layout and component dimensions remain intact. */
+.mt-premium-accent { color: var(--mt-champagne-deep); }
+.mt-premium-card { border-color: var(--mt-border); box-shadow: var(--mt-shadow); }
+html[data-theme="dark"] .mt-premium-card { border-color: #3A4160; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
+
+
+/* Daily Workload calendar */
+.mt-calendar-card {
+  background: var(--mt-surface);
+  border-color: var(--mt-border);
+  color: var(--mt-text);
+}
+.mt-calendar-kicker { color: var(--mt-champagne-deep); }
+.mt-calendar-title { color: var(--mt-text); }
+.mt-calendar-muted { color: var(--mt-text-muted); }
+.mt-calendar-divider { border-color: var(--mt-border); }
+.mt-calendar-nav, .mt-calendar-today {
+  height: 36px; min-width: 36px; padding: 0 10px; border-radius: 10px;
+  border: 1px solid var(--mt-border); color: var(--mt-text);
+  background: var(--mt-surface); display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer; transition: .16s ease;
+}
+.mt-calendar-nav:hover, .mt-calendar-today:hover { border-color: var(--mt-champagne); background: var(--mt-surface-muted); }
+.mt-calendar-nav svg { width: 16px; height: 16px; }
+.mt-calendar-today { font-size: 11px; font-weight: 700; }
+.mt-calendar-weekdays, .mt-calendar-grid { display: grid; grid-template-columns: repeat(7,minmax(0,1fr)); gap: 6px; }
+.mt-calendar-weekdays { margin-bottom: 2px; }
+.mt-calendar-weekdays span { text-align: center; font-size: 10px; font-weight: 700; color: var(--mt-text-muted); padding: 5px 0; }
+.mt-calendar-day {
+  min-width: 0; min-height: 82px; padding: 8px 7px 7px; border-radius: 11px;
+  border: 1px solid var(--mt-border); background: var(--mt-surface);
+  text-align: left; display: flex; flex-direction: column; gap: 5px;
+  color: var(--mt-text); cursor: pointer; transition: border-color .15s ease, background .15s ease;
+}
+.mt-calendar-day:hover:not(:disabled) { border-color: var(--mt-champagne); background: var(--mt-surface-muted); }
+.mt-calendar-day.is-outside { opacity: .28; cursor: default; }
+.mt-calendar-day.is-today { border: 2px solid var(--mt-champagne-deep); padding: 7px 6px 6px; }
+.mt-calendar-day.is-selected { box-shadow: inset 0 0 0 1px var(--mt-champagne); background: var(--mt-surface-muted); }
+.mt-calendar-day-number { font-size: 12px; font-weight: 800; line-height: 1; }
+.mt-calendar-day-count, .mt-calendar-day-percent, .mt-calendar-day-empty { font-size: 9px; color: var(--mt-text-muted); white-space: nowrap; }
+.mt-calendar-day-track { display: block; height: 5px; border-radius: 99px; background: var(--mt-surface-muted); overflow: hidden; }
+.mt-calendar-day-fill { display: block; height: 100%; border-radius: 99px; }
+.workload-low { background: #3b9b78; }
+.workload-medium { background: #d2a13f; }
+.workload-high { background: #df7b35; }
+.workload-over { background: #d84c55; }
+.workload-empty { background: transparent; }
+.mt-legend-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.mt-calendar-summary {
+  display: grid; grid-template-columns: 1fr auto; gap: 10px 16px;
+  border: 1px solid var(--mt-border); background: var(--mt-surface-muted);
+  border-radius: 12px; padding: 12px;
+}
+.mt-calendar-progress-track { grid-column: 1 / -1; height: 8px; border-radius: 99px; background: var(--mt-border); overflow: hidden; }
+.mt-calendar-progress-fill { display: block; height: 100%; border-radius: 99px; background: #3b9b78; transition: width .2s ease; }
+.mt-calendar-order {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  border: 1px solid var(--mt-border); border-radius: 10px; padding: 10px 12px;
+  background: var(--mt-surface);
+}
+.mt-calendar-status { display: inline-block; border-radius: 99px; padding: 3px 7px; font-size: 9px; font-weight: 700; color: var(--mt-text-muted); border: 1px solid var(--mt-border); }
+@media (max-width: 640px) {
+  .mt-calendar-weekdays, .mt-calendar-grid { gap: 3px; }
+  .mt-calendar-day { min-height: 66px; padding: 6px 4px; border-radius: 8px; gap: 4px; }
+  .mt-calendar-day.is-today { padding: 5px 3px; }
+  .mt-calendar-day-number { font-size: 11px; }
+  .mt-calendar-day-count, .mt-calendar-day-percent { font-size: 8px; }
+}
+@media (max-width: 390px) {
+  .mt-calendar-day { min-height: 58px; }
+  .mt-calendar-day-count { display: none; }
+}
+html[data-theme="dark"] .mt-calendar-day { background: #252A3D; }
+html[data-theme="dark"] .mt-calendar-day:hover:not(:disabled),
+html[data-theme="dark"] .mt-calendar-day.is-selected { background: #2D3350; }
+html[data-theme="dark"] .mt-calendar-day-track { background: #3A4160; }
+html[data-theme="dark"] .mt-calendar-progress-track { background: #3A4160; }
+
+/* R0.3: stronger full-cell workload colors */
+.mt-calendar-day.workload-low { background:#176b50 !important; color:#fff !important; }
+.mt-calendar-day.workload-medium { background:#b87900 !important; color:#fff !important; }
+.mt-calendar-day.workload-high { background:#c65312 !important; color:#fff !important; }
+.mt-calendar-day.workload-over { background:#b42332 !important; color:#fff !important; }
+.mt-calendar-day.workload-low .mt-calendar-day-count,
+.mt-calendar-day.workload-medium .mt-calendar-day-count,
+.mt-calendar-day.workload-high .mt-calendar-day-count,
+.mt-calendar-day.workload-over .mt-calendar-day-count,
+.mt-calendar-day.workload-low .mt-calendar-day-percent,
+.mt-calendar-day.workload-medium .mt-calendar-day-percent,
+.mt-calendar-day.workload-high .mt-calendar-day-percent,
+.mt-calendar-day.workload-over .mt-calendar-day-percent { color:#fff !important; }
+.mt-calendar-day.is-selected { outline:2px solid var(--mt-champagne); outline-offset:-3px; }
+
+/* R0.4: selected date is carried into new-order form */
+#workload-selected-progress { min-width: 0; }
