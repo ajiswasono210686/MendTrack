@@ -387,7 +387,7 @@ function renderWorkloadCalendar() {
         <span class="mt-calendar-day-number">${date.getDate()}</span>
         ${inMonth && workload.orders.length ? `
           <span class="mt-calendar-day-count">${workload.orders.length} order</span>
-          <span class="mt-calendar-day-percent">${workload.percent > 100 ? 'Over 100%' : `${Math.round(workload.percent)}%`}</span>
+          <span class="mt-calendar-day-percent">${workload.percent > 100 ? 'Over 100%' : `${Math.round(workload.percent)}% kapasitas`}</span>
         ` : `<span class="mt-calendar-day-empty">${inMonth ? '—' : ''}</span>`}
       </button>`;
   }
@@ -762,9 +762,10 @@ function bindGlobalEvents() {
   document.getElementById('cancel-customer-form-btn')?.addEventListener('click', closeCustomerCreateForm);
   document.getElementById('customer-create-form')?.addEventListener('submit', handleCustomerCreateSubmit);
   customersList?.addEventListener('click', handleCustomerListAction);
-  document.getElementById('close-customer-detail-btn')?.addEventListener('click', () => document.getElementById('customer-detail-modal')?.classList.add('hidden'));
+  document.getElementById('close-customer-detail-btn')?.addEventListener('click', () => { document.getElementById('customer-detail-modal')?.classList.add('hidden'); const h = document.querySelector('#customer-detail-modal h3'); if (h) h.textContent = 'Detail Pelanggan'; });
   document.getElementById('customer-detail-content')?.addEventListener('click', handleCustomerDetailAction);
   document.getElementById('customer-detail-content')?.addEventListener('change', handleMeasurementFormChange);
+  document.getElementById('customer-detail-content')?.addEventListener('submit', handleCustomerEditSubmit);
   document.getElementById('measurement-templates-list')?.addEventListener('click', handleMeasurementTemplateAction);
   document.getElementById('add-measurement-template-btn')?.addEventListener('click', addMeasurementTemplate);
   document.getElementById('measurement-templates-list')?.addEventListener('click', handleMeasurementTemplateToggle);
@@ -856,57 +857,34 @@ function renderCustomersList() {
     customersList.innerHTML = '<p class="py-6 text-center text-sm text-slate-500">Belum ada pelanggan yang cocok.</p>';
     return;
   }
-  customersList.innerHTML = filtered.map(customer => {
-    const transactions = allOrders.filter(order => order.customer_id === customer.id || normalizePhone(order.customer_phone) === customer.phone);
-    return `<div class="py-3 flex items-center gap-2 border-b border-slate-100 last:border-0">
-      <button type="button" data-customer-detail="${customer.id}" class="min-w-0 flex-1 text-left">
-        <span class="block text-sm font-semibold text-slate-900 hover:text-[#4F6BFF] hover:underline truncate">${escapeHTML(customer.name)}</span>
-        <span class="block text-xs text-slate-500 font-mono-code">${escapeHTML(customer.phone)}</span>
-      </button>
-      <div class="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-        <button type="button" data-customer-measurements="${customer.id}" class="h-9 px-2.5 rounded-lg border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50">List Ukuran</button>
-        <button type="button" data-customer-history="${customer.id}" class="h-9 px-2.5 rounded-lg border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50">Riwayat Order</button>
-        <button type="button" data-customer-edit="${customer.id}" class="h-9 w-9 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50" title="Edit pelanggan"><i data-lucide="pencil" class="w-4 h-4"></i></button>
-        <button type="button" data-customer-order="${customer.id}" class="h-9 px-3 rounded-lg bg-[#4F6BFF] text-white text-xs font-semibold hover:bg-[#3D55E0] inline-flex items-center gap-1"><i data-lucide="plus" class="w-3.5 h-3.5"></i><span>Tambah Order</span></button>
+  customersList.innerHTML = filtered.map(customer => `
+    <div class="py-3 flex items-center gap-2 border-b border-slate-100 last:border-0 min-w-0">
+      <div class="min-w-0 flex-1 text-left">
+        <span class="block text-sm font-semibold text-slate-900 truncate">${escapeHTML(customer.name)}</span>
+        <span class="block text-xs text-slate-500 font-mono-code truncate">${escapeHTML(customer.phone)}</span>
       </div>
-    </div>`;
-  }).join('');
+      <div class="flex items-center gap-2 shrink-0">
+        <button type="button" data-customer-edit="${customer.id}" class="h-10 w-10 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 inline-flex items-center justify-center" title="Edit pelanggan" aria-label="Edit pelanggan"><i data-lucide="pencil" class="w-4 h-4"></i></button>
+        <button type="button" data-customer-order="${customer.id}" class="h-10 w-10 rounded-lg bg-[#4F6BFF] text-white hover:bg-[#3D55E0] inline-flex items-center justify-center" title="Tambah order" aria-label="Tambah order"><i data-lucide="plus" class="w-5 h-5"></i></button>
+      </div>
+    </div>`).join('');
   if (window.lucide) window.lucide.createIcons();
 }
 
 async function handleCustomerListAction(event) {
-  const detailButton = event.target.closest('[data-customer-detail]');
   const editButton = event.target.closest('[data-customer-edit]');
   const orderButton = event.target.closest('[data-customer-order]');
-  const measurementsButton = event.target.closest('[data-customer-measurements]');
-  const historyButton = event.target.closest('[data-customer-history]');
-  const id = detailButton?.dataset.customerDetail || editButton?.dataset.customerEdit || orderButton?.dataset.customerOrder || measurementsButton?.dataset.customerMeasurements || historyButton?.dataset.customerHistory;
+  const id = editButton?.dataset.customerEdit || orderButton?.dataset.customerOrder;
   if (!id) return;
   const customer = customerRecords.find(item => item.id === id);
   if (!customer) return;
-  if (detailButton) return openCustomerDetail(customer);
-  if (measurementsButton) { activeCustomerDetail = customer; document.getElementById('customer-detail-modal')?.classList.remove('hidden'); return renderCustomerMeasurements(); }
-  if (historyButton) { activeCustomerDetail = customer; document.getElementById('customer-detail-modal')?.classList.remove('hidden'); return renderCustomerOrderHistory(); }
   if (orderButton) {
     showOrdersPage();
     openOrderModal(null, { customer_name: customer.name, customer_phone: customer.phone });
     return;
   }
-  if (editButton) {
-    const name = prompt('Nama pelanggan:', customer.name);
-    if (name === null) return;
-    const phoneInput = prompt('Nomor WhatsApp pelanggan:', customer.phone);
-    if (phoneInput === null) return;
-    const normalizedPhone = normalizePhone(phoneInput);
-    if (!name.trim() || !normalizedPhone || normalizedPhone.length < 10) return alert('Nama dan nomor WhatsApp yang valid wajib diisi.');
-    const duplicate = customerRecords.find(item => item.id !== id && item.phone === normalizedPhone);
-    if (duplicate) return alert(`Nomor ini sudah terdaftar atas nama ${duplicate.name}.`);
-    const { error } = await supabase.from('customers').update({ name: name.trim(), phone: normalizedPhone, updated_at: new Date().toISOString() }).eq('id', id);
-    if (error) return alert(`Gagal memperbarui pelanggan: ${error.message}`);
-    await fetchCustomers();
-  }
+  if (editButton) openCustomerEdit(customer);
 }
-
 
 function openCustomerCreateForm() {
   const modal = document.getElementById('customer-form-modal');
@@ -1009,27 +987,47 @@ async function fetchCustomerMeasurements(customerId) {
   return customerMeasurementRecords;
 }
 
-function openCustomerDetail(customer) {
+function openCustomerEdit(customer = activeCustomerDetail) {
+  if (!customer) return;
   activeCustomerDetail = customer;
   const modal = document.getElementById('customer-detail-modal');
   const content = document.getElementById('customer-detail-content');
+  const heading = modal?.querySelector('h3');
+  if (heading) heading.textContent = 'Edit Pelanggan';
   content.innerHTML = `
-    <div class="rounded-xl border border-slate-200 p-4">
-      <h4 class="text-lg font-bold text-[#0B1220]">${escapeHTML(customer.name)}</h4>
-      <a class="text-sm text-emerald-700 hover:underline" target="_blank" rel="noopener noreferrer" href="${buildWhatsAppLink(customer.phone, `Halo ${customer.name}`)}">${escapeHTML(customer.phone)}</a>
-    </div>
-    <div class="grid grid-cols-1 gap-3">
-      <button type="button" data-customer-detail-view="measurements" class="min-h-24 rounded-xl border border-slate-200 hover:border-[#4F6BFF] hover:bg-orange-50/40 p-4 text-left flex items-center gap-3">
-        <span class="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center"><i data-lucide="ruler" class="w-5 h-5 text-slate-700"></i></span>
-        <span><strong class="block text-sm text-slate-900">List Ukuran</strong><small class="text-xs text-slate-500">Koleksi ukuran pelanggan</small></span>
-      </button>
-      <button type="button" data-customer-detail-view="orders" class="min-h-24 rounded-xl border border-slate-200 hover:border-[#4F6BFF] hover:bg-orange-50/40 p-4 text-left flex items-center gap-3">
-        <span class="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center"><i data-lucide="list-checks" class="w-5 h-5 text-slate-700"></i></span>
-        <span><strong class="block text-sm text-slate-900">Riwayat Order</strong><small class="text-xs text-slate-500">Semua transaksi pelanggan</small></span>
-      </button>
-    </div>`;
-  modal.classList.remove('hidden');
+    <form id="customer-edit-form" class="space-y-4">
+      <label class="block"><span class="block text-xs font-semibold text-slate-700 mb-1">Nama Pelanggan</span><input id="edit-customer-name" type="text" required maxlength="120" value="${escapeHTML(customer.name)}" class="w-full h-11 px-3 rounded-xl border border-slate-300 text-sm"></label>
+      <label class="block"><span class="block text-xs font-semibold text-slate-700 mb-1">Nomor WhatsApp</span><input id="edit-customer-phone" type="tel" inputmode="tel" required value="${escapeHTML(customer.phone)}" class="w-full h-11 px-3 rounded-xl border border-slate-300 text-sm"></label>
+      <div class="grid grid-cols-1 gap-3 pt-1">
+        <button type="button" data-customer-detail-view="measurements" class="min-h-16 rounded-xl border border-slate-200 hover:border-[#4F6BFF] p-3 text-left flex items-center gap-3"><span class="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center"><i data-lucide="ruler" class="w-5 h-5 text-slate-700"></i></span><span><strong class="block text-sm text-slate-900">List Ukuran</strong><small class="text-xs text-slate-500">Lihat, tambah, dan edit ukuran pelanggan</small></span><i data-lucide="chevron-right" class="w-4 h-4 ml-auto"></i></button>
+        <button type="button" data-customer-detail-view="orders" class="min-h-16 rounded-xl border border-slate-200 hover:border-[#4F6BFF] p-3 text-left flex items-center gap-3"><span class="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center"><i data-lucide="clipboard-list" class="w-5 h-5 text-slate-700"></i></span><span><strong class="block text-sm text-slate-900">Riwayat Order</strong><small class="text-xs text-slate-500">Lihat semua pesanan pelanggan</small></span><i data-lucide="chevron-right" class="w-4 h-4 ml-auto"></i></button>
+      </div>
+      <div class="flex gap-2 pt-2"><button type="button" data-customer-detail-close class="flex-1 h-11 rounded-xl border border-slate-200 text-slate-700 text-sm font-semibold">Tutup</button><button type="submit" class="flex-1 h-11 rounded-xl bg-[#4F6BFF] text-white text-sm font-semibold">Simpan Perubahan</button></div>
+    </form>`;
+  modal?.classList.remove('hidden');
   if (window.lucide) window.lucide.createIcons();
+}
+
+async function handleCustomerEditSubmit(event) {
+  if (event.target.id !== 'customer-edit-form') return;
+  event.preventDefault();
+  const name = document.getElementById('edit-customer-name')?.value.trim() || '';
+  const phone = normalizePhone(document.getElementById('edit-customer-phone')?.value || '');
+  if (!name) return alert('Nama pelanggan wajib diisi.');
+  if (!phone || phone.length < 10) return alert('Nomor WhatsApp tidak valid.');
+  const duplicate = customerRecords.find(item => item.id !== activeCustomerDetail.id && item.phone === phone);
+  if (duplicate) return alert(`Nomor ini sudah terdaftar atas nama ${duplicate.name}.`);
+  const submit = event.target.querySelector('button[type="submit"]');
+  if (submit) { submit.disabled = true; submit.textContent = 'Menyimpan...'; }
+  const { data, error } = await supabase.from('customers').update({ name, phone, updated_at: new Date().toISOString() }).eq('id', activeCustomerDetail.id).select('id, name, phone, created_at, updated_at').single();
+  if (error) {
+    if (submit) { submit.disabled = false; submit.textContent = 'Simpan Perubahan'; }
+    return alert(`Gagal memperbarui pelanggan: ${error.message}`);
+  }
+  activeCustomerDetail = data;
+  await fetchCustomers();
+  openCustomerEdit(data);
+  alert('Data pelanggan berhasil diperbarui.');
 }
 
 async function handleCustomerDetailAction(event) {
@@ -1038,7 +1036,9 @@ async function handleCustomerDetailAction(event) {
   const addButton = event.target.closest('[data-add-customer-measurement]');
   const editButton = event.target.closest('[data-edit-customer-measurement]');
   const deleteButton = event.target.closest('[data-delete-customer-measurement]');
-  if (backButton) return openCustomerDetail(activeCustomerDetail);
+  const closeButton = event.target.closest('[data-customer-detail-close]');
+  if (closeButton) { document.getElementById('customer-detail-modal')?.classList.add('hidden'); const heading = document.querySelector('#customer-detail-modal h3'); if (heading) heading.textContent = 'Detail Pelanggan'; return; }
+  if (backButton) return openCustomerEdit(activeCustomerDetail);
   if (viewButton?.dataset.customerDetailView === 'measurements') return renderCustomerMeasurements();
   if (viewButton?.dataset.customerDetailView === 'orders') return renderCustomerOrderHistory();
   if (addButton) return openCustomerMeasurementForm();
@@ -1066,6 +1066,7 @@ async function handleCustomerDetailAction(event) {
 
 async function renderCustomerMeasurements() {
   const content = document.getElementById('customer-detail-content');
+  const modalHeading = document.querySelector('#customer-detail-modal h3'); if (modalHeading) modalHeading.textContent = 'List Ukuran';
   content.innerHTML = '<p class="py-6 text-center text-sm text-slate-500">Memuat daftar ukuran...</p>';
   try {
     await Promise.all([fetchCustomerMeasurements(activeCustomerDetail.id), fetchMeasurementTemplates()]);
@@ -1094,6 +1095,7 @@ async function renderCustomerMeasurements() {
 }
 
 function renderCustomerOrderHistory() {
+  const modalHeading = document.querySelector('#customer-detail-modal h3'); if (modalHeading) modalHeading.textContent = 'Riwayat Order';
   const content = document.getElementById('customer-detail-content');
   const transactions = allOrders.filter(order => order.customer_id === activeCustomerDetail.id || normalizePhone(order.customer_phone) === activeCustomerDetail.phone).sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
   content.innerHTML = `
