@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#F6F5FA" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
+  <link rel="icon" href="/icons/icon-192.png" type="image/png" />
+  <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+  <title>MendTrack — Lacak Status Pengerjaan & Reparasi Denim</title>
+  <meta name="description" content="Portal pelacakan status pengerjaan reparasi, vermak, dan custom denim secara real-time." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            denim: {
+              950: '#0B1220',
+              900: '#151E33',
+              800: '#1D2A47',
+            },
+            copper: {
+              500: '#4F6BFF',
+              600: '#3D55E0',
+            },
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="./css/custom.css" />
+  <link rel="stylesheet" href="./css/premium-theme.css" />
+  <link rel="stylesheet" href="./css/modern-theme.css" />
+
+  <!-- Lucide Icons -->
+  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+</head>
+<body class="min-h-screen flex flex-col bg-[#F4F6FB] text-slate-900">
+
+  <!-- TOP NAVBAR -->
+  <header class="mt-header bg-[#0B1220] text-white border-b border-[#151E33] sticky top-0 z-30 no-print">
+    <div class="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between">
+      <a href="./index.html" class="flex items-center gap-2.5 group">
+        <div data-store-logo class="w-9 h-9 rounded-lg bg-[#4F6BFF] flex items-center justify-center text-white shadow-sm group-hover:bg-amber-500 transition overflow-hidden">
+          <i data-lucide="scissors" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <span data-store-name class="font-bold tracking-tight text-base block leading-none uppercase">BRKH DENIM</span>
+        </div>
+      </a>
+
+      <div class="flex items-center gap-2.5">
+        <button type="button" class="mt-theme-toggle" data-mt-theme-toggle aria-label="Aktifkan mode gelap" title="Mode gelap">
+          <i data-lucide="moon"></i><span class="mt-theme-label">Gelap</span>
+        </button>
+        <span id="connection-badge" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+          <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          <span>Online</span>
+        </span>
+        <button
+          type="button"
+          id="tracker-exit-btn"
+          title="Keluar dari tampilan tracking"
+          class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-[#151E33] transition"
+        >
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- HERO & SEARCH SECTION -->
+  <section class="mt-hero bg-[#0B1220] text-white pt-7 pb-12 px-4 border-b border-[#151E33] no-print">
+    <div class="max-w-3xl mx-auto">
+      <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#151E33] border border-slate-700/80 text-amber-400 text-xs font-medium mb-3">
+        <i data-lucide="radio-tower" class="w-3.5 h-3.5"></i>
+        <span>Live Workshop Order Tracking</span>
+      </div>
+
+      <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-white">
+        Lacak Progres Pengerjaan Anda
+      </h1>
+      <p class="text-slate-300 text-sm sm:text-base mt-1.5 max-w-xl">
+        Masukkan <span class="text-amber-400 font-medium">Nomor WhatsApp</span> yang terdaftar saat order diterima.
+      </p>
+
+      <!-- Form Pencarian -->
+      <form id="track-form" class="mt-6 flex flex-col sm:flex-row gap-2.5">
+        <div class="relative flex-1">
+          <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+            <i data-lucide="search" class="w-5 h-5"></i>
+          </div>
+          <input
+            type="tel"
+            inputmode="numeric"
+            id="track-input"
+            name="query"
+            autocomplete="off"
+            placeholder="Masukkan nomor WhatsApp (contoh: 0812...)"
+            class="w-full h-12 pl-11 pr-10 rounded-xl bg-[#151E33] border border-slate-600/80 text-white placeholder-slate-400 text-sm sm:text-base focus:outline-none focus:border-[#4F6BFF] focus:ring-2 focus:ring-[#4F6BFF]/30 transition"
+            required
+          />
+          <button
+            type="button"
+            id="clear-input-btn"
+            class="hidden absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-white"
+            aria-label="Hapus pencarian"
+          >
+            <i data-lucide="x" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <button
+          type="submit"
+          id="track-submit-btn"
+          class="h-12 px-6 rounded-xl bg-[#4F6BFF] hover:bg-[#3D55E0] active:scale-[0.99] text-white font-semibold text-sm sm:text-base shadow-md shadow-black/20 flex items-center justify-center gap-2 transition cursor-pointer"
+        >
+          <span>Lacak Status</span>
+          <i data-lucide="arrow-right" class="w-4 h-4"></i>
+        </button>
+      </form>
+    </div>
+  </section>
+
+  <!-- MAIN CONTENT AREA -->
+  <main class="flex-1 max-w-3xl w-full mx-auto px-4 -mt-6 pb-14">
+
+    <!-- Banner Peringatan Jika Supabase Belum Dikonfigurasi -->
+    <div id="config-warning" class="hidden mb-4 p-4 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-sm flex items-start gap-3 shadow-sm">
+      <i data-lucide="alert-triangle" class="w-5 h-5 text-amber-600 shrink-0 mt-0.5"></i>
+      <div>
+        <p class="font-semibold">Mode Pratinjau (Supabase Belum Terhubung)</p>
+        <p class="text-xs text-amber-800 mt-0.5">
+          Isi kredensial <code class="font-mono-code bg-amber-100 px-1 rounded">js/config.js</code> untuk menghubungkan ke database live. Coba gunakan nomor demo <button type="button" id="demo-ticket-btn" class="underline font-mono-code font-semibold text-[#4F6BFF]">0812-3456-7890</button> untuk melihat simulasi tampilan.
+        </p>
+      </div>
+    </div>
+
+    <!-- Loading Skeleton -->
+    <div id="tracking-loading" class="hidden bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+      <div class="flex items-center justify-between">
+        <div class="h-5 w-36 bg-slate-200 rounded animate-pulse"></div>
+        <div class="h-6 w-24 bg-slate-200 rounded-full animate-pulse"></div>
+      </div>
+      <div class="h-20 w-full bg-slate-100 rounded-xl animate-pulse"></div>
+      <div class="h-32 w-full bg-slate-100 rounded-xl animate-pulse"></div>
+    </div>
+
+    <!-- Empty / Error State -->
+    <div id="tracking-empty" class="hidden bg-white rounded-2xl border border-slate-200 p-8 text-center shadow-sm animate-fade-up">
+      <div class="w-12 h-12 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto mb-3">
+        <i data-lucide="file-search" class="w-6 h-6"></i>
+      </div>
+      <h2 id="empty-title" class="text-base font-bold text-slate-800">Order Tidak Ditemukan</h2>
+      <p id="empty-message" class="text-sm text-slate-500 mt-1 max-w-md mx-auto">
+        Pastikan kode tiket (contoh: MND-2611-001) atau nomor WhatsApp yang Anda masukkan sudah benar.
+      </p>
+    </div>
+
+    <!-- Multi-Ticket List State (Jika cari via No WA dan punya >1 order) -->
+    <div id="ticket-list-container" class="hidden space-y-3 animate-fade-up"></div>
+
+    <!-- Detail Hasil Pelacakan Order -->
+    <div id="tracking-result" class="hidden space-y-4 animate-fade-up"></div>
+
+    <!-- Panduan Awal (Tampil saat belum ada pencarian) -->
+    <div id="initial-guide" class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+      <h2 class="text-sm font-bold uppercase tracking-wider text-slate-500 mb-4 flex items-center gap-2">
+        <i data-lucide="info" class="w-4 h-4 text-[#4F6BFF]"></i>
+        <span>Cara Melacak Pesanan</span>
+      </h2>
+      <div class="grid sm:grid-cols-3 gap-4 text-sm">
+        <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
+          <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[#0B1220] text-amber-400 text-xs font-bold mb-2">1</span>
+          <p class="font-semibold text-slate-800">Siapkan Nomor WhatsApp</p>
+          <p class="text-xs text-slate-500 mt-1">Gunakan nomor WhatsApp yang didaftarkan saat menyerahkan order.</p>
+        </div>
+        <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
+          <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[#0B1220] text-amber-400 text-xs font-bold mb-2">2</span>
+          <p class="font-semibold text-slate-800">Pantau Tahapan Live</p>
+          <p class="text-xs text-slate-500 mt-1">Lihat progres mulai dari antrean, proses jahit, hingga Quality Check.</p>
+        </div>
+        <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80">
+          <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-[#0B1220] text-amber-400 text-xs font-bold mb-2">3</span>
+          <p class="font-semibold text-slate-800">Ambil di Workshop</p>
+          <p class="text-xs text-slate-500 mt-1">Datang ke workshop saat status berubah menjadi <strong>Siap Diambil</strong>.</p>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- FOOTER -->
+  <footer class="bg-white border-t border-slate-200 py-5 px-4 text-center text-xs text-slate-500 no-print">
+    <p class="font-semibold text-slate-700"><span data-store-name>BRKH DENIM</span> — <span data-store-tagline>RAW AUTHENTIC DURABLE</span></p>
+    <p class="mt-0.5" data-store-address>Jl. Gajayana 21 B, Malang</p>
+    <p class="mt-0.5" data-store-hours></p>
+    <p class="mt-1">by MendTrack</p>
+  </footer>
+
+  <!-- Lightbox Modal untuk Perbesar Foto Before/After -->
+  <div id="photo-modal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 no-print">
+    <div class="relative max-w-xl w-full bg-[#0B1220] rounded-2xl overflow-hidden border border-slate-700 shadow-2xl">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-800 text-white">
+        <span id="photo-modal-caption" class="text-sm font-medium">Dokumentasi Item</span>
+        <button type="button" id="close-photo-modal" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+      <div class="bg-black flex items-center justify-center max-h-[75vh] overflow-auto">
+        <img id="photo-modal-img" src="" alt="Dokumentasi Garment" class="max-w-full max-h-[75vh] object-contain" />
+      </div>
+    </div>
+  </div>
+
+  <!-- Entry Point Script -->
+  <script>if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(console.warn));</script>
+  <script src="./js/theme-toggle.js" defer></script>
+  <script type="module" src="./js/public-tracker.js"></script>
+</body>
+</html>
