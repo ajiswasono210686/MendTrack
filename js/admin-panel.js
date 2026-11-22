@@ -387,7 +387,7 @@ function renderWorkloadCalendar() {
         <span class="mt-calendar-day-number">${date.getDate()}</span>
         ${inMonth && workload.orders.length ? `
           <span class="mt-calendar-day-count">${workload.orders.length} order</span>
-          <span class="mt-calendar-day-percent">${workload.percent > 100 ? 'Over 100%' : `${Math.round(workload.percent)}% kapasitas`}</span>
+          <span class="mt-calendar-day-percent">${workload.percent > 100 ? 'Over 100%' : `${Math.round(workload.percent)}%`}</span>
         ` : `<span class="mt-calendar-day-empty">${inMonth ? '—' : ''}</span>`}
       </button>`;
   }
