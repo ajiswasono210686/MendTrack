@@ -3,132 +3,107 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#F6F5FA" />
+  <meta name="theme-color" content="#F5F2EB" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
   <link rel="icon" href="/icons/icon-192.png" type="image/png" />
   <link rel="apple-touch-icon" href="/icons/icon-192.png" />
   <script>try{if(localStorage.getItem("mendtrack-sidebar")==="collapsed")document.documentElement.dataset.sidebar="collapsed"}catch(_){}</script>
-  <title>MendTrack Admin — Workshop Order Management</title>
+  <title>MendTrack Admin | Manajemen Order Workshop</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
 
-  <!-- Tailwind CSS CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            denim: {
-              950: '#0B1220',
-              900: '#151E33',
-              800: '#1D2A47',
-            },
-            copper: {
-              500: '#4F6BFF',
-              600: '#3D55E0',
-            },
-          },
-        },
-      },
-    };
-  </script>
+  <link rel="stylesheet" href="./css/tailwind.css" />
+  <link rel="stylesheet" href="./css/theme.css" />
 
-  <!-- Custom CSS -->
-  <link rel="stylesheet" href="./css/custom.css" />
-  <link rel="stylesheet" href="./css/premium-theme.css" />
-  <link rel="stylesheet" href="./css/modern-theme.css" />
-
-  <!-- Lucide Icons -->
-  <script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js" defer></script>
 </head>
-<body class="min-h-screen flex flex-col bg-[#F4F6FB] text-slate-900">
+<body class="min-h-screen flex flex-col">
 
-  <!-- ======================================================================= -->
-  <!-- 1. AUTH LOGIN SCREEN (Tampil jika belum login)                          -->
-  <!-- ======================================================================= -->
-  <section id="auth-screen" class="mt-auth min-h-screen flex items-center justify-center p-4 bg-[#0B1220]">
-    <div class="w-full max-w-md bg-[#151E33] border border-slate-700/80 rounded-2xl p-6 sm:p-8 shadow-2xl text-white">
-      <div class="flex items-center gap-3 mb-6">
-        <div data-store-logo class="w-11 h-11 rounded-xl bg-[#4F6BFF] flex items-center justify-center text-white shadow-md overflow-hidden">
-          <i data-lucide="scissors" class="w-6 h-6"></i>
+  <a href="#admin-main" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 mt-btn mt-btn-primary">
+    Lewati ke konten utama
+  </a>
+
+  <section id="auth-screen" aria-labelledby="auth-heading" class="mt-auth min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-md mt-modal-panel p-6 sm:p-8">
+      <div class="flex items-center gap-3 mb-6 pb-4 mt-seam-b">
+        <div data-store-logo class="mt-store-logo w-11 h-11">
+          <i data-lucide="scissors" class="w-6 h-6" aria-hidden="true"></i>
         </div>
         <div>
-          <h1 class="text-xl font-bold tracking-tight" data-store-name>BRKH DENIM</h1>
+          <h2 id="auth-heading" class="text-xl font-extrabold tracking-tight mt-text" data-store-name>BRKH DENIM</h2>
+          <p class="text-xs mt-muted">Masuk ke ruang kerja admin workshop</p>
         </div>
       </div>
 
-      <div id="auth-error-box" class="hidden mb-4 p-3 rounded-xl bg-rose-500/15 border border-rose-500/40 text-rose-200 text-xs"></div>
+      <div id="auth-error-box" role="alert" class="hidden mb-4 p-3 mt-notice-error text-xs font-medium"></div>
 
       <form id="login-form" class="space-y-4">
         <div>
-          <label for="login-email" class="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-            Email Admin
+          <label for="login-email" class="block text-xs font-semibold mt-text mb-1.5">
+            Email admin
           </label>
           <input
             type="email"
             id="login-email"
             required
             autocomplete="email"
-            placeholder="admin@brkhdenim.com"
-            class="w-full h-11 px-3.5 rounded-xl bg-[#0B1220] border border-slate-600 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-[#4F6BFF]"
+            placeholder="nama@workshop.com"
+            class="mt-input"
           />
         </div>
 
         <div>
-          <label for="login-password" class="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">
-            Password
+          <label for="login-password" class="block text-xs font-semibold mt-text mb-1.5">
+            Kata sandi
           </label>
           <input
             type="password"
             id="login-password"
             required
             autocomplete="current-password"
-            placeholder="••••••••"
-            class="w-full h-11 px-3.5 rounded-xl bg-[#0B1220] border border-slate-600 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-[#4F6BFF]"
+            placeholder="Masukkan kata sandi"
+            class="mt-input"
           />
         </div>
 
         <button
           type="submit"
           id="login-submit-btn"
-          class="w-full h-12 rounded-xl bg-[#4F6BFF] hover:bg-[#3D55E0] text-white font-semibold text-sm flex items-center justify-center gap-2 transition cursor-pointer mt-2"
+          class="mt-btn mt-btn-primary w-full mt-2"
         >
-          <i data-lucide="log-in" class="w-4 h-4"></i>
+          <i data-lucide="log-in" class="w-4 h-4" aria-hidden="true"></i>
           <span>Masuk ke Workshop</span>
         </button>
       </form>
 
-      <div class="mt-6 pt-4 border-t border-slate-700/70 flex items-center justify-between text-xs text-slate-400">
-        
+      <div class="mt-6 pt-4 mt-seam-t flex items-center justify-between text-xs mt-muted">
         <span>by MendTrack</span>
+        <button type="button" class="mt-theme-toggle" data-mt-theme-toggle aria-label="Aktifkan mode gelap" title="Mode gelap">
+          <i data-lucide="moon" aria-hidden="true"></i><span class="mt-theme-label">Gelap</span>
+        </button>
       </div>
     </div>
   </section>
 
-  <!-- ======================================================================= -->
-  <!-- 2. WORKSPACE ADMIN DASHBOARD (Tampil setelah login sukses)              -->
-  <!-- ======================================================================= -->
   <div id="admin-workspace" class="hidden min-h-screen flex flex-col">
 
-    <!-- SIDEBAR (collapsible; drawer on mobile) -->
-    <aside id="admin-sidebar" class="mt-sidebar no-print" aria-label="Menu utama">
-      <button type="button" class="mt-sb-collapse" data-sidebar-collapse aria-label="Ciutkan menu" title="Ciutkan / lebarkan menu">
-        <i data-lucide="chevrons-left"></i>
+    <aside id="admin-sidebar" class="mt-sidebar no-print" aria-label="Menu samping">
+      <button type="button" class="mt-sb-collapse" data-sidebar-collapse aria-label="Ciutkan menu samping" aria-expanded="true" title="Ciutkan atau lebarkan menu">
+        <i data-lucide="chevrons-left" aria-hidden="true"></i>
       </button>
       <div class="mt-sb-inner">
         <div class="mt-sb-top">
           <div class="mt-sb-brand">
-            <div data-store-logo id="header-store-logo-wrap" class="mt-sb-logo">
-              <i data-lucide="scissors" class="w-5 h-5"></i>
+            <div data-store-logo id="header-store-logo-wrap" class="mt-store-logo mt-sb-logo">
+              <i data-lucide="scissors" class="w-5 h-5" aria-hidden="true"></i>
             </div>
             <div class="mt-sb-brandtext">
               <span data-store-name id="header-store-name" class="mt-sb-name">BRKH DENIM</span>
-              <span id="connection-badge" class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+              <span id="connection-badge" class="mt-badge mt-badge-online">
+                <span class="mt-badge-dot" aria-hidden="true"></span>
                 <span>Online</span>
               </span>
             </div>
@@ -136,391 +111,455 @@
         </div>
 
         <nav class="mt-sb-nav" aria-label="Navigasi utama">
-          <button type="button" id="sidebar-new-order-btn" title="New Order" class="mt-sb-item"><i data-lucide="plus-circle"></i><span class="mt-sb-label">New Order</span></button>
-          <button type="button" id="bottom-nav-orders" aria-current="page" title="Order" class="mt-sb-item is-active">
-            <i data-lucide="list-checks"></i><span class="mt-sb-label">Order</span>
+          <button type="button" id="sidebar-new-order-btn" title="Order Baru" aria-label="Order Baru" class="mt-sb-item mt-sb-cta">
+            <i data-lucide="plus-circle" aria-hidden="true"></i><span class="mt-sb-label">Order Baru</span>
           </button>
-          <button type="button" id="bottom-nav-customers" title="Pelanggan" class="mt-sb-item">
-            <i data-lucide="contact-round"></i><span class="mt-sb-label">Pelanggan</span>
+
+          <span class="mt-sb-group">Operasional</span>
+          <button type="button" id="bottom-nav-orders" aria-current="page" title="Order" aria-label="Order" class="mt-sb-item is-active">
+            <i data-lucide="list-checks" aria-hidden="true"></i><span class="mt-sb-label">Order</span>
           </button>
-          <button type="button" class="mt-sb-item" data-app-page="schedule" title="Jadwal"><i data-lucide="calendar-days"></i><span class="mt-sb-label">Jadwal</span></button>
-          <button type="button" class="mt-sb-item" data-app-page="cash" title="Kas"><i data-lucide="wallet"></i><span class="mt-sb-label">Kas</span></button>
-          <button type="button" class="mt-sb-item" data-app-page="reports" title="Laporan"><i data-lucide="chart-no-axes-combined"></i><span class="mt-sb-label">Laporan</span></button>
-          <div class="mt-sb-divider"></div>
-          <button type="button" class="mt-sb-item" data-app-page="services" title="Layanan & Harga"><i data-lucide="scissors"></i><span class="mt-sb-label">Layanan & Harga</span></button>
-          <button type="button" class="mt-sb-item" data-app-page="measurements" title="Template Ukuran"><i data-lucide="ruler"></i><span class="mt-sb-label">Template Ukuran</span></button>
-          <button type="button" class="mt-sb-item" data-app-page="archive" title="Arsip"><i data-lucide="archive"></i><span class="mt-sb-label">Arsip</span></button>
-          <button type="button" id="open-store-settings-btn" title="Setting Toko" class="mt-sb-item">
-            <i data-lucide="settings-2"></i><span class="mt-sb-label">Setting Toko</span>
+          <button type="button" id="bottom-nav-customers" title="Pelanggan" aria-label="Pelanggan" class="mt-sb-item">
+            <i data-lucide="contact-round" aria-hidden="true"></i><span class="mt-sb-label">Pelanggan</span>
+          </button>
+          <button type="button" class="mt-sb-item" data-app-page="schedule" title="Jadwal" aria-label="Jadwal">
+            <i data-lucide="calendar-days" aria-hidden="true"></i><span class="mt-sb-label">Jadwal</span>
+          </button>
+          <button type="button" class="mt-sb-item" data-app-page="cash" title="Kas" aria-label="Kas">
+            <i data-lucide="wallet" aria-hidden="true"></i><span class="mt-sb-label">Kas</span>
+          </button>
+          <button type="button" class="mt-sb-item" data-app-page="reports" title="Laporan" aria-label="Laporan">
+            <i data-lucide="chart-no-axes-combined" aria-hidden="true"></i><span class="mt-sb-label">Laporan</span>
+          </button>
+
+          <span class="mt-sb-group">Pengaturan</span>
+          <button type="button" class="mt-sb-item" data-app-page="services" title="Layanan &amp; Durasi" aria-label="Layanan dan Durasi">
+            <i data-lucide="scissors" aria-hidden="true"></i><span class="mt-sb-label">Layanan &amp; Durasi</span>
+          </button>
+          <button type="button" class="mt-sb-item" data-app-page="measurements" title="Template Ukuran" aria-label="Template Ukuran">
+            <i data-lucide="ruler" aria-hidden="true"></i><span class="mt-sb-label">Template Ukuran</span>
+          </button>
+          <button type="button" class="mt-sb-item" data-app-page="archive" title="Arsip" aria-label="Arsip">
+            <i data-lucide="archive" aria-hidden="true"></i><span class="mt-sb-label">Arsip</span>
+          </button>
+          <button type="button" id="open-store-settings-btn" title="Pengaturan Toko" aria-label="Pengaturan Toko" class="mt-sb-item">
+            <i data-lucide="settings-2" aria-hidden="true"></i><span class="mt-sb-label">Pengaturan Toko</span>
           </button>
         </nav>
 
         <div class="mt-sb-bottom">
-          <button type="button" id="logout-btn" title="Log Out" class="mt-sb-item mt-sb-logout">
-            <i data-lucide="log-out"></i><span class="mt-sb-label">Log Out</span>
+          <button type="button" id="logout-btn" title="Keluar" aria-label="Keluar dari akun" class="mt-sb-item mt-sb-logout">
+            <i data-lucide="log-out" aria-hidden="true"></i><span class="mt-sb-label">Keluar</span>
           </button>
           <div class="mt-sb-foot">
-            <div class="mt-sb-footer-brand" aria-label="MendTrack"><img class="mt-sb-footer-logo-horizontal" src="assets/mendtrack-logo-horizontal.png" alt="MendTrack"><img class="mt-sb-footer-logo-icon" src="assets/mendtrack-icon-64.png" alt="MendTrack"></div>
+            <div class="mt-sb-footer-brand">
+              <img class="mt-sb-footer-logo-horizontal" src="assets/mendtrack-logo-horizontal.png" width="136" height="28" alt="MendTrack" />
+              <img class="mt-sb-footer-logo-icon" src="assets/mendtrack-icon-64.png" width="36" height="36" alt="MendTrack" />
+            </div>
             <button type="button" class="mt-theme-toggle" data-mt-theme-toggle aria-label="Aktifkan mode gelap" title="Mode gelap">
-              <i data-lucide="moon"></i><span class="mt-theme-label">Gelap</span>
+              <i data-lucide="moon" aria-hidden="true"></i><span class="mt-theme-label">Gelap</span>
             </button>
           </div>
         </div>
       </div>
     </aside>
-    <div id="sidebar-backdrop" data-sidebar-close></div>
+    <div id="sidebar-backdrop" data-sidebar-close aria-hidden="true"></div>
 
-    <!-- MOBILE TOP BAR -->
-    <header class="mt-header mt-topbar lg:hidden sticky top-0 z-30 no-print">
-      <div class="px-4 h-14 flex items-center gap-3">
-        <button type="button" data-sidebar-open aria-label="Buka menu" class="mt-topbar-btn"><i data-lucide="menu"></i></button>
-        <div data-store-logo class="mt-sb-logo mt-sb-logo-sm"><i data-lucide="scissors" class="w-5 h-5"></i></div>
+    <header class="mt-topbar lg:hidden sticky top-0 z-30 no-print">
+      <div class="px-4 h-16 flex items-center gap-3">
+        <button type="button" data-sidebar-open aria-label="Buka menu navigasi" aria-expanded="false" class="mt-topbar-btn shrink-0">
+          <i data-lucide="menu" class="w-5 h-5" aria-hidden="true"></i>
+          <span>Menu</span>
+        </button>
         <span data-store-name class="mt-sb-name truncate">BRKH DENIM</span>
       </div>
     </header>
 
-    <!-- MAIN CONTENT -->
-    <main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 pt-6 pb-12 space-y-6 no-print">
+    <main id="admin-main" class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 pt-6 pb-12 space-y-5 no-print">
 
-      <!-- BANNER PEMULIHAN DRAF LOKAL -->
-      <div id="draft-restore-banner" class="hidden p-4 rounded-2xl bg-amber-50 border border-amber-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+      <div class="pb-3 mt-seam-b">
+        <h1 id="workspace-page-title" class="text-2xl font-extrabold tracking-tight mt-text">Order Aktif</h1>
+        <p id="workspace-page-subtitle" class="text-sm mt-muted mt-0.5">Pantau antrean pengerjaan, deadline terdekat, dan pelunasan.</p>
+      </div>
+
+      <div id="draft-restore-banner" role="status" class="hidden p-4 mt-notice-warn flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div class="flex items-start gap-2.5">
-          <i data-lucide="save" class="w-5 h-5 text-amber-600 shrink-0 mt-0.5"></i>
-          <div class="text-xs sm:text-sm text-amber-950">
-            <p class="font-bold">Draf Order Belum Tersimpan Ditemukan</p>
-            <p id="draft-saved-time" class="text-xs text-amber-800 mt-0.5">Tersimpan otomatis di perangkat ini.</p>
+          <i data-lucide="save" class="w-5 h-5 shrink-0 mt-0.5" aria-hidden="true"></i>
+          <div class="text-xs sm:text-sm">
+            <p class="font-bold">Draf order belum tersimpan ditemukan</p>
+            <p id="draft-saved-time" class="text-xs mt-0.5">Tersimpan otomatis di perangkat ini.</p>
           </div>
         </div>
         <div class="flex items-center gap-2 self-end sm:self-center">
-          <button type="button" id="discard-draft-btn" class="px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-800 hover:bg-amber-100 cursor-pointer">
+          <button type="button" id="discard-draft-btn" class="mt-btn mt-btn-secondary text-xs">
             Hapus Draf
           </button>
-          <button type="button" id="restore-draft-btn" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white cursor-pointer">
+          <button type="button" id="restore-draft-btn" class="mt-btn mt-btn-primary text-xs">
             Pulihkan Form
           </button>
         </div>
       </div>
 
-      <!-- 3 KARTU METRIK RINGKASAN -->
-      <section id="dashboard-metrics-section" class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-        <div class="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm flex items-center justify-between">
-          <div>
-            <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Order Aktif</p>
-            <p id="metric-active-count" class="font-mono-code text-2xl sm:text-3xl font-bold text-[#0B1220] mt-1">0</p>
-            <p class="text-xs text-slate-500 mt-0.5">Sedang dalam antrean / proses</p>
+      <section id="dashboard-metrics-section" aria-label="Ringkasan prioritas operasional" class="grid grid-cols-1 lg:grid-cols-12 gap-3.5">
+        <article class="mt-card p-5 lg:col-span-6 flex items-center justify-between gap-3" style="border-left: 4px solid var(--mt-accent);">
+          <div class="min-w-0">
+            <p class="text-xs font-semibold mt-muted">Deadline terdekat</p>
+            <p id="metric-nearest-deadline" class="text-xl sm:text-2xl font-extrabold mt-text mt-1">-</p>
+            <p id="metric-nearest-ticket" class="text-xs mt-muted mt-1">Tidak ada antrean mendesak</p>
           </div>
-          <div class="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
-            <i data-lucide="layers" class="w-5 h-5"></i>
+          <div class="w-11 h-11 rounded-lg mt-card-muted flex items-center justify-center shrink-0" aria-hidden="true">
+            <i data-lucide="calendar-clock" class="w-5 h-5 mt-accent"></i>
           </div>
-        </div>
+        </article>
 
-        <div class="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm flex items-center justify-between">
+        <article class="mt-card p-5 lg:col-span-3 flex items-center justify-between gap-3">
           <div>
-            <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Deadline Terdekat</p>
-            <p id="metric-nearest-deadline" class="text-base sm:text-lg font-bold text-[#0B1220] mt-1">-</p>
-            <p id="metric-nearest-ticket" class="text-xs text-slate-500 mt-0.5">Tidak ada antrean mendesak</p>
+            <p class="text-xs font-semibold mt-muted">Order aktif</p>
+            <p id="metric-active-count" class="font-mono-code text-2xl sm:text-3xl font-bold mt-text mt-1">0</p>
+            <p class="text-xs mt-muted mt-0.5">Dalam antrean atau proses</p>
           </div>
-          <div class="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-            <i data-lucide="calendar-clock" class="w-5 h-5"></i>
+          <div class="w-10 h-10 rounded-lg mt-card-muted flex items-center justify-center shrink-0" aria-hidden="true">
+            <i data-lucide="layers" class="w-5 h-5 mt-text"></i>
           </div>
-        </div>
+        </article>
 
-        <div class="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm flex items-center justify-between">
+        <article class="mt-card p-5 lg:col-span-3 flex items-center justify-between gap-3">
           <div>
-            <p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Sisa Piutang</p>
-            <p id="metric-unpaid-total" class="font-mono-code text-xl sm:text-2xl font-bold text-[#4F6BFF] mt-1">Rp 0</p>
-            <p class="text-xs text-slate-500 mt-0.5">Tagihan belum dilunasi</p>
+            <p class="text-xs font-semibold mt-muted">Sisa piutang</p>
+            <p id="metric-unpaid-total" class="font-mono-code text-xl sm:text-2xl font-bold mt-accent mt-1">Rp 0</p>
+            <p class="text-xs mt-muted mt-0.5">Tagihan belum dilunasi</p>
           </div>
-          <div class="w-11 h-11 rounded-xl bg-orange-50 text-[#4F6BFF] flex items-center justify-center">
-            <i data-lucide="wallet-cards" class="w-5 h-5"></i>
+          <div class="w-10 h-10 rounded-lg mt-card-muted flex items-center justify-center shrink-0" aria-hidden="true">
+            <i data-lucide="wallet-cards" class="w-5 h-5 mt-accent"></i>
           </div>
-        </div>
+        </article>
       </section>
 
-
-      <!-- DAILY WORKLOAD CALENDAR -->
-      <section id="daily-workload-section" class="mt-calendar-card rounded-2xl border p-4 sm:p-5 shadow-sm space-y-4">
+      <section id="daily-workload-section" class="mt-calendar-card p-4 sm:p-5 space-y-4">
         <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <p class="text-xs font-semibold uppercase tracking-wider mt-calendar-kicker">Jadwal Workshop</p>
-            <h2 class="text-lg sm:text-xl font-bold mt-calendar-title mt-1">Daily Workload</h2>
-            <p class="text-xs mt-calendar-muted mt-1">Beban kerja dihitung berdasarkan target selesai setiap order.</p>
+            <h2 class="text-lg font-bold mt-text">Beban Kerja Harian</h2>
+            <p class="text-xs mt-muted mt-0.5">Beban kerja dihitung berdasarkan target selesai setiap order aktif.</p>
           </div>
-          <div class="flex items-center gap-2">
-            <button type="button" id="workload-prev-month" class="mt-calendar-nav" aria-label="Bulan sebelumnya"><i data-lucide="chevron-left"></i></button>
-            <div id="workload-month-label" class="min-w-36 text-center text-sm font-bold mt-calendar-title">-</div>
-            <button type="button" id="workload-next-month" class="mt-calendar-nav" aria-label="Bulan berikutnya"><i data-lucide="chevron-right"></i></button>
+          <div class="flex flex-wrap items-center gap-2">
+            <button type="button" id="workload-prev-month" class="mt-calendar-nav" aria-label="Bulan sebelumnya">
+              <i data-lucide="chevron-left" aria-hidden="true"></i>
+            </button>
+            <div id="workload-month-label" class="min-w-[130px] text-center text-sm font-bold mt-text">-</div>
+            <button type="button" id="workload-next-month" class="mt-calendar-nav" aria-label="Bulan berikutnya">
+              <i data-lucide="chevron-right" aria-hidden="true"></i>
+            </button>
             <button type="button" id="workload-today-btn" class="mt-calendar-today">Hari ini</button>
           </div>
         </div>
-        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] mt-calendar-muted">
-          <span class="inline-flex items-center gap-1.5"><i class="mt-legend-dot workload-low"></i>Rendah</span>
-          <span class="inline-flex items-center gap-1.5"><i class="mt-legend-dot workload-medium"></i>Sedang</span>
-          <span class="inline-flex items-center gap-1.5"><i class="mt-legend-dot workload-high"></i>Penuh</span>
-          <span class="inline-flex items-center gap-1.5"><i class="mt-legend-dot workload-over"></i>Melebihi kapasitas</span>
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs mt-muted">
+          <span class="inline-flex items-center gap-1.5"><i class="mt-legend-dot workload-low" aria-hidden="true"></i>Rendah</span>
+          <span class="inline-flex items-center gap-1.5"><i class="mt-legend-dot workload-medium" aria-hidden="true"></i>Sedang</span>
+          <span class="inline-flex items-center gap-1.5"><i class="mt-legend-dot workload-high" aria-hidden="true"></i>Penuh</span>
+          <span class="inline-flex items-center gap-1.5"><i class="mt-legend-dot workload-over" aria-hidden="true"></i>Melebihi kapasitas</span>
         </div>
         <div class="mt-calendar-weekdays" aria-hidden="true">
           <span>Sen</span><span>Sel</span><span>Rab</span><span>Kam</span><span>Jum</span><span>Sab</span><span>Min</span>
         </div>
-        <div id="workload-calendar-grid" class="mt-calendar-grid" aria-label="Kalender beban kerja"></div>
+        <div id="workload-calendar-grid" class="mt-calendar-grid" role="region" aria-label="Kalender beban kerja"></div>
         <div class="mt-calendar-summary">
           <div class="min-w-0">
-            <p class="text-xs mt-calendar-muted">Tanggal dipilih</p>
-            <p id="workload-selected-date" class="text-sm font-bold mt-calendar-title mt-0.5">-</p>
+            <p class="text-xs mt-muted">Tanggal dipilih</p>
+            <p id="workload-selected-date" class="text-sm font-bold mt-text mt-0.5">-</p>
           </div>
           <div class="text-right">
-            <p class="text-xs mt-calendar-muted">Beban / kapasitas</p>
-            <p id="workload-selected-load" class="text-sm font-bold mt-calendar-title mt-0.5">-</p>
+            <p class="text-xs mt-muted">Beban / kapasitas</p>
+            <p id="workload-selected-load" class="text-sm font-bold font-mono-code mt-text mt-0.5">-</p>
           </div>
-          <div class="col-span-full flex items-center gap-3"><div class="mt-calendar-progress-track flex-1"><div id="workload-selected-progress" class="mt-calendar-progress-fill" style="width:0%"></div></div><button
-    type="button"
-    id="open-new-order-btn"
-    class="shrink-0 h-11 px-4 rounded-xl bg-[#4F6BFF] hover:bg-[#3D55E0] text-white font-bold text-sm inline-flex items-center gap-2 shadow-xl shadow-slate-900/20 transition active:scale-95 cursor-pointer"
-    aria-label="Tambah order baru"
-  >
-    <i data-lucide="plus" class="w-5 h-5"></i>
-    <span>Tambah Order</span>
-  </button></div>
-          <p id="workload-selected-note" class="col-span-full text-xs mt-calendar-muted">Pilih tanggal untuk melihat daftar order yang dijadwalkan selesai.</p>
+          <div class="col-span-full flex flex-col sm:flex-row sm:items-center gap-3">
+            <div class="mt-calendar-progress-track flex-1">
+              <div id="workload-selected-progress" class="mt-calendar-progress-fill" style="width:0%"></div>
+            </div>
+            <button
+              type="button"
+              id="open-new-order-btn"
+              class="mt-btn mt-btn-primary shrink-0"
+              aria-label="Tambah order baru pada tanggal terpilih"
+            >
+              <i data-lucide="plus" class="w-4 h-4" aria-hidden="true"></i>
+              <span>Tambah Order</span>
+            </button>
+          </div>
+          <p id="workload-selected-note" class="col-span-full text-xs mt-muted">Pilih tanggal untuk melihat daftar order yang dijadwalkan selesai.</p>
         </div>
       </section>
 
-      <!-- FILTER & PENCARIAN ORDER -->
-      <section class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm space-y-3.5">
-        <div class="flex flex-col sm:flex-row gap-3 justify-between">
-          <!-- Search Input -->
-          <div class="relative flex-1">
-            <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-              <i data-lucide="search" class="w-4 h-4"></i>
-            </div>
+      <section id="orders-filter-section" aria-label="Pencarian dan filter order" class="mt-card p-4 space-y-3">
+        <div class="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-end">
+          <div class="flex-1">
+            <label for="admin-search-input" class="block text-xs font-semibold mt-text mb-1">Cari order</label>
             <input
               type="text"
               id="admin-search-input"
-              placeholder="Cari kode tiket, nama pelanggan, atau no. WA..."
-              class="w-full h-11 pl-10 pr-4 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:outline-none focus:bg-white focus:border-[#4F6BFF]"
+              placeholder="Kode tiket, nama pelanggan, atau nomor WhatsApp..."
+              class="mt-input"
             />
           </div>
 
-          <button
-            type="button"
-            id="refresh-orders-btn"
-            class="h-11 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm font-medium inline-flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <i data-lucide="search" class="w-4 h-4"></i>
+          <button type="button" id="refresh-orders-btn" class="mt-btn mt-btn-secondary shrink-0">
+            <i data-lucide="search" class="w-4 h-4" aria-hidden="true"></i>
             <span>Cari</span>
           </button>
         </div>
-        <div class="flex flex-col sm:flex-row sm:items-center gap-2 pt-1">
-          <label for="order-status-filter" class="text-xs font-semibold text-slate-500 shrink-0">Filter proses</label>
-          <select id="order-status-filter" class="w-full sm:max-w-xs h-10 px-3 rounded-xl bg-white border border-slate-200 text-sm text-slate-700">
-            <option value="all">Semua proses</option>
-            <option value="received">Diterima</option>
-            <option value="queued">Antrean</option>
-            <option value="in_progress">Sedang dikerjakan</option>
-            <option value="qc">Quality Control</option>
-            <option value="ready">Siap diambil</option>
-          </select>
-          <button type="button" id="clear-order-filters" class="h-10 px-3 rounded-xl border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50">Reset filter</button>
-          <span id="order-filter-count" class="text-xs text-slate-400 sm:ml-auto"></span>
+
+        <div class="flex flex-col sm:flex-row sm:items-end gap-2.5 pt-1">
+          <div class="sm:w-64">
+            <label for="order-status-filter" class="block text-xs font-semibold mt-text mb-1">Filter proses</label>
+            <select id="order-status-filter" class="mt-select">
+              <option value="all">Semua proses</option>
+              <option value="received">Diterima</option>
+              <option value="queued">Antrean</option>
+              <option value="in_progress">Sedang dikerjakan</option>
+              <option value="qc">Quality Check</option>
+              <option value="ready">Siap diambil</option>
+            </select>
+          </div>
+          <button type="button" id="clear-order-filters" class="mt-btn mt-btn-secondary text-xs shrink-0">
+            Reset filter
+          </button>
+          <span id="order-filter-count" class="text-xs mt-muted sm:ml-auto pb-2 font-mono-code"></span>
         </div>
       </section>
 
-      <!-- DAFTAR ORDER (Cards / List) -->
-      <section id="orders-list-container" class="space-y-3">
-        <!-- Diisi dinamis oleh js/admin-panel.js -->
-      </section>
+      <section id="orders-list-container" aria-label="Daftar order" class="space-y-3"></section>
 
-      <!-- DAFTAR PELANGGAN -->
-      <section id="customers-section" class="hidden bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm space-y-3">
-        <div class="flex items-center justify-between gap-2">
-          <div><h2 class="text-lg font-bold text-[#0B1220]">Pelanggan</h2><p id="customers-count" class="text-xs text-slate-500 mt-0.5">Daftar pelanggan</p></div>
-          <button type="button" id="open-add-customer-from-list-btn" class="h-9 px-3 rounded-lg bg-[#4F6BFF] hover:bg-[#3D55E0] text-white text-xs font-semibold inline-flex items-center gap-1.5">
-            <i data-lucide="plus" class="w-4 h-4"></i><span>Tambah Pelanggan</span>
+      <section id="customers-section" class="hidden mt-card p-4 sm:p-5 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 class="text-lg font-bold mt-text">Daftar Pelanggan</h2>
+            <p id="customers-count" class="text-xs mt-muted mt-0.5">Memuat jumlah pelanggan...</p>
+          </div>
+          <button type="button" id="open-add-customer-from-list-btn" class="mt-btn mt-btn-primary text-xs">
+            <i data-lucide="plus" class="w-4 h-4" aria-hidden="true"></i>
+            <span>Tambah Pelanggan</span>
           </button>
         </div>
-        <input id="customers-search-input" type="search" placeholder="Cari nama atau nomor WhatsApp..." class="w-full h-10 px-3 rounded-xl bg-slate-50 border border-slate-200 text-sm focus:outline-none focus:border-[#4F6BFF]">
-        <div id="customers-list" class="divide-y divide-slate-100"></div>
+        <div>
+          <label for="customers-search-input" class="block text-xs font-semibold mt-text mb-1">Cari pelanggan</label>
+          <input id="customers-search-input" type="search" placeholder="Ketik nama atau nomor WhatsApp..." class="mt-input" />
+        </div>
+        <div id="customers-list" class="divide-y" style="border-color: var(--mt-border);"></div>
       </section>
 
-      <!-- HALAMAN TERPISAH: JADWAL, LAPORAN, MASTER DATA, KAS & ARSIP -->
       <section id="schedule-page" class="hidden space-y-4"></section>
+
       <section id="reports-page" class="hidden space-y-4">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3"><div><p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Ringkasan bisnis</p><h1 class="text-2xl font-extrabold">Laporan</h1><p class="text-sm text-slate-500">Ringkasan transaksi berdasarkan tanggal order dibuat.</p></div><select id="report-period" class="h-10 px-3 rounded-xl border border-slate-200 bg-white text-sm"><option value="day">Hari ini</option><option value="week" selected>7 hari terakhir</option><option value="month">Bulan ini</option><option value="all">Semua waktu</option></select></div>
-        <div id="reports-content" class="space-y-4"><div class="bg-white rounded-2xl border p-5 text-sm text-slate-500">Memuat laporan...</div></div>
-      </section>
-      <section id="services-page" class="hidden space-y-4">
-        <div><p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Data master</p><h1 class="text-2xl font-extrabold">Layanan & Harga</h1><p class="text-sm text-slate-500">Kelola layanan dan estimasi waktu untuk perhitungan workload.</p></div>
-        <div id="services-page-content" class="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm space-y-4"></div>
-      </section>
-      <section id="measurements-page" class="hidden space-y-4">
-        <div><p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Data master</p><h1 class="text-2xl font-extrabold">Template Ukuran</h1><p class="text-sm text-slate-500">Kelola jenis pakaian dan komponen ukuran pelanggan. Riwayat ukuran tersimpan tidak ikut berubah.</p></div>
-        <div id="measurements-page-content" class="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm space-y-4"></div>
-      </section>
-      <section id="cash-page" class="hidden space-y-4">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3"><div><p class="text-xs font-semibold uppercase tracking-wider text-slate-400">Keuangan workshop</p><h1 class="text-2xl font-extrabold">Kas</h1><p class="text-sm text-slate-500">Pantau uang masuk dan keluar workshop.</p></div><select id="cash-period" class="h-10 px-3 rounded-xl border border-slate-200 bg-white text-sm"><option value="day">Hari ini</option><option value="week" selected>7 hari terakhir</option><option value="month">Bulan ini</option><option value="all">Semua waktu</option></select></div>
-        <div class="flex justify-end"><button id="cash-add-btn" type="button" class="h-10 px-4 rounded-xl bg-[#4F6BFF] text-white text-sm font-semibold inline-flex items-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Tambah Kas</button></div>
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <article class="bg-white rounded-2xl border border-slate-200 p-4"><p class="text-xs text-slate-500">Saldo Kas</p><p id="cash-balance" class="text-xl font-bold mt-1">Rp 0</p><p class="text-xs text-slate-400 mt-1">Akumulasi seluruh transaksi kas</p></article>
-          <article class="bg-white rounded-2xl border border-slate-200 p-4"><p class="text-xs text-slate-500">Uang Masuk</p><p id="cash-income" class="text-xl font-bold mt-1 text-emerald-600">Rp 0</p></article>
-          <article class="bg-white rounded-2xl border border-slate-200 p-4"><p class="text-xs text-slate-500">Uang Keluar</p><p id="cash-expense" class="text-xl font-bold mt-1 text-rose-600">Rp 0</p></article>
+        <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+          <div>
+            <h2 class="text-lg font-bold mt-text">Ringkasan Transaksi</h2>
+            <p class="text-sm mt-muted">Dikelompokkan berdasarkan tanggal order dibuat.</p>
+          </div>
+          <div class="sm:w-52">
+            <label for="report-period" class="block text-xs font-semibold mt-text mb-1">Periode laporan</label>
+            <select id="report-period" class="mt-select">
+              <option value="day">Hari ini</option>
+              <option value="week" selected>7 hari terakhir</option>
+              <option value="month">Bulan ini</option>
+              <option value="all">Semua waktu</option>
+            </select>
+          </div>
         </div>
-        <div id="cash-transactions" class="bg-white rounded-2xl border border-slate-200 p-4 space-y-2"><p class="text-sm text-slate-500">Memuat transaksi kas...</p></div>
+        <div id="reports-content" class="space-y-4">
+          <div class="mt-card p-5 text-sm mt-muted" role="status">Memuat laporan transaksi...</div>
+        </div>
       </section>
-      <section id="archive-page" class="hidden space-y-4"><div><h1 class="text-2xl font-extrabold">Arsip</h1><p class="text-sm text-slate-500">Order selesai dan diambil.</p></div><div id="archive-orders-list" class="space-y-3"></div></section>
+
+      <section id="services-page" class="hidden space-y-4">
+        <div>
+          <h2 class="text-lg font-bold mt-text">Daftar Layanan &amp; Estimasi Durasi</h2>
+          <p class="text-sm mt-muted">Kelola layanan dan estimasi waktu pengerjaan untuk perhitungan beban kerja.</p>
+        </div>
+        <div id="services-page-content" class="mt-card p-4 sm:p-5 space-y-4"></div>
+      </section>
+
+      <section id="measurements-page" class="hidden space-y-4">
+        <div>
+          <h2 class="text-lg font-bold mt-text">Template Komponen Ukuran</h2>
+          <p class="text-sm mt-muted">Kelola jenis pakaian dan komponen ukuran pelanggan. Riwayat ukuran tersimpan tidak ikut berubah.</p>
+        </div>
+        <div id="measurements-page-content" class="mt-card p-4 sm:p-5 space-y-4"></div>
+      </section>
+
+      <section id="cash-page" class="hidden space-y-4">
+        <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
+          <div class="sm:w-52">
+            <label for="cash-period" class="block text-xs font-semibold mt-text mb-1">Periode kas</label>
+            <select id="cash-period" class="mt-select">
+              <option value="day">Hari ini</option>
+              <option value="week" selected>7 hari terakhir</option>
+              <option value="month">Bulan ini</option>
+              <option value="all">Semua waktu</option>
+            </select>
+          </div>
+          <button id="cash-add-btn" type="button" class="mt-btn mt-btn-primary shrink-0">
+            <i data-lucide="plus" class="w-4 h-4" aria-hidden="true"></i>
+            <span>Tambah Kas</span>
+          </button>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <article class="mt-card p-4">
+            <p class="text-xs font-semibold mt-muted">Saldo kas</p>
+            <p id="cash-balance" class="font-mono-code text-xl font-bold mt-text mt-1">Rp 0</p>
+            <p class="text-xs mt-muted mt-1">Akumulasi seluruh transaksi kas</p>
+          </article>
+          <article class="mt-card p-4">
+            <p class="text-xs font-semibold mt-muted">Uang masuk</p>
+            <p id="cash-income" class="font-mono-code text-xl font-bold mt-success-text mt-1">Rp 0</p>
+          </article>
+          <article class="mt-card p-4">
+            <p class="text-xs font-semibold mt-muted">Uang keluar</p>
+            <p id="cash-expense" class="font-mono-code text-xl font-bold mt-danger-text mt-1">Rp 0</p>
+          </article>
+        </div>
+        <div id="cash-transactions" class="mt-card p-4 space-y-2">
+          <p class="text-sm mt-muted" role="status">Memuat transaksi kas...</p>
+        </div>
+      </section>
+
+      <section id="archive-page" class="hidden space-y-4">
+        <div id="archive-orders-list" class="space-y-3"></div>
+      </section>
 
     </main>
-  </div>
+
+    <footer class="no-print mt-seam-t text-center text-xs mt-muted py-5" style="background-color: var(--mt-surface);">
+      by MendTrack
+    </footer>
   </div>
 
-  <!-- ======================================================================= -->
-  <!-- 3. MODAL TAMBAH / EDIT ORDER MULTI-ITEM                                 -->
-  <!-- ======================================================================= -->
-  <div id="order-form-modal" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-xs overflow-y-auto p-3 sm:p-6 no-print">
-    <div class="max-w-2xl mx-auto bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden my-2">
-      <!-- Modal Header -->
-      <div class="bg-[#0B1220] text-white px-5 py-4 flex items-center justify-between">
+  <div id="order-form-modal" role="dialog" aria-modal="true" aria-labelledby="order-modal-title" class="hidden fixed inset-0 z-50 mt-modal-backdrop overflow-y-auto p-3 sm:p-6 no-print">
+    <div class="max-w-2xl mx-auto mt-modal-panel overflow-hidden my-2">
+      <div class="mt-modal-head px-5 py-4 flex items-center justify-between gap-2">
         <div>
           <h2 id="order-modal-title" class="text-base sm:text-lg font-bold">Input Order Baru</h2>
-          <p id="order-modal-subtitle" class="text-xs text-slate-400">Draf otomatis tersimpan di perangkat</p>
+          <p id="order-modal-subtitle" class="text-xs" style="color: var(--mt-hero-muted);">Draf otomatis tersimpan di perangkat</p>
         </div>
-        <button type="button" id="close-order-modal-btn" class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-[#151E33] cursor-pointer">
-          <i data-lucide="x" class="w-5 h-5"></i>
+        <button type="button" id="close-order-modal-btn" aria-label="Tutup form order" class="mt-btn-icon mt-btn-on-dark">
+          <i data-lucide="x" class="w-5 h-5" aria-hidden="true"></i>
         </button>
       </div>
 
-      <!-- Modal Body Form -->
       <form id="order-crud-form" class="p-5 space-y-5">
         <input type="hidden" id="form-order-id" />
 
-        <!-- Info Pelanggan -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
           <div>
-            <label class="block text-xs font-semibold text-slate-700 mb-1">Kode Tiket *</label>
-            <input
-              type="text"
-              id="form-ticket-code"
-              required
-              class="w-full h-11 px-3.5 rounded-xl bg-slate-50 border border-slate-300 font-mono-code text-sm font-bold uppercase focus:outline-none focus:border-[#4F6BFF]"
-            />
+            <label for="form-ticket-code" class="block text-xs font-semibold mt-text mb-1 mt-label-locked">Kode tiket</label>
+            <div class="relative">
+              <input
+                type="text"
+                id="form-ticket-code"
+                readonly
+                disabled
+                aria-readonly="true"
+                title="Kode tiket dibuat otomatis dan tidak dapat diubah"
+                class="mt-input mt-input-locked pr-10 font-mono-code font-bold uppercase"
+              />
+              <i data-lucide="lock" class="w-4 h-4 absolute right-3 top-3.5 mt-muted pointer-events-none" aria-hidden="true"></i>
+            </div>
           </div>
 
           <div>
-            <label class="block text-xs font-semibold text-slate-700 mb-1">Target Selesai (Deadline)</label>
+            <label for="form-estimated-date" class="block text-xs font-semibold mt-text mb-1">Target selesai (deadline) *</label>
             <div class="relative">
-              <input type="text" id="form-estimated-date" readonly autocomplete="off" placeholder="Pilih tanggal target selesai" class="w-full h-11 px-3.5 pr-10 rounded-xl bg-white border border-slate-300 text-sm cursor-pointer focus:outline-none focus:border-[#4F6BFF]" aria-haspopup="dialog" aria-expanded="false" />
-              <i data-lucide="calendar-days" class="w-4 h-4 absolute right-3 top-3.5 text-slate-400 pointer-events-none"></i>
-              <div id="order-date-picker" class="hidden absolute z-[80] top-[calc(100%+6px)] left-0 w-[min(330px,calc(100vw-48px))] rounded-xl border border-slate-200 bg-white shadow-2xl p-3 text-slate-800" role="dialog" aria-label="Pilih tanggal target selesai">
-                <div class="flex items-center justify-between mb-2"><button type="button" id="order-date-prev" class="w-8 h-8 rounded-lg hover:bg-slate-100">‹</button><b id="order-date-month" class="text-sm">-</b><button type="button" id="order-date-next" class="w-8 h-8 rounded-lg hover:bg-slate-100">›</button></div>
-                <div class="grid grid-cols-7 gap-1 mb-1 text-center text-[10px] text-slate-400"><span>Sen</span><span>Sel</span><span>Rab</span><span>Kam</span><span>Jum</span><span>Sab</span><span>Min</span></div>
+              <input
+                type="text"
+                id="form-estimated-date"
+                readonly
+                required
+                aria-required="true"
+                aria-describedby="estimated-date-error"
+                autocomplete="off"
+                placeholder="Pilih tanggal target selesai"
+                class="mt-input pr-10 cursor-pointer"
+                aria-haspopup="dialog"
+                aria-expanded="false"
+              />
+              <i data-lucide="calendar-days" class="w-4 h-4 absolute right-3 top-3.5 mt-muted pointer-events-none" aria-hidden="true"></i>
+              <div id="order-date-picker" class="hidden absolute z-[80] top-[calc(100%+6px)] left-0 w-[min(330px,calc(100vw-48px))] mt-popover p-3" role="dialog" aria-label="Pilih tanggal target selesai">
+                <div class="flex items-center justify-between mb-2">
+                  <button type="button" id="order-date-prev" aria-label="Bulan sebelumnya" class="mt-btn-icon mt-btn-secondary">
+                    <i data-lucide="chevron-left" class="w-4 h-4" aria-hidden="true"></i>
+                  </button>
+                  <b id="order-date-month" class="text-sm mt-text">-</b>
+                  <button type="button" id="order-date-next" aria-label="Bulan berikutnya" class="mt-btn-icon mt-btn-secondary">
+                    <i data-lucide="chevron-right" class="w-4 h-4" aria-hidden="true"></i>
+                  </button>
+                </div>
+                <div class="grid grid-cols-7 gap-1 mb-1 text-center text-xs mt-muted" aria-hidden="true">
+                  <span>Sen</span><span>Sel</span><span>Rab</span><span>Kam</span><span>Jum</span><span>Sab</span><span>Min</span>
+                </div>
                 <div id="order-date-grid" class="grid grid-cols-7 gap-1"></div>
-                <div class="mt-3 pt-2 border-t border-slate-200">
+                <div class="mt-3 pt-2.5 mt-seam-t">
                   <div id="order-date-workload" class="min-w-0" aria-live="polite"></div>
                   <div class="mt-3 flex items-center justify-between gap-2">
-                    <button type="button" id="order-date-today" class="shrink-0 text-xs font-semibold text-indigo-600">Hari ini</button>
-                    <button type="button" id="order-date-confirm" class="shrink-0 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-400">Pilih</button>
+                    <button type="button" id="order-date-today" class="mt-btn mt-btn-secondary text-xs">Hari ini</button>
+                    <button type="button" id="order-date-confirm" class="mt-btn mt-btn-primary text-xs">Pilih</button>
                   </div>
                 </div>
               </div>
             </div>
+            <p id="estimated-date-error" role="alert" class="hidden mt-1 text-xs mt-danger-text font-medium"></p>
           </div>
 
           <div>
-            <label class="block text-xs font-semibold text-slate-700 mb-1">Nama Pelanggan *</label>
-            <input
-              type="text"
-              id="form-customer-name"
-              required
-              placeholder="Contoh: Budi Santoso"
-              class="w-full h-11 px-3.5 rounded-xl bg-white border border-slate-300 text-sm focus:outline-none focus:border-[#4F6BFF]"
-            />
+            <label for="form-customer-name" class="block text-xs font-semibold mt-text mb-1">Nama pelanggan *</label>
+            <input type="text" id="form-customer-name" required placeholder="Nama lengkap pelanggan" class="mt-input" />
           </div>
 
           <div>
-            <label class="block text-xs font-semibold text-slate-700 mb-1">Nomor WhatsApp *</label>
-            <input
-              type="tel"
-              id="form-customer-phone"
-              required
-              placeholder="081234567890"
-              class="w-full h-11 px-3.5 rounded-xl bg-white border border-slate-300 text-sm focus:outline-none focus:border-[#4F6BFF]"
-            />
-            <p id="customer-lookup-status" class="mt-1 text-xs text-slate-500" aria-live="polite">Nomor HP akan diperiksa saat diisi.</p>
+            <label for="form-customer-phone" class="block text-xs font-semibold mt-text mb-1">Nomor WhatsApp *</label>
+            <input type="tel" id="form-customer-phone" required placeholder="08xxxxxxxxxx" class="mt-input" />
+            <p id="customer-lookup-status" class="mt-1 text-xs mt-muted" aria-live="polite">Nomor HP akan diperiksa saat diisi.</p>
           </div>
         </div>
 
         <div>
-          <label class="block text-xs font-semibold text-slate-700 mb-1">Catatan Umum Workshop</label>
-          <textarea
-            id="form-notes"
-            rows="2"
-            placeholder="Catatan benang, preferensi fitting, atau instruksi khusus..."
-            class="w-full p-3 rounded-xl bg-white border border-slate-300 text-sm focus:outline-none focus:border-[#4F6BFF]"
-          ></textarea>
+          <label for="form-notes" class="block text-xs font-semibold mt-text mb-1">Catatan umum workshop</label>
+          <textarea id="form-notes" rows="2" placeholder="Catatan benang, preferensi fitting, atau instruksi khusus..." class="mt-textarea"></textarea>
         </div>
 
-        <!-- Repeater Multi-Item Pakaian -->
-        <div class="pt-2 border-t border-slate-200">
-          <div class="flex items-center justify-between mb-3">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-600">
-              Daftar Item Pakaian & Layanan *
-            </h3>
-            <button
-              type="button"
-              id="add-item-row-btn"
-              class="px-3 py-1.5 rounded-lg bg-[#0B1220] hover:bg-[#151E33] text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer"
-            >
-              <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+        <div class="pt-3 mt-seam-t">
+          <div class="flex items-center justify-between gap-2 mb-3">
+            <h3 class="text-sm font-bold mt-text">Daftar item pakaian &amp; layanan *</h3>
+            <button type="button" id="add-item-row-btn" class="mt-btn mt-btn-secondary text-xs">
+              <i data-lucide="plus" class="w-4 h-4" aria-hidden="true"></i>
               <span>Tambah Item</span>
             </button>
           </div>
-
-          <div id="form-items-container" class="space-y-3.5">
-            <!-- Item cards dirender dinamis oleh js/admin-panel.js -->
-          </div>
+          <div id="form-items-container" class="space-y-3.5"></div>
         </div>
 
-        <!-- Ringkasan Biaya & DP Awal -->
-        <div class="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+        <div class="mt-card-muted p-4 space-y-3">
           <div class="flex items-center justify-between text-sm">
-            <span class="font-semibold text-slate-700">Total Biaya Layanan</span>
-            <span id="form-total-preview" class="font-mono-code font-bold text-base text-[#0B1220]">Rp 0</span>
+            <span class="font-semibold mt-text">Total biaya layanan</span>
+            <span id="form-total-preview" class="font-mono-code font-bold text-base mt-text">Rp 0</span>
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
-            <label for="form-paid-amount" class="text-xs font-semibold text-slate-700">
-              Pembayaran Awal / DP (Rp)
+            <label for="form-paid-amount" class="text-xs font-semibold mt-text">
+              Pembayaran awal / DP (Rp)
             </label>
-            <input
-              type="number"
-              id="form-paid-amount"
-              min="0"
-              step="1000"
-              value="0"
-              class="w-full h-10 px-3 rounded-lg bg-white border border-slate-300 font-mono-code text-sm text-right font-semibold focus:outline-none focus:border-[#4F6BFF]"
-            />
+            <input type="number" id="form-paid-amount" min="0" step="1000" value="0" class="mt-input font-mono-code text-right font-semibold" />
           </div>
 
-          <div class="flex items-center justify-between text-xs pt-2 border-t border-slate-200">
-            <span class="text-slate-500">Sisa Tagihan</span>
-            <span id="form-remaining-preview" class="font-mono-code font-bold text-[#4F6BFF]">Rp 0</span>
+          <div class="flex items-center justify-between text-xs pt-2 mt-seam-t">
+            <span class="mt-muted font-semibold">Sisa tagihan</span>
+            <span id="form-remaining-preview" class="font-mono-code font-bold mt-accent">Rp 0</span>
           </div>
         </div>
 
-        <!-- Submit Footer -->
         <div class="flex items-center justify-end gap-2.5 pt-2">
-          <button
-            type="button"
-            id="cancel-order-modal-btn"
-            class="h-11 px-4 rounded-xl border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-50 cursor-pointer"
-          >
+          <button type="button" id="cancel-order-modal-btn" class="mt-btn mt-btn-secondary">
             Batal
           </button>
-          <button
-            type="submit"
-            id="save-order-submit-btn"
-            class="h-11 px-6 rounded-xl bg-[#4F6BFF] hover:bg-[#3D55E0] text-white text-sm font-semibold inline-flex items-center gap-2 shadow-sm cursor-pointer"
-          >
-            <i data-lucide="check" class="w-4 h-4"></i>
+          <button type="submit" id="save-order-submit-btn" class="mt-btn mt-btn-primary">
+            <i data-lucide="check" class="w-4 h-4" aria-hidden="true"></i>
             <span>Simpan Order</span>
           </button>
         </div>
@@ -528,292 +567,367 @@
     </div>
   </div>
 
-  <!-- ======================================================================= -->
-  <!-- 4. MODAL KASIR & PELUNASAN PEMBAYARAN (T-4.1)                           -->
-  <!-- ======================================================================= -->
-  <div id="cash-modal" class="hidden fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4 no-print"><div class="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden"><div class="bg-[#0B1220] text-white px-5 py-4 flex justify-between items-center"><div><h3 class="font-bold">Tambah Kas</h3><p class="text-xs text-slate-400">Transaksi di luar pembayaran order</p></div><button id="cash-modal-close" type="button" class="text-slate-300">✕</button></div><form id="cash-form" class="p-5 space-y-3"><div><label class="text-xs font-semibold">Jenis Transaksi</label><select id="cash-type" class="mt-1 w-full h-10 border rounded-xl px-3"><option value="income">Uang Masuk</option><option value="expense">Uang Keluar</option></select></div><div><label class="text-xs font-semibold">Kategori</label><select id="cash-category" class="mt-1 w-full h-10 border rounded-xl px-3"></select></div><div><label class="text-xs font-semibold">Nominal (Rp)</label><input id="cash-amount" type="number" min="1" step="1" required class="mt-1 w-full h-10 border rounded-xl px-3" placeholder="Masukkan nominal"></div><div><label class="text-xs font-semibold">Metode</label><select id="cash-method" class="mt-1 w-full h-10 border rounded-xl px-3"><option>Tunai</option><option>Transfer</option><option>QRIS</option><option>Lainnya</option></select></div><div><label class="text-xs font-semibold">Keterangan (opsional)</label><input id="cash-description" class="mt-1 w-full h-10 border rounded-xl px-3" maxlength="250" placeholder="Contoh: beli benang"></div><button class="w-full h-11 rounded-xl bg-[#4F6BFF] text-white font-semibold" type="submit">Simpan Transaksi</button></form></div></div>
-  <div id="payment-modal" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 no-print">
-    <div class="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden">
-      <div class="bg-[#0B1220] text-white px-5 py-4 flex items-center justify-between">
+  <div id="cash-modal" role="dialog" aria-modal="true" aria-labelledby="cash-modal-title" class="hidden fixed inset-0 z-[60] mt-modal-backdrop flex items-center justify-center p-4 no-print">
+    <div class="w-full max-w-md mt-modal-panel overflow-hidden">
+      <div class="mt-modal-head px-5 py-4 flex justify-between items-center gap-2">
         <div>
-          <h3 class="font-bold text-base">Catat Pelunasan</h3>
-          <p id="pay-modal-ticket" class="font-mono-code text-xs text-amber-400">MND-2611-001</p>
+          <h2 id="cash-modal-title" class="font-bold text-base">Tambah Kas</h2>
+          <p class="text-xs" style="color: var(--mt-hero-muted);">Transaksi di luar pembayaran order</p>
         </div>
-        <button type="button" id="close-payment-modal-btn" class="p-1.5 rounded-lg text-slate-400 hover:text-white cursor-pointer">
-          <i data-lucide="x" class="w-5 h-5"></i>
+        <button id="cash-modal-close" type="button" aria-label="Tutup form kas" class="mt-btn-icon mt-btn-on-dark">
+          <i data-lucide="x" class="w-5 h-5" aria-hidden="true"></i>
+        </button>
+      </div>
+      <form id="cash-form" class="p-5 space-y-3">
+        <div>
+          <label for="cash-type" class="block text-xs font-semibold mt-text mb-1">Jenis transaksi</label>
+          <select id="cash-type" class="mt-select">
+            <option value="income">Uang Masuk</option>
+            <option value="expense">Uang Keluar</option>
+          </select>
+        </div>
+        <div>
+          <label for="cash-category" class="block text-xs font-semibold mt-text mb-1">Kategori</label>
+          <select id="cash-category" class="mt-select"></select>
+        </div>
+        <div>
+          <label for="cash-amount" class="block text-xs font-semibold mt-text mb-1">Nominal (Rp)</label>
+          <input id="cash-amount" type="number" min="1" step="1" required class="mt-input font-mono-code" placeholder="Masukkan nominal" />
+        </div>
+        <div>
+          <label for="cash-method" class="block text-xs font-semibold mt-text mb-1">Metode</label>
+          <select id="cash-method" class="mt-select">
+            <option>Tunai</option>
+            <option>Transfer</option>
+            <option>QRIS</option>
+            <option>Lainnya</option>
+          </select>
+        </div>
+        <div>
+          <label for="cash-description" class="block text-xs font-semibold mt-text mb-1">Keterangan (opsional)</label>
+          <input id="cash-description" class="mt-input" maxlength="250" placeholder="Contoh: beli benang jahit" />
+        </div>
+        <button class="mt-btn mt-btn-primary w-full" type="submit">Simpan Transaksi</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="payment-modal" role="dialog" aria-modal="true" aria-labelledby="payment-modal-title" class="hidden fixed inset-0 z-50 mt-modal-backdrop flex items-center justify-center p-4 no-print">
+    <div class="w-full max-w-md mt-modal-panel overflow-hidden">
+      <div class="mt-modal-head px-5 py-4 flex items-center justify-between gap-2">
+        <div>
+          <h2 id="payment-modal-title" class="font-bold text-base">Catat Pelunasan</h2>
+          <p id="pay-modal-ticket" class="font-mono-code text-xs" style="color: var(--mt-hero-accent);">-</p>
+        </div>
+        <button type="button" id="close-payment-modal-btn" aria-label="Tutup modal pelunasan" class="mt-btn-icon mt-btn-on-dark">
+          <i data-lucide="x" class="w-5 h-5" aria-hidden="true"></i>
         </button>
       </div>
 
       <form id="payment-form" class="p-5 space-y-4">
         <input type="hidden" id="pay-order-id" />
 
-        <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5 text-sm">
+        <div class="mt-card-muted p-3.5 space-y-1.5 text-sm">
           <div class="flex justify-between">
-            <span class="text-slate-500">Total Tagihan</span>
-            <span id="pay-total-display" class="font-mono-code font-bold">Rp 0</span>
+            <span class="mt-muted">Total tagihan</span>
+            <span id="pay-total-display" class="font-mono-code font-bold mt-text">Rp 0</span>
           </div>
           <div class="flex justify-between">
-            <span class="text-slate-500">Sudah Dibayar</span>
-            <span id="pay-current-display" class="font-mono-code text-emerald-700 font-semibold">Rp 0</span>
+            <span class="mt-muted">Sudah dibayar</span>
+            <span id="pay-current-display" class="font-mono-code mt-success-text font-semibold">Rp 0</span>
           </div>
-          <div class="flex justify-between pt-1.5 border-t border-slate-200">
-            <span class="font-semibold text-slate-800">Sisa Kekurangan</span>
-            <span id="pay-remaining-display" class="font-mono-code font-bold text-[#4F6BFF]">Rp 0</span>
+          <div class="flex justify-between pt-2 mt-seam-t">
+            <span class="font-semibold mt-text">Sisa kekurangan</span>
+            <span id="pay-remaining-display" class="font-mono-code font-bold mt-accent">Rp 0</span>
           </div>
         </div>
 
         <div>
-          <div class="flex items-center justify-between mb-1">
-            <label for="pay-new-paid-input" class="text-xs font-semibold text-slate-700">
-              Nominal Pelunasan (Rp)
-            </label>
-            <button
-              type="button"
-              id="pay-full-quick-btn"
-              class="text-xs font-semibold text-emerald-600 hover:underline cursor-pointer"
-            >
-              Isi Sisa Tagihan
+          <div class="flex items-center justify-between gap-2 mb-1">
+            <label for="pay-new-paid-input" class="text-xs font-semibold mt-text">Nominal pelunasan (Rp)</label>
+            <button type="button" id="pay-full-quick-btn" class="text-xs font-semibold mt-success-text underline min-h-11 px-2">
+              Isi sisa tagihan
             </button>
           </div>
-          <input
-            type="number"
-            id="pay-new-paid-input"
-            min="0"
-            step="1000"
-            required
-            class="w-full h-11 px-3.5 rounded-xl border border-slate-300 font-mono-code font-bold text-base focus:outline-none focus:border-[#4F6BFF]"
-          />
+          <input type="number" id="pay-new-paid-input" min="0" step="1000" required class="mt-input font-mono-code font-bold text-base" />
         </div>
 
-        <div>
-          <label class="block text-xs font-semibold text-slate-700 mb-1.5">Metode Pembayaran (Catatan Log)</label>
+        <fieldset>
+          <legend class="block text-xs font-semibold mt-text mb-1.5">Metode pembayaran (catatan log)</legend>
           <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <label class="cursor-pointer">
-              <input type="radio" name="pay_method" value="Tunai" checked class="peer sr-only" />
-              <div class="h-10 rounded-xl border border-slate-200 peer-checked:border-[#4F6BFF] peer-checked:bg-orange-50 peer-checked:text-[#4F6BFF] flex items-center justify-center text-xs font-semibold">
-                Tunai
-              </div>
+            <label class="mt-radio-option">
+              <input type="radio" name="pay_method" value="Tunai" checked class="sr-only" />
+              <span class="mt-radio-tile">Tunai</span>
             </label>
-            <label class="cursor-pointer">
-              <input type="radio" name="pay_method" value="QRIS" class="peer sr-only" />
-              <div class="h-10 rounded-xl border border-slate-200 peer-checked:border-[#4F6BFF] peer-checked:bg-orange-50 peer-checked:text-[#4F6BFF] flex items-center justify-center text-xs font-semibold">
-                QRIS
-              </div>
+            <label class="mt-radio-option">
+              <input type="radio" name="pay_method" value="QRIS" class="sr-only" />
+              <span class="mt-radio-tile">QRIS</span>
             </label>
-            <label class="cursor-pointer">
-              <input type="radio" name="pay_method" value="Transfer" class="peer sr-only" />
-              <div class="h-10 rounded-xl border border-slate-200 peer-checked:border-[#4F6BFF] peer-checked:bg-orange-50 peer-checked:text-[#4F6BFF] flex items-center justify-center text-xs font-semibold">
-                Transfer
-              </div>
+            <label class="mt-radio-option">
+              <input type="radio" name="pay_method" value="Transfer" class="sr-only" />
+              <span class="mt-radio-tile">Transfer</span>
             </label>
-            <label class="cursor-pointer">
-              <input type="radio" name="pay_method" value="Lainnya" class="peer sr-only" />
-              <div class="h-10 rounded-xl border border-slate-200 peer-checked:border-[#4F6BFF] peer-checked:bg-orange-50 peer-checked:text-[#4F6BFF] flex items-center justify-center text-xs font-semibold">
-                Lainnya
-              </div>
+            <label class="mt-radio-option">
+              <input type="radio" name="pay_method" value="Lainnya" class="sr-only" />
+              <span class="mt-radio-tile">Lainnya</span>
             </label>
           </div>
-        </div>
+        </fieldset>
 
-        <button
-          type="submit"
-          class="w-full h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm flex items-center justify-center gap-2 cursor-pointer"
-        >
-          <i data-lucide="check-circle" class="w-4 h-4"></i>
+        <button type="submit" class="mt-btn mt-btn-success w-full">
+          <i data-lucide="check-circle" class="w-4 h-4" aria-hidden="true"></i>
           <span>Simpan Pelunasan</span>
         </button>
       </form>
     </div>
   </div>
 
-  <!-- ======================================================================= -->
-  <!-- 5. MODAL NOTA DIGITAL / RECEIPT (T-4.3)                                 -->
-  <!-- ======================================================================= -->
-  <div id="receipt-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-xs overflow-y-auto p-4 flex items-center justify-center">
-    <div class="w-full max-w-md bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden print-only-container">
-      <div class="px-5 py-3.5 bg-[#0B1220] text-white flex items-center justify-between no-print">
-        <span class="text-sm font-bold">Nota Digital Workshop</span>
-        <button type="button" id="close-receipt-modal-btn" class="p-1.5 rounded-lg text-slate-400 hover:text-white cursor-pointer">
-          <i data-lucide="x" class="w-5 h-5"></i>
+  <div id="receipt-modal" role="dialog" aria-modal="true" aria-labelledby="receipt-modal-title" class="hidden fixed inset-0 z-50 mt-modal-backdrop overflow-y-auto p-4 flex items-center justify-center">
+    <div class="w-full max-w-md mt-modal-panel overflow-hidden print-only-container">
+      <div class="mt-modal-head px-5 py-3.5 flex items-center justify-between gap-2 no-print">
+        <h2 id="receipt-modal-title" class="text-sm font-bold">Nota Digital Workshop</h2>
+        <button type="button" id="close-receipt-modal-btn" aria-label="Tutup nota digital" class="mt-btn-icon mt-btn-on-dark">
+          <i data-lucide="x" class="w-5 h-5" aria-hidden="true"></i>
         </button>
       </div>
 
-      <div id="receipt-content" class="p-6 text-sm text-slate-800 space-y-4">
-        <!-- Diisi dinamis oleh js/admin-panel.js -->
-      </div>
+      <div id="receipt-content" class="p-6 text-sm mt-text space-y-4"></div>
 
-      <div class="px-5 py-4 bg-slate-50 border-t border-slate-200 flex gap-2.5 no-print">
-        <button
-          type="button"
-          id="copy-receipt-wa-btn"
-          class="flex-1 h-11 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs sm:text-sm inline-flex items-center justify-center gap-1.5 cursor-pointer"
-        >
-          <i data-lucide="send" class="w-4 h-4"></i>
+      <div class="px-5 py-4 mt-seam-t flex gap-2.5 no-print" style="background-color: var(--mt-surface-muted);">
+        <button type="button" id="copy-receipt-wa-btn" class="mt-btn mt-btn-success flex-1 text-xs sm:text-sm">
+          <i data-lucide="send" class="w-4 h-4" aria-hidden="true"></i>
           <span>Kirim Nota WA</span>
         </button>
-        <button
-          type="button"
-          id="print-receipt-btn"
-          class="h-11 px-4 rounded-xl border border-slate-300 bg-white hover:bg-slate-100 text-slate-800 font-semibold text-xs sm:text-sm inline-flex items-center justify-center gap-1.5 cursor-pointer"
-        >
-          <i data-lucide="printer" class="w-4 h-4"></i>
+        <button type="button" id="print-receipt-btn" class="mt-btn mt-btn-secondary text-xs sm:text-sm">
+          <i data-lucide="printer" class="w-4 h-4" aria-hidden="true"></i>
           <span>Cetak</span>
         </button>
       </div>
     </div>
   </div>
 
-  <!-- ======================================================================= -->
-  <!-- 6. TOAST NOTIFIKASI WHATSAPP SAAT STATUS -> READY (T-4.2)               -->
-  <!-- ======================================================================= -->
-  <div id="wa-ready-toast" class="hidden fixed bottom-4 right-4 left-4 sm:left-auto sm:w-96 z-50 bg-[#0B1220] text-white border border-slate-700 rounded-2xl p-4 shadow-2xl no-print">
+  <div id="wa-ready-toast" role="status" aria-live="polite" class="hidden fixed bottom-4 right-4 left-4 sm:left-auto sm:w-96 z-50 mt-toast p-4 no-print">
     <div class="flex items-start justify-between gap-2">
       <div class="flex items-start gap-2.5">
-        <div class="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
-          <i data-lucide="message-circle" class="w-5 h-5"></i>
+        <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style="background-color: rgba(110, 231, 183, 0.16); color: #6EE7B7;">
+          <i data-lucide="message-circle" class="w-5 h-5" aria-hidden="true"></i>
         </div>
         <div>
-          <p class="text-sm font-bold">Order Siap Diambil!</p>
-          <p id="wa-toast-desc" class="text-xs text-slate-300 mt-0.5">Kirim notifikasi WhatsApp otomatis ke pelanggan?</p>
+          <p class="text-sm font-bold">Order siap diambil</p>
+          <p id="wa-toast-desc" class="text-xs mt-0.5" style="color: var(--mt-hero-muted);">Kirim notifikasi WhatsApp ke pelanggan?</p>
         </div>
       </div>
-      <button type="button" id="close-wa-toast-btn" class="text-slate-400 hover:text-white p-1 cursor-pointer">
-        <i data-lucide="x" class="w-4 h-4"></i>
+      <button type="button" id="close-wa-toast-btn" aria-label="Tutup notifikasi WhatsApp" class="mt-btn-icon mt-btn-on-dark shrink-0">
+        <i data-lucide="x" class="w-4 h-4" aria-hidden="true"></i>
       </button>
     </div>
-    <div class="mt-3 flex justify-end">
-      <a
-        id="wa-toast-send-link"
-        href="#"
-        class="w-full h-10 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition"
-      >
-        <i data-lucide="send" class="w-3.5 h-3.5"></i>
+    <div class="mt-3">
+      <a id="wa-toast-send-link" href="https://wa.me/" target="_blank" rel="noopener noreferrer" class="mt-btn mt-btn-success w-full text-xs">
+        <i data-lucide="send" class="w-3.5 h-3.5" aria-hidden="true"></i>
         <span>Kirim Pesan WhatsApp Sekarang</span>
       </a>
     </div>
   </div>
 
-  <!-- MODAL TAMBAH PELANGGAN: hanya nama dan nomor HP -->
-  <div id="customer-form-modal" class="hidden fixed inset-0 z-[66] bg-black/60 backdrop-blur-sm overflow-y-auto p-4 no-print">
-    <div class="max-w-md mx-auto my-10 bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden">
-      <div class="bg-[#0B1220] text-white px-5 py-4 flex items-center justify-between">
-        <div><h3 class="font-bold">Tambah Pelanggan</h3><p class="text-xs text-slate-400 mt-0.5">Cukup isi nama dan nomor HP</p></div>
-        <button type="button" id="close-customer-form-btn" class="p-2 rounded-lg text-slate-300 hover:text-white" aria-label="Tutup"><i data-lucide="x" class="w-5 h-5"></i></button>
+  <div id="customer-form-modal" role="dialog" aria-modal="true" aria-labelledby="customer-form-title" class="hidden fixed inset-0 z-[66] mt-modal-backdrop overflow-y-auto p-4 no-print">
+    <div class="max-w-md mx-auto my-10 mt-modal-panel overflow-hidden">
+      <div class="mt-modal-head px-5 py-4 flex items-center justify-between gap-2">
+        <div>
+          <h2 id="customer-form-title" class="font-bold text-base">Tambah Pelanggan</h2>
+          <p class="text-xs mt-0.5" style="color: var(--mt-hero-muted);">Cukup isi nama dan nomor HP</p>
+        </div>
+        <button type="button" id="close-customer-form-btn" aria-label="Tutup form tambah pelanggan" class="mt-btn-icon mt-btn-on-dark">
+          <i data-lucide="x" class="w-5 h-5" aria-hidden="true"></i>
+        </button>
       </div>
       <form id="customer-create-form" class="p-5 space-y-4">
         <div>
-          <label for="new-customer-name" class="block text-xs font-semibold text-slate-700 mb-1">Nama Pelanggan *</label>
-          <input id="new-customer-name" name="name" type="text" required maxlength="120" autocomplete="name" placeholder="Nama pelanggan" class="w-full h-11 px-3.5 rounded-xl bg-white border border-slate-300 text-sm focus:outline-none focus:border-[#4F6BFF]">
+          <label for="new-customer-name" class="block text-xs font-semibold mt-text mb-1">Nama pelanggan *</label>
+          <input id="new-customer-name" name="name" type="text" required maxlength="120" autocomplete="name" placeholder="Nama lengkap pelanggan" class="mt-input" />
         </div>
         <div>
-          <label for="new-customer-phone" class="block text-xs font-semibold text-slate-700 mb-1">Nomor HP / WhatsApp *</label>
-          <input id="new-customer-phone" name="phone" type="tel" required inputmode="tel" autocomplete="tel" placeholder="08xxxxxxxxxx" class="w-full h-11 px-3.5 rounded-xl bg-white border border-slate-300 text-sm focus:outline-none focus:border-[#4F6BFF]">
-          <p class="mt-1 text-xs text-slate-500">Nomor HP digunakan untuk mengenali akun pelanggan.</p>
+          <label for="new-customer-phone" class="block text-xs font-semibold mt-text mb-1">Nomor HP / WhatsApp *</label>
+          <input id="new-customer-phone" name="phone" type="tel" required inputmode="tel" autocomplete="tel" placeholder="08xxxxxxxxxx" class="mt-input" />
+          <p class="mt-1 text-xs mt-muted">Nomor HP digunakan untuk mengenali akun pelanggan.</p>
         </div>
         <div class="flex gap-2 pt-1">
-          <button type="button" id="cancel-customer-form-btn" class="flex-1 h-11 rounded-xl border border-slate-200 text-slate-700 text-sm font-semibold">Batal</button>
-          <button type="submit" id="save-customer-btn" class="flex-1 h-11 rounded-xl bg-[#4F6BFF] hover:bg-[#3D55E0] text-white text-sm font-semibold">Simpan Pelanggan</button>
+          <button type="button" id="cancel-customer-form-btn" class="mt-btn mt-btn-secondary flex-1">Batal</button>
+          <button type="submit" id="save-customer-btn" class="mt-btn mt-btn-primary flex-1">Simpan Pelanggan</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- KARTU DETAIL PELANGGAN -->
-  <div id="customer-detail-modal" class="hidden fixed inset-0 z-[65] bg-black/60 backdrop-blur-sm overflow-y-auto p-4 no-print">
-    <div class="max-w-xl mx-auto my-8 bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden">
-      <div class="bg-[#0B1220] text-white px-5 py-4 flex items-center justify-between"><div><h3 class="font-bold">Detail Pelanggan</h3><p class="text-xs text-slate-400 mt-0.5">Profil, ukuran, dan riwayat order</p></div><button type="button" id="close-customer-detail-btn" class="p-2 rounded-lg text-slate-300 hover:text-white"><i data-lucide="x" class="w-5 h-5"></i></button></div>
+  <div id="customer-detail-modal" role="dialog" aria-modal="true" aria-labelledby="customer-detail-title" class="hidden fixed inset-0 z-[65] mt-modal-backdrop overflow-y-auto p-4 no-print">
+    <div class="max-w-xl mx-auto my-8 mt-modal-panel overflow-hidden">
+      <div class="mt-modal-head px-5 py-4 flex items-center justify-between gap-2">
+        <div>
+          <h2 id="customer-detail-title" class="font-bold text-base">Detail Pelanggan</h2>
+          <p class="text-xs mt-0.5" style="color: var(--mt-hero-muted);">Profil, ukuran, dan riwayat order</p>
+        </div>
+        <button type="button" id="close-customer-detail-btn" aria-label="Tutup detail pelanggan" class="mt-btn-icon mt-btn-on-dark">
+          <i data-lucide="x" class="w-5 h-5" aria-hidden="true"></i>
+        </button>
+      </div>
       <div id="customer-detail-content" class="p-5 space-y-4"></div>
     </div>
   </div>
 
-  <footer class="no-print text-center text-xs text-slate-500 py-5 bg-white border-t border-slate-200">by MendTrack</footer>
-
-  <!-- STORE SETTINGS MODAL -->
-  <div id="store-settings-modal" class="hidden fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm items-center justify-center p-4 no-print">
-    <div class="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-white rounded-2xl shadow-2xl">
-      <div class="sticky top-0 bg-[#0B1220] text-white px-5 py-4 flex items-center justify-between">
+  <div id="store-settings-modal" role="dialog" aria-modal="true" aria-labelledby="store-settings-title" class="hidden fixed inset-0 z-[70] mt-modal-backdrop items-center justify-center p-4 no-print">
+    <div class="w-full max-w-lg max-h-[90vh] overflow-y-auto mt-modal-panel">
+      <div class="sticky top-0 mt-modal-head px-5 py-4 flex items-center justify-between gap-2">
         <div>
-          <h3 class="font-bold text-base">Setting Toko</h3>
-          <p class="text-xs text-slate-300 mt-0.5">Informasi identitas dan operasional toko</p>
+          <h2 id="store-settings-title" class="font-bold text-base">Pengaturan Toko</h2>
+          <p class="text-xs mt-0.5" style="color: var(--mt-hero-muted);">Informasi identitas dan operasional toko</p>
         </div>
-        <button type="button" id="close-store-settings-btn" class="p-2 rounded-lg text-slate-300 hover:text-white hover:bg-white/10">
-          <i data-lucide="x" class="w-5 h-5"></i>
+        <button type="button" id="close-store-settings-btn" aria-label="Tutup pengaturan toko" class="mt-btn-icon mt-btn-on-dark">
+          <i data-lucide="x" class="w-5 h-5" aria-hidden="true"></i>
         </button>
       </div>
       <form id="store-settings-form" class="p-5 space-y-4">
         <div data-settings-panel="store" class="settings-panel space-y-4">
-        <div class="flex items-center gap-4">
-          <div id="store-logo-preview-wrap" class="w-20 h-20 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden shrink-0">
-            <i data-lucide="image" class="w-7 h-7 text-slate-400"></i>
+          <div class="flex items-center gap-4">
+            <div id="store-logo-preview-wrap" class="w-20 h-20 rounded-lg mt-card-muted flex items-center justify-center overflow-hidden shrink-0">
+              <i data-lucide="image" class="w-7 h-7 mt-muted" aria-hidden="true"></i>
+            </div>
+            <div class="min-w-0 space-y-2">
+              <label for="store-logo-input" class="mt-btn mt-btn-secondary text-xs">
+                <i data-lucide="upload" class="w-4 h-4" aria-hidden="true"></i>
+                <span>Pilih Logo</span>
+              </label>
+              <input id="store-logo-input" type="file" accept="image/*" class="sr-only" />
+              <p class="text-xs mt-muted">Pilih gambar JPG, PNG, atau WebP dari perangkat.</p>
+              <button type="button" id="remove-store-logo-btn" class="mt-btn mt-btn-danger-ghost text-xs">Hapus logo</button>
+            </div>
           </div>
-          <div class="min-w-0">
-            <label for="store-logo-input" class="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-sm font-semibold text-slate-700 cursor-pointer">
-              <i data-lucide="upload" class="w-4 h-4"></i> Pilih Logo
-            </label>
-            <input id="store-logo-input" type="file" accept="image/*" class="hidden">
-            <p class="text-xs text-slate-500 mt-2">Pilih gambar dari perangkat. Disarankan JPG/PNG.</p>
-            <button type="button" id="remove-store-logo-btn" class="text-xs text-rose-600 hover:underline mt-1">Hapus logo</button>
-          </div>
-        </div>
-        <div>
-          <label for="store-name-input" class="block text-xs font-semibold text-slate-700 mb-1">Nama Toko</label>
-          <input id="store-name-input" type="text" maxlength="100" required class="w-full h-11 px-3 rounded-xl border border-slate-300 text-sm focus:outline-none focus:border-[#4F6BFF]">
-        </div>
-        <div>
-          <label for="store-address-input" class="block text-xs font-semibold text-slate-700 mb-1">Alamat</label>
-          <textarea id="store-address-input" rows="2" maxlength="300" class="w-full p-3 rounded-xl border border-slate-300 text-sm focus:outline-none focus:border-[#4F6BFF]"></textarea>
-        </div>
-        <div>
-          <label for="store-phone-input" class="block text-xs font-semibold text-slate-700 mb-1">Nomor WhatsApp (gunakan format 08... atau 62...)</label>
-          <input id="store-phone-input" type="tel" inputmode="tel" maxlength="20" class="w-full h-11 px-3 rounded-xl border border-slate-300 text-sm focus:outline-none focus:border-[#4F6BFF]">
-        </div>
-        <div>
-          <label for="store-tagline-input" class="block text-xs font-semibold text-slate-700 mb-1">Tagline</label>
-          <input id="store-tagline-input" type="text" maxlength="160" class="w-full h-11 px-3 rounded-xl border border-slate-300 text-sm focus:outline-none focus:border-[#4F6BFF]">
-        </div>
-        <div>
-          <label for="store-hours-input" class="block text-xs font-semibold text-slate-700 mb-1">Jam Buka</label>
-          <input id="store-hours-input" type="text" maxlength="160" placeholder="Contoh: Senin–Sabtu, 09.00–17.00" class="w-full h-11 px-3 rounded-xl border border-slate-300 text-sm focus:outline-none focus:border-[#4F6BFF]">
-        </div>
-        <div class="border-t border-slate-200 pt-4 space-y-3">
           <div>
-            <h4 class="text-sm font-bold text-slate-800">Kapasitas Kerja Harian</h4>
-            <p class="text-xs text-slate-500 mt-1">Kapasitas tetap yang berlaku setiap hari.</p>
+            <label for="store-name-input" class="block text-xs font-semibold mt-text mb-1">Nama toko</label>
+            <input id="store-name-input" type="text" maxlength="100" required class="mt-input" />
           </div>
-          <div class="grid grid-cols-2 gap-3">
-            <div><label for="daily-capacity-hours" class="block text-xs font-semibold text-slate-700 mb-1">Jam</label><input id="daily-capacity-hours" type="number" min="0" max="24" step="1" value="8" class="w-full h-11 px-3 rounded-xl border border-slate-300 text-sm"></div>
-            <div><label for="daily-capacity-minutes" class="block text-xs font-semibold text-slate-700 mb-1">Menit</label><input id="daily-capacity-minutes" type="number" min="0" max="59" step="1" value="0" class="w-full h-11 px-3 rounded-xl border border-slate-300 text-sm"></div>
+          <div>
+            <label for="store-address-input" class="block text-xs font-semibold mt-text mb-1">Alamat</label>
+            <textarea id="store-address-input" rows="2" maxlength="300" class="mt-textarea"></textarea>
+          </div>
+          <div>
+            <label for="store-phone-input" class="block text-xs font-semibold mt-text mb-1">Nomor WhatsApp (format 08... atau 62...)</label>
+            <input id="store-phone-input" type="tel" inputmode="tel" maxlength="20" class="mt-input" />
+          </div>
+          <div>
+            <label for="store-tagline-input" class="block text-xs font-semibold mt-text mb-1">Tagline</label>
+            <input id="store-tagline-input" type="text" maxlength="160" class="mt-input" />
+          </div>
+          <div>
+            <label for="store-hours-input" class="block text-xs font-semibold mt-text mb-1">Jam buka</label>
+            <input id="store-hours-input" type="text" maxlength="160" placeholder="Contoh: Senin - Sabtu, 09.00 - 17.00" class="mt-input" />
+          </div>
+          <div class="pt-4 mt-seam-t space-y-3">
+            <div>
+              <h3 class="text-sm font-bold mt-text">Kapasitas kerja harian</h3>
+              <p class="text-xs mt-muted mt-0.5">Kapasitas tetap yang berlaku setiap hari.</p>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label for="daily-capacity-hours" class="block text-xs font-semibold mt-text mb-1">Jam</label>
+                <input id="daily-capacity-hours" type="number" min="0" max="24" step="1" value="8" class="mt-input font-mono-code" />
+              </div>
+              <div>
+                <label for="daily-capacity-minutes" class="block text-xs font-semibold mt-text mb-1">Menit</label>
+                <input id="daily-capacity-minutes" type="number" min="0" max="59" step="1" value="0" class="mt-input font-mono-code" />
+              </div>
+            </div>
           </div>
         </div>
-        </div>
+
         <div data-settings-panel="services" class="settings-panel hidden space-y-4">
-          <div class="border-t border-slate-200 pt-4 space-y-3">
-          <div><h4 class="text-sm font-bold text-slate-800">Daftar Layanan</h4><p class="text-xs text-slate-500 mt-1">Estimasi menjadi nilai default untuk order baru. Layanan nonaktif tetap tersimpan untuk riwayat.</p></div>
-          <div id="services-list" class="space-y-2"><p class="text-xs text-slate-500">Memuat layanan...</p></div>
-          <div class="rounded-xl bg-slate-50 border border-slate-200 p-3 space-y-2">
-            <input id="service-name-input" type="text" maxlength="100" placeholder="Nama layanan" class="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm">
-            <div class="grid grid-cols-2 gap-2"><div><label for="service-hours-input" class="block text-xs text-slate-600 mb-1">Estimasi jam</label><input id="service-hours-input" type="number" min="0" max="999" value="1" class="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm"></div><div><label for="service-minutes-input" class="block text-xs text-slate-600 mb-1">Estimasi menit</label><input id="service-minutes-input" type="number" min="0" max="59" value="0" class="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm"></div></div>
-            <button type="button" id="add-service-btn" class="w-full h-10 rounded-lg bg-slate-800 text-white text-sm font-semibold">Tambah Layanan</button>
+          <div class="space-y-3">
+            <div>
+              <h3 class="text-sm font-bold mt-text">Daftar layanan</h3>
+              <p class="text-xs mt-muted mt-0.5">Estimasi menjadi nilai default untuk order baru. Layanan nonaktif tetap tersimpan untuk riwayat.</p>
+            </div>
+            <div id="services-list" class="space-y-2"><p class="text-xs mt-muted">Memuat layanan...</p></div>
+            <div class="mt-card-muted p-3.5 space-y-3">
+              <div>
+                <label for="service-name-input" class="block text-xs font-semibold mt-text mb-1">Nama layanan baru</label>
+                <input id="service-name-input" type="text" maxlength="100" placeholder="Contoh: Chainstitch Hemming" class="mt-input" />
+              </div>
+              <div>
+                <label for="service-category-input" class="block text-xs font-semibold mt-text mb-1">Kategori layanan</label>
+                <select id="service-category-input" class="mt-select">
+                  <option value="reparasi" selected>Reparasi</option>
+                  <option value="custom">Custom</option>
+                </select>
+              </div>
+              <div class="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label for="service-hours-input" class="block text-xs font-semibold mt-text mb-1">Estimasi jam</label>
+                  <input id="service-hours-input" type="number" min="0" max="999" value="1" class="mt-input font-mono-code" />
+                </div>
+                <div>
+                  <label for="service-minutes-input" class="block text-xs font-semibold mt-text mb-1">Estimasi menit</label>
+                  <input id="service-minutes-input" type="number" min="0" max="59" value="0" class="mt-input font-mono-code" />
+                </div>
+              </div>
+              <button type="button" id="add-service-btn" class="mt-btn mt-btn-primary w-full">Tambah Layanan</button>
+            </div>
           </div>
         </div>
-        </div>
+
         <div data-settings-panel="measurements" class="settings-panel hidden space-y-4">
-          <div class="border-t border-slate-200 pt-4 space-y-3">
-          <div><h4 class="text-sm font-bold text-slate-800">Template Ukuran</h4><p class="text-xs text-slate-500 mt-1">Atur jenis pakaian dan komponen ukuran yang muncul saat menyimpan ukuran pelanggan.</p></div>
-          <div id="measurement-templates-list" class="space-y-2"><p class="text-xs text-slate-500">Memuat template ukuran...</p></div>
-          <button type="button" id="add-measurement-template-btn" class="w-full h-10 rounded-lg border border-slate-300 text-slate-700 text-sm font-semibold">+ Tambah Jenis Pakaian</button>
+          <div class="space-y-3">
+            <div>
+              <h3 class="text-sm font-bold mt-text">Template ukuran</h3>
+              <p class="text-xs mt-muted mt-0.5">Atur jenis pakaian dan komponen ukuran yang muncul saat menyimpan ukuran pelanggan.</p>
+            </div>
+            <div id="measurement-templates-list" class="space-y-2"><p class="text-xs mt-muted">Memuat template ukuran...</p></div>
+            <button type="button" id="add-measurement-template-btn" class="mt-btn mt-btn-secondary w-full">Tambah Jenis Pakaian</button>
+          </div>
         </div>
-        </div>
-        <p class="settings-panel-note text-xs text-slate-500 bg-slate-50 rounded-lg p-3">Pengaturan toko disimpan di Supabase dan digunakan di semua perangkat. Data order tidak diubah.</p>
+
+        <p class="settings-panel-note text-xs mt-muted mt-card-muted p-3">Pengaturan toko disimpan di Supabase dan digunakan di semua perangkat. Data order tidak diubah.</p>
         <div class="flex gap-2 pt-1">
-          <button type="button" id="cancel-store-settings-btn" class="flex-1 h-11 rounded-xl border border-slate-300 text-slate-700 font-semibold text-sm">Tutup</button>
-          <button type="submit" data-store-save-btn class="flex-1 h-11 rounded-xl bg-[#4F6BFF] hover:bg-[#3D55E0] text-white font-semibold text-sm">Simpan Pengaturan Toko</button>
+          <button type="button" id="cancel-store-settings-btn" class="mt-btn mt-btn-secondary flex-1">Tutup</button>
+          <button type="submit" data-store-save-btn class="mt-btn mt-btn-primary flex-1">Simpan Pengaturan</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- Entry Point Script -->
+  <div id="service-edit-modal" role="dialog" aria-modal="true" aria-labelledby="service-edit-title" class="hidden fixed inset-0 z-[72] mt-modal-backdrop overflow-y-auto p-4 no-print">
+    <div class="max-w-md mx-auto my-12 mt-modal-panel overflow-hidden">
+      <div class="mt-modal-head px-5 py-4 flex items-center justify-between gap-2">
+        <div>
+          <h2 id="service-edit-title" class="font-bold text-base">Edit Layanan</h2>
+          <p class="text-xs mt-0.5" style="color: var(--mt-hero-muted);">Perbarui nama, kategori, dan estimasi durasi</p>
+        </div>
+        <button type="button" id="close-service-edit-btn" aria-label="Tutup form edit layanan" class="mt-btn-icon mt-btn-on-dark">
+          <i data-lucide="x" class="w-5 h-5" aria-hidden="true"></i>
+        </button>
+      </div>
+      <form id="service-edit-form" class="p-5 space-y-4">
+        <input id="edit-service-id" type="hidden" />
+        <div>
+          <label for="edit-service-name" class="block text-xs font-semibold mt-text mb-1">Nama layanan *</label>
+          <input id="edit-service-name" type="text" required maxlength="100" placeholder="Contoh: Chainstitch Hemming" class="mt-input" />
+        </div>
+        <div>
+          <label for="edit-service-category" class="block text-xs font-semibold mt-text mb-1">Kategori layanan *</label>
+          <select id="edit-service-category" required class="mt-select">
+            <option value="reparasi">Reparasi</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        <div>
+          <label for="edit-service-minutes" class="block text-xs font-semibold mt-text mb-1">Estimasi (menit) *</label>
+          <input id="edit-service-minutes" type="number" min="1" step="1" required inputmode="numeric" placeholder="Contoh: 60" class="mt-input font-mono-code" />
+        </div>
+        <div class="flex gap-2 pt-1">
+          <button type="button" id="cancel-service-edit-btn" class="mt-btn mt-btn-secondary flex-1">Batal</button>
+          <button type="submit" id="save-service-edit-btn" class="mt-btn mt-btn-primary flex-1">Simpan Perubahan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script>if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(console.warn));</script>
   <script src="./js/theme-toggle.js" defer></script>
   <script src="./js/sidebar.js" defer></script>

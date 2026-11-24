@@ -1,0 +1,10 @@
+# Local agent, audit, and design workspace files
+.agents/
+anti-slop/
+openspec/
+AGENTS.md
+DESIGN.md
+
+# OS and editor temporary files
+.DS_Store
+Thumbs.db
