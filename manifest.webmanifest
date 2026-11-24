@@ -1,14 +1,14 @@
 {
   "id": "/",
-  "name": "MendTrack — BRKH DENIM",
+  "name": "MendTrack | BRKH DENIM",
   "short_name": "MendTrack",
-  "description": "Manajemen order dan tracking workshop BRKH DENIM",
+  "description": "Manajemen order dan pelacakan pengerjaan workshop BRKH DENIM",
   "start_url": "/admin.html",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#F6F5FA",
-  "theme_color": "#F6F5FA",
+  "background_color": "#F5F2EB",
+  "theme_color": "#F5F2EB",
   "prefer_related_applications": false,
   "icons": [
     {"src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},

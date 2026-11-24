@@ -1,9 +1,5 @@
-// js/utils.js
 import { WORKSHOP_INFO } from './config.js';
 
-/**
- * Format angka ke mata uang Rupiah (contoh: Rp 150.000)
- */
 export function formatCurrency(amount) {
   const num = Number(amount) || 0;
   return new Intl.NumberFormat('id-ID', {
@@ -14,9 +10,6 @@ export function formatCurrency(amount) {
   }).format(num);
 }
 
-/**
- * Format tanggal ISO/DATE ke format Indonesia (contoh: Sen, 16 Nov 2026)
- */
 export function formatDateID(dateStr, includeTime = false) {
   if (!dateStr) return '-';
   const date = new Date(dateStr);
@@ -37,9 +30,6 @@ export function formatDateID(dateStr, includeTime = false) {
   return new Intl.DateTimeFormat('id-ID', options).format(date);
 }
 
-/**
- * Normalisasi nomor HP Indonesia ke format internasional 628...
- */
 export function normalizePhone(rawPhone) {
   if (!rawPhone) return '';
   let digits = String(rawPhone).replace(/[^0-9]/g, '');
@@ -53,10 +43,6 @@ export function normalizePhone(rawPhone) {
   return digits;
 }
 
-/**
- * Generate kode tiket otomatis format MND-YYMM-XXX
- * @param {number} sequenceNumber - Urutan tiket bulan ini (default random 3 digit jika belum dihitung)
- */
 export function generateTicketCode(sequenceNumber = null) {
   const now = new Date();
   const yy = String(now.getFullYear()).slice(-2);
@@ -69,16 +55,12 @@ export function generateTicketCode(sequenceNumber = null) {
   return `${WORKSHOP_INFO.TICKET_PREFIX}-${yy}${mm}-${seq}`;
 }
 
-/**
- * Buat tautan WhatsApp Click-to-Chat (wa.me)
- */
 export function buildWhatsAppLink(phone, message) {
   const cleanPhone = normalizePhone(phone);
   const encodedText = encodeURIComponent(message || '');
   const webUrl = `https://wa.me/${cleanPhone}?text=${encodedText}`;
 
-  // Android Chrome: gunakan Intent agar langsung menyerahkan pesan ke aplikasi WhatsApp,
-  // bukan membuka halaman perantara api.whatsapp.com.
+  // Android Chrome hands off directly to the WhatsApp app via intent, avoiding an intermediate web hop.
   const isAndroid = /Android/i.test(navigator.userAgent || '');
   if (isAndroid) {
     const intentTarget = `send?phone=${cleanPhone}&text=${encodedText}`;
@@ -86,13 +68,9 @@ export function buildWhatsAppLink(phone, message) {
     return `intent://${intentTarget}#Intent;scheme=whatsapp;package=com.whatsapp;S.browser_fallback_url=${fallback};end`;
   }
 
-  // iOS dan desktop tetap memakai tautan Click-to-Chat standar.
   return webUrl;
 }
 
-/**
- * Escape karakter HTML untuk keamanan rendering teks input user
- */
 export function escapeHTML(str) {
   if (str === null || str === undefined) return '';
   return String(str)
@@ -103,9 +81,6 @@ export function escapeHTML(str) {
     .replace(/'/g, '&#39;');
 }
 
-/**
- * Debounce helper untuk menunda eksekusi fungsi (misal auto-save draft / search)
- */
 export function debounce(fn, delay = 400) {
   let timer = null;
   return (...args) => {
@@ -114,13 +89,6 @@ export function debounce(fn, delay = 400) {
   };
 }
 
-/**
- * Kompresi gambar di browser menggunakan HTML5 Canvas sebelum upload ke Supabase Storage
- * @param {File} file - File gambar asli dari input kamera/galeri
- * @param {number} maxWidth - Lebar maksimal piksel (default 1080px)
- * @param {number} quality - Kualitas JPEG 0.1 - 1.0 (default 0.8)
- * @returns {Promise<Blob>}
- */
 export function compressImage(file, maxWidth = 1080, quality = 0.8) {
   return new Promise((resolve, reject) => {
     if (!file || !file.type.startsWith('image/')) {
@@ -150,11 +118,8 @@ export function compressImage(file, maxWidth = 1080, quality = 0.8) {
 
         canvas.toBlob(
           (blob) => {
-            if (blob) {
-              resolve(blob);
-            } else {
-              reject(new Error('Gagal mengompresi gambar.'));
-            }
+            if (blob) resolve(blob);
+            else reject(new Error('Gagal mengompresi gambar.'));
           },
           'image/jpeg',
           quality
@@ -166,9 +131,6 @@ export function compressImage(file, maxWidth = 1080, quality = 0.8) {
   });
 }
 
-/**
- * Hitung selisih hari dari hari ini ke tanggal deadline
- */
 export function getDeadlineStatus(estimatedDateStr) {
   if (!estimatedDateStr) {
     return { label: 'Tanpa Deadline', isUrgent: false, isOverdue: false, diffDays: null };

@@ -1,8 +1,5 @@
-// js/admin-panel.js
 import {
   SUPABASE_CONFIG,
-  WORKSHOP_INFO,
-  ORDER_STEPS,
   STATUS_META,
   PAYMENT_STATUS_META,
 } from './config.js';
@@ -24,13 +21,19 @@ import {
   loadOrderDraft,
   clearOrderDraft,
 } from './storage-draft.js';
-import { DEFAULT_STORE_SETTINGS, fetchStoreSettings, persistStoreSettings, applyStoreIdentity, fetchServices, createService, updateService, deactivateService, activateService } from './store-settings.js';
+import {
+  DEFAULT_STORE_SETTINGS,
+  fetchStoreSettings,
+  persistStoreSettings,
+  applyStoreIdentity,
+  fetchServices,
+  createService,
+  updateService,
+  deactivateService,
+  activateService,
+} from './store-settings.js';
 
-// ============================================================================
-// APPLICATION STATE
-// ============================================================================
 let allOrders = [];
-let currentFilter = 'all';
 let workloadDateFilter = null;
 let searchQuery = '';
 let orderStatusFilter = 'all';
@@ -40,17 +43,68 @@ const workloadToday = new Date();
 let workloadViewMonth = new Date(workloadToday.getFullYear(), workloadToday.getMonth(), 1);
 let workloadSelectedDate = toLocalDateKey(workloadToday);
 
-// Store identity is shared with the public portal and persisted in Supabase.
 let workshopSettings = { ...DEFAULT_STORE_SETTINGS };
 let activeServiceCatalog = [];
+let lastModalTrigger = null;
+let itemRowCounter = 0;
+
+const PAGE_HEADINGS = {
+  orders: {
+    title: 'Order Aktif',
+    subtitle: 'Pantau antrean pengerjaan, deadline terdekat, dan pelunasan.',
+  },
+  customers: {
+    title: 'Pelanggan',
+    subtitle: 'Kelola data kontak, catatan ukuran, dan riwayat order pelanggan.',
+  },
+  schedule: {
+    title: 'Jadwal Workshop',
+    subtitle: 'Pantau kepadatan beban kerja harian berdasarkan target selesai order.',
+  },
+  cash: {
+    title: 'Kas Workshop',
+    subtitle: 'Catat dan pantau uang masuk serta pengeluaran operasional workshop.',
+  },
+  reports: {
+    title: 'Laporan Transaksi',
+    subtitle: 'Ringkasan nilai order, piutang, dan arus kas sesuai periode terpilih.',
+  },
+  services: {
+    title: 'Layanan & Durasi',
+    subtitle: 'Atur katalog layanan, kategori, dan estimasi durasi pengerjaan.',
+  },
+  measurements: {
+    title: 'Template Ukuran',
+    subtitle: 'Susun jenis pakaian dan urutan komponen ukuran pelanggan.',
+  },
+  archive: {
+    title: 'Arsip Order',
+    subtitle: 'Daftar order yang sudah selesai dan diambil pelanggan.',
+  },
+};
+
+function rememberTrigger() {
+  if (document.activeElement instanceof HTMLElement) {
+    lastModalTrigger = document.activeElement;
+  }
+}
+
+function restoreTriggerFocus() {
+  if (lastModalTrigger && document.contains(lastModalTrigger)) {
+    lastModalTrigger.focus();
+  }
+  lastModalTrigger = null;
+}
 
 function applyStoreSettings() {
   const nameEl = document.getElementById('header-store-name');
   if (nameEl) nameEl.textContent = workshopSettings.NAME;
   const logoWrap = document.getElementById('header-store-logo-wrap');
-  if (logoWrap) logoWrap.innerHTML = workshopSettings.LOGO
-    ? `<img src="${workshopSettings.LOGO}" alt="Logo toko" class="w-full h-full object-contain">`
-    : '<i data-lucide="scissors" class="w-5 h-5"></i>';
+  if (logoWrap) {
+    logoWrap.innerHTML = workshopSettings.LOGO
+      ? `<img src="${workshopSettings.LOGO}" width="40" height="40" alt="Logo ${escapeHTML(workshopSettings.NAME)}" class="w-full h-full object-contain">`
+      : '<i data-lucide="scissors" class="w-5 h-5" aria-hidden="true"></i>';
+  }
   applyStoreIdentity(document, workshopSettings);
   if (window.lucide) window.lucide.createIcons();
 }
@@ -58,6 +112,7 @@ function applyStoreSettings() {
 function openStoreSettings() {
   const modal = document.getElementById('store-settings-modal');
   if (!modal) return;
+  rememberTrigger();
   delete modal.dataset.pendingLogo;
   document.getElementById('store-logo-input').value = '';
   document.getElementById('store-name-input').value = workshopSettings.NAME;
@@ -69,18 +124,18 @@ function openStoreSettings() {
   document.getElementById('daily-capacity-hours').value = Math.floor(capacity / 60);
   document.getElementById('daily-capacity-minutes').value = capacity % 60;
   renderStoreLogoPreview(workshopSettings.LOGO);
-  modal.classList.remove('hidden'); modal.classList.add('flex');
-  document.getElementById('header-menu-panel')?.classList.add('hidden');
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  document.getElementById('store-name-input')?.focus();
 }
 
-// Refresh the service catalog when returning from an external page (e.g. WhatsApp Web).
-// Browsers may restore this page from the back-forward cache without rerunning module startup.
+// Browsers may restore this page from bfcache after returning from WhatsApp Web without rerunning startup.
 async function refreshVisibleStoreServices() {
   const modal = document.getElementById('store-settings-modal');
   if (!modal || modal.classList.contains('hidden')) return;
   await renderServicesList();
   try {
-    activeServiceCatalog = (await fetchServices()).filter(service => service.is_active);
+    activeServiceCatalog = (await fetchServices()).filter((service) => service.is_active);
   } catch (error) {
     console.warn('Katalog layanan gagal diperbarui saat halaman aktif:', error);
   }
@@ -92,34 +147,121 @@ window.addEventListener('pageshow', () => {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') refreshVisibleStoreServices();
 });
+
 async function renderServicesList() {
   const container = document.getElementById('services-list');
   if (!container) return;
   try {
     const services = await fetchServices();
-    if (!services.length) { container.innerHTML = '<p class="text-xs text-slate-500">Belum ada layanan. Tambahkan layanan pertama di bawah.</p>'; return; }
-    container.innerHTML = services.map(service => {
-      const duration = `${Math.floor(service.estimated_minutes / 60)}j ${service.estimated_minutes % 60}m`;
-      return `<div class="flex items-center justify-between gap-2 rounded-lg border border-slate-200 p-3 ${service.is_active ? '' : 'opacity-50'}"><div class="min-w-0"><p class="text-sm font-semibold text-slate-800">${escapeHTML(service.name)}</p><p class="text-xs text-slate-500">${duration} · ${service.is_active ? 'Aktif' : 'Nonaktif'}</p></div><div class="flex gap-1 shrink-0">${service.is_active ? `<button type="button" data-edit-service="${service.id}" class="px-2 py-1 text-xs rounded bg-slate-100">Edit</button><button type="button" data-disable-service="${service.id}" class="px-2 py-1 text-xs rounded bg-rose-50 text-rose-700">Nonaktifkan</button>` : `<button type="button" data-activate-service="${service.id}" class="px-2 py-1 text-xs rounded bg-emerald-50 text-emerald-700">Aktifkan</button>`}</div></div>`;
-    }).join('');
-  } catch (error) { container.innerHTML = `<p class="text-xs text-rose-600">Gagal memuat layanan: ${escapeHTML(error.message || '')}</p>`; }
+    if (!services.length) {
+      container.innerHTML = '<p class="text-xs mt-muted">Belum ada layanan. Tambahkan layanan pertama pada formulir di bawah.</p>';
+      return;
+    }
+    container.innerHTML = services
+      .map((service) => {
+        const duration = `${Math.floor(service.estimated_minutes / 60)}j ${service.estimated_minutes % 60}m`;
+        const categoryLabel = service.service_category === 'custom' ? 'Custom' : 'Reparasi';
+        return `<div class="mt-card p-3 flex flex-wrap items-center justify-between gap-2 ${service.is_active ? '' : 'opacity-65'}">
+          <div class="min-w-0">
+            <p class="text-sm font-semibold mt-text">${escapeHTML(service.name)}</p>
+            <p class="text-xs mt-muted font-mono-code">${categoryLabel} · ${duration} · ${service.is_active ? 'Aktif' : 'Nonaktif'}</p>
+          </div>
+          <div class="flex gap-2 shrink-0">
+            ${
+              service.is_active
+                ? `<button type="button" data-edit-service="${service.id}" class="mt-btn mt-btn-secondary text-xs">Edit</button>
+                   <button type="button" data-disable-service="${service.id}" class="mt-btn mt-btn-danger-ghost text-xs">Nonaktifkan</button>`
+                : `<button type="button" data-activate-service="${service.id}" class="mt-btn mt-btn-success text-xs">Aktifkan</button>`
+            }
+          </div>
+        </div>`;
+      })
+      .join('');
+  } catch (error) {
+    container.innerHTML = `<p class="text-xs mt-danger-text">Gagal memuat layanan: ${escapeHTML(error.message || '')}</p>`;
+  }
 }
 
 function closeStoreSettings() {
   const modal = document.getElementById('store-settings-modal');
-  modal?.classList.add('hidden'); modal?.classList.remove('flex');
+  modal?.classList.add('hidden');
+  modal?.classList.remove('flex');
+  restoreTriggerFocus();
 }
+
+function openServiceEditModal(service) {
+  const modal = document.getElementById('service-edit-modal');
+  if (!modal || !service) return;
+  rememberTrigger();
+  document.getElementById('edit-service-id').value = service.id;
+  document.getElementById('edit-service-name').value = service.name || '';
+  document.getElementById('edit-service-category').value =
+    service.service_category === 'custom' ? 'custom' : 'reparasi';
+  document.getElementById('edit-service-minutes').value = String(service.estimated_minutes || 1);
+  modal.classList.remove('hidden');
+  document.getElementById('edit-service-name')?.focus();
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function closeServiceEditModal() {
+  const modal = document.getElementById('service-edit-modal');
+  modal?.classList.add('hidden');
+  restoreTriggerFocus();
+}
+
+async function handleServiceEditSubmit(event) {
+  event.preventDefault();
+  const id = document.getElementById('edit-service-id')?.value || '';
+  const name = document.getElementById('edit-service-name')?.value.trim() || '';
+  const category = document.getElementById('edit-service-category')?.value === 'custom' ? 'custom' : 'reparasi';
+  const totalMinutes = Number(document.getElementById('edit-service-minutes')?.value || 0);
+
+  if (!id) return;
+  if (!name) {
+    alert('Nama layanan wajib diisi.');
+    document.getElementById('edit-service-name')?.focus();
+    return;
+  }
+  if (!Number.isInteger(totalMinutes) || totalMinutes <= 0) {
+    alert('Estimasi dalam menit harus berupa bilangan bulat lebih dari 0.');
+    document.getElementById('edit-service-minutes')?.focus();
+    return;
+  }
+
+  const submitBtn = document.getElementById('save-service-edit-btn');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Menyimpan...';
+  }
+  try {
+    await updateService(id, name, totalMinutes, category);
+    closeServiceEditModal();
+    await renderServicesList();
+    await loadWorkloadServices();
+    renderWorkloadCalendar();
+  } catch (error) {
+    alert('Gagal mengubah layanan: ' + (error.message || 'Terjadi kesalahan.'));
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Simpan Perubahan';
+    }
+  }
+}
+
 function renderStoreLogoPreview(dataUrl) {
   const preview = document.getElementById('store-logo-preview-wrap');
   if (!preview) return;
   preview.innerHTML = dataUrl
-    ? `<img src="${dataUrl}" alt="Preview logo toko" class="w-full h-full object-contain">`
-    : '<i data-lucide="image" class="w-7 h-7 text-slate-400"></i>';
+    ? `<img src="${dataUrl}" width="80" height="80" alt="Pratinjau logo toko" class="w-full h-full object-contain">`
+    : '<i data-lucide="image" class="w-7 h-7 mt-muted" aria-hidden="true"></i>';
   if (window.lucide) window.lucide.createIcons();
 }
+
 async function imageFileToDataUrl(file) {
-  if (!file || !['image/jpeg','image/png','image/webp'].includes(file.type))
+  if (!file || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
     throw new Error('Logo harus berupa gambar JPG, PNG, atau WebP.');
+  }
   if (file.size > 8 * 1024 * 1024) throw new Error('Ukuran logo maksimal 8 MB.');
   const bitmap = await createImageBitmap(file);
   const canvas = document.createElement('canvas');
@@ -131,120 +273,12 @@ async function imageFileToDataUrl(file) {
   return canvas.toDataURL('image/webp', 0.8);
 }
 
-
-// DOM References
 const authScreen = document.getElementById('auth-screen');
 const adminWorkspace = document.getElementById('admin-workspace');
 const loginForm = document.getElementById('login-form');
 const authErrorBox = document.getElementById('auth-error-box');
 const logoutBtn = document.getElementById('logout-btn');
-const headerMenuBtn = document.getElementById('header-menu-btn');
-const headerMenuPanel = document.getElementById('header-menu-panel');
-
-function mountSeparatedManagementPages() {
-  const workload = document.getElementById('daily-workload-section');
-  const schedule = document.getElementById('schedule-page');
-  if (workload && schedule) schedule.appendChild(workload);
-  const servicePanel = document.querySelector('[data-settings-panel="services"]');
-  const serviceTarget = document.getElementById('services-page-content');
-  if (servicePanel && serviceTarget) { while (servicePanel.firstChild) serviceTarget.appendChild(servicePanel.firstChild); servicePanel.remove(); }
-  const measurementPanel = document.querySelector('[data-settings-panel="measurements"]');
-  const measurementTarget = document.getElementById('measurements-page-content');
-  if (measurementPanel && measurementTarget) { while (measurementPanel.firstChild) measurementTarget.appendChild(measurementPanel.firstChild); measurementPanel.remove(); }
-  document.querySelector('[data-settings-panel="store"]')?.classList.remove('hidden');
-  document.querySelector('[data-store-save-btn]')?.classList.remove('hidden');
-}
-
-function showAppPage(page) {
-  const ids = ['reports-page','schedule-page','services-page','measurements-page','cash-page','archive-page'];
-  ids.forEach(id => document.getElementById(id)?.classList.add('hidden'));
-  const orderSections = ['dashboard-metrics-section'];
-  orderSections.forEach(id => document.getElementById(id)?.classList.toggle('hidden', page !== 'orders'));
-  const searchSection = document.querySelector('#admin-workspace main > section:has(#admin-search-input)');
-  searchSection?.classList.toggle('hidden', page !== 'orders');
-  ordersListContainer?.classList.toggle('hidden', page !== 'orders');
-  customersSection?.classList.toggle('hidden', page !== 'customers');
-  document.getElementById('daily-workload-section')?.classList.toggle('hidden', page !== 'schedule');
-  const pageMap = { reports:'reports-page', schedule:'schedule-page', services:'services-page', measurements:'measurements-page', cash:'cash-page', archive:'archive-page' };
-  if (pageMap[page]) document.getElementById(pageMap[page])?.classList.remove('hidden');
-  document.querySelectorAll('[data-app-page], #bottom-nav-orders, #bottom-nav-customers').forEach(btn => {
-    const key = btn.dataset.appPage || (btn.id === 'bottom-nav-orders' ? 'orders' : btn.id === 'bottom-nav-customers' ? 'customers' : '');
-    btn.classList.toggle('is-active', key === page);
-    if (key === page) btn.setAttribute('aria-current','page'); else btn.removeAttribute('aria-current');
-  });
-  if (page === 'customers') fetchCustomers();
-  if (page === 'services') { renderServicesList(); loadWorkloadServices(); }
-  if (page === 'measurements') renderMeasurementTemplateSettings();
-  if (page === 'reports') renderReports();
-  if (page === 'cash') renderCash();
-  if (page === 'archive') renderArchiveOrders();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function renderArchiveOrders() {
-  const target = document.getElementById('archive-orders-list');
-  if (!target) return;
-  const archived = allOrders.filter(order => ['completed'].includes(order.status));
-  target.innerHTML = archived.length ? archived.map(order => `<article class="bg-white rounded-2xl border border-slate-200 p-4 flex flex-wrap justify-between gap-3"><div><p class="font-mono-code font-bold">${escapeHTML(order.ticket_code || '')}</p><p class="text-sm">${escapeHTML(order.customer_name || '')}</p><p class="text-xs text-slate-500">Selesai · ${formatDateID(order.updated_at || order.created_at)}</p></div><div class="text-right"><p class="font-semibold">${formatCurrency(order.total_amount)}</p><button type="button" data-edit-order="${order.id}" class="text-xs text-indigo-600 underline">Lihat order</button></div></article>`).join('') : '<div class="bg-white rounded-2xl border p-8 text-center text-sm text-slate-500">Belum ada order selesai/diambil.</div>';
-}
-
-async function renderReports() {
-  const target = document.getElementById('reports-content'); if (!target) return;
-  const period = document.getElementById('report-period')?.value || 'week';
-  const now = new Date(); now.setHours(23,59,59,999);
-  const start = new Date(); start.setHours(0,0,0,0);
-  if (period === 'week') start.setDate(start.getDate()-6);
-  else if (period === 'month') start.setDate(1);
-  else if (period === 'all') start.setTime(0);
-  const inRange = allOrders.filter(o => { const d = new Date(o.created_at); return period === 'all' || (d >= start && d <= now); });
-  const totalSales = inRange.reduce((s,o)=>s+Number(o.total_amount||0),0);
-  const paidNow = inRange.reduce((s,o)=>s+Number(o.paid_amount||0),0);
-  const receivable = inRange.reduce((s,o)=>s+Math.max(0,Number(o.total_amount||0)-Number(o.paid_amount||0)),0);
-  const unpaidOrders = inRange.filter(o=>Number(o.total_amount||0)>Number(o.paid_amount||0));
-  const services = {}; inRange.forEach(o=>(o.order_items||[]).forEach(it=>{ const name=it.service_type||'Lainnya'; services[name]=(services[name]||0)+1; }));
-  const top = Object.entries(services).sort((a,b)=>b[1]-a[1]).slice(0,5);
-  let cashRows=[];
-  try { let q=supabase.from('cash_transactions').select('transaction_type,category,amount,occurred_at'); if(period!=='all') q=q.gte('occurred_at',start.toISOString()).lte('occurred_at',now.toISOString()); const {data,error}=await q; if(error) throw error; cashRows=data||[]; }
-  catch(err){ console.warn('Data diagram kas gagal dimuat:',err); }
-  const incomeRows=cashRows.filter(x=>x.transaction_type==='income'), expenseRows=cashRows.filter(x=>x.transaction_type==='expense');
-  const sumRows=rows=>rows.reduce((a,x)=>a+Number(x.amount||0),0);
-  const incomeTotal=sumRows(incomeRows), expenseTotal=sumRows(expenseRows);
-  const pie=(rows,title)=>{const totals={};rows.forEach(x=>{const k=x.category||'lain_lain';totals[k]=(totals[k]||0)+Number(x.amount||0)});const entries=Object.entries(totals).sort((a,b)=>b[1]-a[1]);const palette=['#4F6BFF','#16A36A','#E6A23C','#E56B6F','#8B5CF6','#0EA5A4'];let acc=0;const total=sumRows(rows);const stops=entries.map(([k,v],i)=>{const a=acc;acc+=total?v/total*100:0;return `${palette[i%palette.length]} ${a}% ${acc}%`}).join(',');const names={custom:'Custom',reparasi:'Reparasi',lain_lain:'Lain-lain',alat_bahan:'Alat dan Bahan',operasional:'Operasional',makan_minum:'Makan dan Minum',gaji:'Gaji'};return `<section class="bg-white rounded-2xl border border-slate-200 p-4 min-w-0"><h3 class="font-bold text-sm mb-3">${title}</h3>${entries.length?`<div class="flex items-center gap-3"><div class="w-24 h-24 rounded-full shrink-0" style="background:conic-gradient(${stops})"></div><div class="space-y-2 min-w-0 flex-1">${entries.map(([k,v],i)=>`<div class="flex items-center gap-2 text-xs min-w-0"><i class="w-2.5 h-2.5 rounded-full shrink-0" style="background:${palette[i%palette.length]}"></i><span class="truncate">${names[k]||escapeHTML(k)}</span><b class="ml-auto">${Math.round(v/(total||1)*100)}%</b></div>`).join('')}</div></div>`:'<p class="text-xs text-slate-400">Belum ada transaksi pada periode ini.</p>'}</section>`;};
-  // Day/week/month use daily buckets. All-time uses monthly buckets to keep the chart readable across years.
-  const bucketMap=new Map();
-  const keyFor=d=> period==='all' ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  cashRows.forEach(row=>{const d=new Date(row.occurred_at);if(Number.isNaN(d.getTime()))return;const key=keyFor(d);if(!bucketMap.has(key))bucketMap.set(key,{income:0,expense:0});const bucket=bucketMap.get(key);if(row.transaction_type==='income')bucket.income+=Number(row.amount||0);else if(row.transaction_type==='expense')bucket.expense+=Number(row.amount||0);});
-  const chartData=[...bucketMap.entries()].sort((a,b)=>a[0].localeCompare(b[0]));
-  const labelFor=key=>{const d=period==='all'?new Date(Number(key.slice(0,4)),Number(key.slice(5,7))-1,1):new Date(Number(key.slice(0,4)),Number(key.slice(5,7))-1,Number(key.slice(8,10)));return period==='all'?new Intl.DateTimeFormat('id-ID',{month:'short',year:'2-digit'}).format(d):new Intl.DateTimeFormat('id-ID',{day:'numeric',month:'short'}).format(d);};
-  const maxValue=Math.max(1,...chartData.flatMap(([,v])=>[v.income,v.expense]));
-  const barWidth=period==='day'?44:period==='week'?32:period==='month'?22:28;
-  const chartWidth=Math.max(300,chartData.length*(barWidth*2+18)+24);
-  const bars=chartData.length?chartData.map(([key,v])=>{const h1=Math.max(v.income?2:0,v.income/maxValue*112),h2=Math.max(v.expense?2:0,v.expense/maxValue*112);return `<div class="flex flex-col items-center justify-end shrink-0" style="width:${barWidth*2+14}px;height:158px"><div class="flex items-end justify-center gap-1 h-[124px] w-full"><div title="Pemasukan ${formatCurrency(v.income)}" class="rounded-t-md bg-emerald-500" style="width:${barWidth}px;height:${h1}px"></div><div title="Pengeluaran ${formatCurrency(v.expense)}" class="rounded-t-md bg-rose-500" style="width:${barWidth}px;height:${h2}px"></div></div><span class="text-[10px] text-slate-500 mt-2 whitespace-nowrap">${labelFor(key)}</span></div>`}).join(''):'<p class="text-xs text-slate-400 p-4">Belum ada transaksi pada periode ini.</p>';
-  const chart=`<section class="bg-white rounded-2xl border border-slate-200 p-4 min-w-0"><h3 class="font-bold text-sm mb-2">Pemasukan vs Pengeluaran</h3><div class="flex gap-3 text-[11px] mb-2"><span class="text-emerald-700">● Pemasukan</span><span class="text-rose-600">● Pengeluaran</span></div><div class="overflow-x-auto"><div class="flex items-end gap-1 min-w-full" style="width:${chartWidth}px;min-height:166px">${bars}</div></div><div class="flex justify-between text-xs mt-2"><b class="text-emerald-700">Masuk ${formatCurrency(incomeTotal)}</b><b class="text-rose-600">Keluar ${formatCurrency(expenseTotal)}</b></div><p class="text-[10px] text-slate-400 mt-2">${period==='all'?'Dikelompokkan per bulan sepanjang riwayat transaksi.':'Dikelompokkan per hari pada periode terpilih.'}</p></section>`;
-  const cashCharts=`<div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-stretch">${chart}${pie(incomeRows,'Kategori Pemasukan')}${pie(expenseRows,'Kategori Pengeluaran')}</div>`;
-  const moneyCard=(label,value,sub)=>`<div class="bg-white rounded-2xl border border-slate-200 p-4"><p class="text-xs text-slate-500">${label}</p><p class="text-xl font-bold mt-1">${formatCurrency(value)}</p><p class="text-xs text-slate-400 mt-1">${sub}</p></div>`;
-  target.innerHTML = `${cashCharts}<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">${moneyCard('Nilai order',totalSales,`${inRange.length} order dibuat pada periode ini`)}${moneyCard('Pembayaran tercatat',paidNow,'Akumulasi paid_amount saat ini')}${moneyCard('Sisa piutang',receivable,`${unpaidOrders.length} order belum lunas`)}</div><div class="grid grid-cols-1 lg:grid-cols-2 gap-3"><div class="bg-white rounded-2xl border border-slate-200 p-4"><h3 class="font-bold mb-3">Order belum lunas</h3>${unpaidOrders.length?unpaidOrders.sort((a,b)=>Number(b.total_amount||0)-Number(a.total_amount||0)).slice(0,20).map(o=>`<div class="py-2 border-b border-slate-100 flex justify-between gap-3 text-sm"><div><b>${escapeHTML(o.ticket_code||'')}</b><p class="text-xs text-slate-500">${escapeHTML(o.customer_name||'')}</p></div><b class="text-rose-600">${formatCurrency(Math.max(0,Number(o.total_amount||0)-Number(o.paid_amount||0)))}</b></div>`).join(''):'<p class="text-sm text-slate-500">Tidak ada piutang pada periode ini.</p>'}</div><div class="bg-white rounded-2xl border border-slate-200 p-4"><h3 class="font-bold mb-3">Layanan paling sering dipesan</h3>${top.length?top.map(([name,count],i)=>`<div class="py-2 border-b border-slate-100 flex justify-between text-sm"><span>${i+1}. ${escapeHTML(name)}</span><b>${count} item</b></div>`).join(''):'<p class="text-sm text-slate-500">Belum ada data layanan.</p>'}</div></div><p class="text-xs text-slate-400">Catatan: laporan mengelompokkan order berdasarkan tanggal dibuat. Pembayaran menampilkan akumulasi pembayaran terkini dari setiap order, bukan histori kas per tanggal.</p>`;
-}
-
-function initSettingsTabs() {
-  const buttons = [...document.querySelectorAll('[data-settings-tab]')];
-  const panels = [...document.querySelectorAll('[data-settings-panel]')];
-  const saveButton = document.querySelector('[data-store-save-btn]');
-  const note = document.querySelector('.settings-panel-note');
-  const notes = { store: 'Pengaturan toko disimpan di Supabase dan digunakan di semua perangkat. Data order tidak diubah.', services: 'Layanan dan estimasi waktu dikelola terpisah dari profil toko.', measurements: 'Jenis pakaian dan komponen ukuran dikelola terpisah dari layanan.' };
-  function activate(tab) {
-    buttons.forEach(button => { const active = button.dataset.settingsTab === tab; button.classList.toggle('bg-[#EEF2FF]', active); button.classList.toggle('text-[#3D55E0]', active); button.classList.toggle('border-[#4F6BFF]', active); button.classList.toggle('font-bold', active); button.classList.toggle('border-slate-200', !active); button.classList.toggle('text-slate-600', !active); button.classList.toggle('font-semibold', !active); });
-    panels.forEach(panel => panel.classList.toggle('hidden', panel.dataset.settingsPanel !== tab));
-    if (saveButton) saveButton.classList.toggle('hidden', tab !== 'store');
-    if (note) note.textContent = notes[tab] || notes.store;
-  }
-  buttons.forEach(button => button.addEventListener('click', () => activate(button.dataset.settingsTab)));
-  activate('store');
-}
-
-
 const openStoreSettingsBtn = document.getElementById('open-store-settings-btn');
-
 
 const draftBanner = document.getElementById('draft-restore-banner');
 const draftSavedTime = document.getElementById('draft-saved-time');
@@ -258,8 +292,6 @@ const customersSection = document.getElementById('customers-section');
 const customersList = document.getElementById('customers-list');
 let customerRecords = [];
 
-
-// Order Form Modal DOM
 const orderFormModal = document.getElementById('order-form-modal');
 const orderCrudForm = document.getElementById('order-crud-form');
 const openNewOrderBtn = document.getElementById('open-new-order-btn');
@@ -269,32 +301,356 @@ const addItemRowBtn = document.getElementById('add-item-row-btn');
 const formItemsContainer = document.getElementById('form-items-container');
 const formPaidAmountInput = document.getElementById('form-paid-amount');
 
-// Payment Modal DOM
 const paymentModal = document.getElementById('payment-modal');
 const paymentForm = document.getElementById('payment-form');
 const closePaymentModalBtn = document.getElementById('close-payment-modal-btn');
 const payFullQuickBtn = document.getElementById('pay-full-quick-btn');
 
-// Receipt Modal DOM
 const receiptModal = document.getElementById('receipt-modal');
 const receiptContent = document.getElementById('receipt-content');
 const closeReceiptModalBtn = document.getElementById('close-receipt-modal-btn');
 const copyReceiptWaBtn = document.getElementById('copy-receipt-wa-btn');
 const printReceiptBtn = document.getElementById('print-receipt-btn');
 
-// WA Ready Toast DOM
 const waReadyToast = document.getElementById('wa-ready-toast');
 const waToastDesc = document.getElementById('wa-toast-desc');
 const waToastSendLink = document.getElementById('wa-toast-send-link');
 const closeWaToastBtn = document.getElementById('close-wa-toast-btn');
 
+function mountSeparatedManagementPages() {
+  const workload = document.getElementById('daily-workload-section');
+  const schedule = document.getElementById('schedule-page');
+  if (workload && schedule) schedule.appendChild(workload);
 
-// ============================================================================
-// DAILY WORKLOAD CALENDAR
-// Workload follows the locked legacy model: all estimated minutes are assigned
-// to the order's estimated_done_date (no distribution across production days).
-// Ready/completed orders are excluded immediately.
-// ============================================================================
+  const servicePanel = document.querySelector('[data-settings-panel="services"]');
+  const serviceTarget = document.getElementById('services-page-content');
+  if (servicePanel && serviceTarget) {
+    while (servicePanel.firstChild) serviceTarget.appendChild(servicePanel.firstChild);
+    servicePanel.remove();
+  }
+
+  const measurementPanel = document.querySelector('[data-settings-panel="measurements"]');
+  const measurementTarget = document.getElementById('measurements-page-content');
+  if (measurementPanel && measurementTarget) {
+    while (measurementPanel.firstChild) measurementTarget.appendChild(measurementPanel.firstChild);
+    measurementPanel.remove();
+  }
+
+  document.querySelector('[data-settings-panel="store"]')?.classList.remove('hidden');
+  document.querySelector('[data-store-save-btn]')?.classList.remove('hidden');
+}
+
+function showAppPage(page) {
+  const heading = PAGE_HEADINGS[page] || PAGE_HEADINGS.orders;
+  const titleEl = document.getElementById('workspace-page-title');
+  const subtitleEl = document.getElementById('workspace-page-subtitle');
+  if (titleEl) titleEl.textContent = heading.title;
+  if (subtitleEl) subtitleEl.textContent = heading.subtitle;
+
+  const ids = ['reports-page', 'schedule-page', 'services-page', 'measurements-page', 'cash-page', 'archive-page'];
+  ids.forEach((id) => document.getElementById(id)?.classList.add('hidden'));
+
+  document.getElementById('dashboard-metrics-section')?.classList.toggle('hidden', page !== 'orders');
+  document.getElementById('orders-filter-section')?.classList.toggle('hidden', page !== 'orders');
+  ordersListContainer?.classList.toggle('hidden', page !== 'orders');
+  customersSection?.classList.toggle('hidden', page !== 'customers');
+  document.getElementById('daily-workload-section')?.classList.toggle('hidden', page !== 'schedule');
+
+  const pageMap = {
+    reports: 'reports-page',
+    schedule: 'schedule-page',
+    services: 'services-page',
+    measurements: 'measurements-page',
+    cash: 'cash-page',
+    archive: 'archive-page',
+  };
+  if (pageMap[page]) document.getElementById(pageMap[page])?.classList.remove('hidden');
+
+  document.querySelectorAll('[data-app-page], #bottom-nav-orders, #bottom-nav-customers').forEach((btn) => {
+    const key =
+      btn.dataset.appPage ||
+      (btn.id === 'bottom-nav-orders' ? 'orders' : btn.id === 'bottom-nav-customers' ? 'customers' : '');
+    btn.classList.toggle('is-active', key === page);
+    if (key === page) btn.setAttribute('aria-current', 'page');
+    else btn.removeAttribute('aria-current');
+  });
+
+  if (page === 'customers') fetchCustomers();
+  if (page === 'services') {
+    renderServicesList();
+    loadWorkloadServices();
+  }
+  if (page === 'measurements') renderMeasurementTemplateSettings();
+  if (page === 'reports') renderReports();
+  if (page === 'cash') renderCash();
+  if (page === 'archive') renderArchiveOrders();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function renderArchiveOrders() {
+  const target = document.getElementById('archive-orders-list');
+  if (!target) return;
+  const archived = allOrders.filter((order) => order.status === 'completed');
+  target.innerHTML = archived.length
+    ? archived
+        .map(
+          (order) => `<article class="mt-card p-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p class="font-mono-code font-bold mt-text">${escapeHTML(order.ticket_code || '')}</p>
+              <p class="text-sm mt-text">${escapeHTML(order.customer_name || '')}</p>
+              <p class="text-xs mt-muted">Selesai · ${formatDateID(order.updated_at || order.created_at)}</p>
+            </div>
+            <div class="text-right flex flex-col items-end gap-1">
+              <p class="font-mono-code font-bold mt-text">${formatCurrency(order.total_amount)}</p>
+              <button type="button" data-edit-order="${order.id}" class="mt-btn mt-btn-secondary text-xs">Lihat order</button>
+            </div>
+          </article>`
+        )
+        .join('')
+    : '<div class="mt-card p-8 text-center text-sm mt-muted">Belum ada order selesai dan diambil.</div>';
+}
+
+async function renderReports() {
+  const target = document.getElementById('reports-content');
+  if (!target) return;
+  const period = document.getElementById('report-period')?.value || 'week';
+  const now = new Date();
+  now.setHours(23, 59, 59, 999);
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  if (period === 'week') start.setDate(start.getDate() - 6);
+  else if (period === 'month') start.setDate(1);
+  else if (period === 'all') start.setTime(0);
+
+  const inRange = allOrders.filter((o) => {
+    const d = new Date(o.created_at);
+    return period === 'all' || (d >= start && d <= now);
+  });
+  const totalSales = inRange.reduce((s, o) => s + Number(o.total_amount || 0), 0);
+  const paidNow = inRange.reduce((s, o) => s + Number(o.paid_amount || 0), 0);
+  const receivable = inRange.reduce((s, o) => s + Math.max(0, Number(o.total_amount || 0) - Number(o.paid_amount || 0)), 0);
+  const unpaidOrders = inRange.filter((o) => Number(o.total_amount || 0) > Number(o.paid_amount || 0));
+
+  const services = {};
+  inRange.forEach((o) =>
+    (o.order_items || []).forEach((it) => {
+      const name = it.service_type || 'Lainnya';
+      services[name] = (services[name] || 0) + 1;
+    })
+  );
+  const top = Object.entries(services)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+
+  let cashRows = [];
+  let cashFetchError = null;
+  try {
+    let q = supabase.from('cash_transactions').select('transaction_type,category,amount,occurred_at');
+    if (period !== 'all') q = q.gte('occurred_at', start.toISOString()).lte('occurred_at', now.toISOString());
+    const { data, error } = await q;
+    if (error) throw error;
+    cashRows = data || [];
+  } catch (err) {
+    console.warn('Data diagram kas gagal dimuat:', err);
+    cashFetchError = err.message || 'Gagal mengambil data transaksi kas.';
+  }
+
+  const incomeRows = cashRows.filter((x) => x.transaction_type === 'income');
+  const expenseRows = cashRows.filter((x) => x.transaction_type === 'expense');
+  const sumRows = (rows) => rows.reduce((a, x) => a + Number(x.amount || 0), 0);
+  const incomeTotal = sumRows(incomeRows);
+  const expenseTotal = sumRows(expenseRows);
+
+  const pie = (rows, title, requiredKeys = []) => {
+    const totals = {};
+    requiredKeys.forEach((key) => {
+      totals[key] = 0;
+    });
+    rows.forEach((x) => {
+      const k = x.category || 'lain_lain';
+      totals[k] = (totals[k] || 0) + Number(x.amount || 0);
+    });
+    const hasTransactions = rows.length > 0;
+    const entries = hasTransactions
+      ? Object.entries(totals).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      : [];
+    const fixedColors = {
+      reparasi: '#18253E',
+      custom: '#9E4316',
+      lain_lain: '#4A5568',
+    };
+    const palette = ['#18253E', '#9E4316', '#166534', '#B45309', '#9F1239', '#4A5568'];
+    const colorFor = (key, idx) => fixedColors[key] || palette[idx % palette.length];
+    let acc = 0;
+    const total = sumRows(rows);
+    const stops = entries
+      .filter(([, v]) => v > 0)
+      .map(([k, v], i) => {
+        const a = acc;
+        acc += total ? (v / total) * 100 : 0;
+        return `${colorFor(k, i)} ${a}% ${acc}%`;
+      })
+      .join(',');
+    const names = {
+      custom: 'Custom',
+      reparasi: 'Reparasi',
+      lain_lain: 'Lain-lain',
+      alat_bahan: 'Alat dan Bahan',
+      operasional: 'Operasional',
+      makan_minum: 'Makan dan Minum',
+      gaji: 'Gaji',
+    };
+    return `<section class="mt-card p-4 min-w-0">
+      <h3 class="font-bold text-sm mt-text mb-3">${title}</h3>
+      ${
+        entries.length
+          ? `<div class="flex items-center gap-3">
+              <div class="w-24 h-24 rounded-full shrink-0 border" style="background:conic-gradient(${stops}); border-color: var(--mt-border);" aria-hidden="true"></div>
+              <div class="space-y-2 min-w-0 flex-1">
+                ${entries
+                  .map(
+                    ([k, v], i) => `<div class="flex items-center gap-2 text-xs min-w-0">
+                      <i class="w-2.5 h-2.5 rounded-sm shrink-0" style="background:${colorFor(k, i)}" aria-hidden="true"></i>
+                      <span class="truncate mt-text">${names[k] || escapeHTML(k)}</span>
+                      <b class="ml-auto font-mono-code mt-text">${Math.round((v / (total || 1)) * 100)}%</b>
+                    </div>`
+                  )
+                  .join('')}
+              </div>
+            </div>`
+          : '<p class="text-xs mt-muted">Belum ada transaksi pada periode ini.</p>'
+      }
+    </section>`;
+  };
+
+  // Day/week/month group by day; all-time groups by month so long histories remain legible.
+  const bucketMap = new Map();
+  const keyFor = (d) =>
+    period === 'all'
+      ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  cashRows.forEach((row) => {
+    const d = new Date(row.occurred_at);
+    if (Number.isNaN(d.getTime())) return;
+    const key = keyFor(d);
+    if (!bucketMap.has(key)) bucketMap.set(key, { income: 0, expense: 0 });
+    const bucket = bucketMap.get(key);
+    if (row.transaction_type === 'income') bucket.income += Number(row.amount || 0);
+    else if (row.transaction_type === 'expense') bucket.expense += Number(row.amount || 0);
+  });
+
+  const chartData = [...bucketMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  const labelFor = (key) => {
+    const d =
+      period === 'all'
+        ? new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, 1)
+        : new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, Number(key.slice(8, 10)));
+    return period === 'all'
+      ? new Intl.DateTimeFormat('id-ID', { month: 'short', year: '2-digit' }).format(d)
+      : new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short' }).format(d);
+  };
+  const maxValue = Math.max(1, ...chartData.flatMap(([, v]) => [v.income, v.expense]));
+  const barWidth = period === 'day' ? 44 : period === 'week' ? 32 : period === 'month' ? 22 : 28;
+  const chartWidth = Math.max(300, chartData.length * (barWidth * 2 + 18) + 24);
+  const bars = chartData.length
+    ? chartData
+        .map(([key, v]) => {
+          const h1 = Math.max(v.income ? 2 : 0, (v.income / maxValue) * 112);
+          const h2 = Math.max(v.expense ? 2 : 0, (v.expense / maxValue) * 112);
+          return `<div class="flex flex-col items-center justify-end shrink-0" style="width:${barWidth * 2 + 14}px;height:158px">
+            <div class="flex items-end justify-center gap-1 h-[124px] w-full">
+              <div title="Pemasukan ${formatCurrency(v.income)}" class="rounded-t" style="background:#166534;width:${barWidth}px;height:${h1}px"></div>
+              <div title="Pengeluaran ${formatCurrency(v.expense)}" class="rounded-t" style="background:#9F1239;width:${barWidth}px;height:${h2}px"></div>
+            </div>
+            <span class="text-xs mt-muted mt-2 whitespace-nowrap">${labelFor(key)}</span>
+          </div>`;
+        })
+        .join('')
+    : '<p class="text-xs mt-muted p-4">Belum ada transaksi pada periode ini.</p>';
+
+  const cashErrorBanner = cashFetchError
+    ? `<div role="alert" class="mt-notice-error p-4 text-xs flex flex-wrap items-center justify-between gap-2">
+        <span>Data kas gagal dimuat: ${escapeHTML(cashFetchError)}</span>
+        <button type="button" data-retry-reports class="mt-btn mt-btn-secondary text-xs">Muat ulang</button>
+      </div>`
+    : '';
+
+  const chart = `<section class="mt-card p-4 min-w-0">
+    <h3 class="font-bold text-sm mt-text mb-2">Pemasukan vs Pengeluaran</h3>
+    <div class="flex gap-4 text-xs mb-2">
+      <span class="mt-success-text font-semibold">Pemasukan</span>
+      <span class="mt-danger-text font-semibold">Pengeluaran</span>
+    </div>
+    <div class="overflow-x-auto">
+      <div class="flex items-end gap-1 min-w-full" style="width:${chartWidth}px;min-height:166px">${bars}</div>
+    </div>
+    <div class="flex justify-between text-xs mt-2 font-mono-code">
+      <b class="mt-success-text">Masuk ${formatCurrency(incomeTotal)}</b>
+      <b class="mt-danger-text">Keluar ${formatCurrency(expenseTotal)}</b>
+    </div>
+    <p class="text-xs mt-muted mt-2">${period === 'all' ? 'Dikelompokkan per bulan sepanjang riwayat transaksi.' : 'Dikelompokkan per hari pada periode terpilih.'}</p>
+  </section>`;
+
+  const cashCharts = `<div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-stretch">${chart}${pie(incomeRows, 'Kategori Pemasukan', ['reparasi', 'custom'])}${pie(expenseRows, 'Kategori Pengeluaran')}</div>`;
+  const moneyCard = (label, value, sub) =>
+    `<article class="mt-card p-4">
+      <p class="text-xs font-semibold mt-muted">${label}</p>
+      <p class="font-mono-code text-xl font-bold mt-text mt-1">${formatCurrency(value)}</p>
+      <p class="text-xs mt-muted mt-1">${sub}</p>
+    </article>`;
+
+  target.innerHTML = `
+    ${cashErrorBanner}
+    ${cashCharts}
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      ${moneyCard('Nilai order', totalSales, `${inRange.length} order dibuat pada periode ini`)}
+      ${moneyCard('Pembayaran tercatat', paidNow, 'Total DP dan pelunasan yang tercatat')}
+      ${moneyCard('Sisa piutang', receivable, `${unpaidOrders.length} order belum lunas`)}
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <section class="mt-card p-4">
+        <h3 class="font-bold mt-text mb-3">Order belum lunas</h3>
+        ${
+          unpaidOrders.length
+            ? unpaidOrders
+                .sort((a, b) => Number(b.total_amount || 0) - Number(a.total_amount || 0))
+                .slice(0, 20)
+                .map(
+                  (o) => `<div class="py-2.5 border-b flex justify-between gap-3 text-sm" style="border-color: var(--mt-border);">
+                    <div>
+                      <b class="font-mono-code mt-text">${escapeHTML(o.ticket_code || '')}</b>
+                      <p class="text-xs mt-muted">${escapeHTML(o.customer_name || '')}</p>
+                    </div>
+                    <b class="font-mono-code mt-danger-text">${formatCurrency(Math.max(0, Number(o.total_amount || 0) - Number(o.paid_amount || 0)))}</b>
+                  </div>`
+                )
+                .join('')
+            : '<p class="text-sm mt-muted">Tidak ada piutang pada periode ini.</p>'
+        }
+      </section>
+      <section class="mt-card p-4">
+        <h3 class="font-bold mt-text mb-3">Layanan paling sering dipesan</h3>
+        ${
+          top.length
+            ? top
+                .map(
+                  ([name, count], i) => `<div class="py-2.5 border-b flex justify-between text-sm" style="border-color: var(--mt-border);">
+                    <span class="mt-text">${i + 1}. ${escapeHTML(name)}</span>
+                    <b class="font-mono-code mt-text">${count} item</b>
+                  </div>`
+                )
+                .join('')
+            : '<p class="text-sm mt-muted">Belum ada data layanan pada periode ini.</p>'
+        }
+      </section>
+    </div>
+    <p class="text-xs mt-muted">Catatan: laporan mengelompokkan order berdasarkan tanggal dibuat. Pembayaran menampilkan akumulasi terkini dari setiap order, bukan histori kas per tanggal.</p>
+  `;
+
+  target.querySelector('[data-retry-reports]')?.addEventListener('click', renderReports);
+}
+
+// Workload assigns all estimated minutes to estimated_done_date; ready/completed orders are excluded immediately.
 function toLocalDateKey(date) {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -313,23 +669,31 @@ function getOrderEstimatedMinutes(order) {
   const items = order.order_items || [];
   return items.reduce((sum, item) => {
     const serviceName = String(item.service_type || '').trim().toLocaleLowerCase();
-    const service = workloadServices.find(entry =>
-      String(entry.name || '').trim().toLocaleLowerCase() === serviceName
+    const service = workloadServices.find(
+      (entry) => String(entry.name || '').trim().toLocaleLowerCase() === serviceName
     );
     return sum + (service ? Number(service.estimated_minutes || 0) : 0);
   }, 0);
 }
 
 function getWorkloadForDate(dateKey) {
-  const orders = allOrders.filter(order =>
-    order.estimated_done_date === dateKey && !['ready', 'completed'].includes(order.status)
+  const orders = allOrders.filter(
+    (order) => order.estimated_done_date === dateKey && !['ready', 'completed'].includes(order.status)
   );
   const minutes = orders.reduce((sum, order) => sum + getOrderEstimatedMinutes(order), 0);
   const unknownItems = orders.reduce((sum, order) => {
     const items = order.order_items || [];
-    return sum + items.filter(item => !workloadServices.some(service =>
-      String(service.name || '').trim().toLocaleLowerCase() === String(item.service_type || '').trim().toLocaleLowerCase()
-    )).length;
+    return (
+      sum +
+      items.filter(
+        (item) =>
+          !workloadServices.some(
+            (service) =>
+              String(service.name || '').trim().toLocaleLowerCase() ===
+              String(item.service_type || '').trim().toLocaleLowerCase()
+          )
+      ).length
+    );
   }, 0);
   const capacity = Number(workshopSettings.DAILY_CAPACITY_MINUTES || 480);
   return { orders, minutes, capacity, percent: capacity > 0 ? (minutes / capacity) * 100 : 0, unknownItems };
@@ -359,7 +723,6 @@ function renderWorkloadCalendar() {
   const selectedLoadEl = document.getElementById('workload-selected-load');
   const selectedProgress = document.getElementById('workload-selected-progress');
   const selectedNote = document.getElementById('workload-selected-note');
-  const selectedCount = document.getElementById('workload-selected-count');
 
   const year = workloadViewMonth.getFullYear();
   const month = workloadViewMonth.getMonth();
@@ -377,18 +740,21 @@ function renderWorkloadCalendar() {
     const date = new Date(year, month, dayNumber);
     const key = toLocalDateKey(date);
     const inMonth = date.getMonth() === month;
-    const workload = inMonth ? getWorkloadForDate(key) : { orders: [], minutes: 0, capacity: Number(workshopSettings.DAILY_CAPACITY_MINUTES || 480), percent: 0 };
+    const workload = inMonth
+      ? getWorkloadForDate(key)
+      : { orders: [], minutes: 0, capacity: Number(workshopSettings.DAILY_CAPACITY_MINUTES || 480), percent: 0 };
     const level = workloadLevel(workload.percent, workload.orders.length);
     const selected = key === workloadSelectedDate;
-    const percent = Math.min(100, Math.round(workload.percent));
     markup += `
       <button type="button" class="mt-calendar-day ${inMonth ? '' : 'is-outside'} ${workload.orders.length ? level : 'workload-empty'} ${selected ? 'is-selected' : ''} ${key === todayKey ? 'is-today' : ''}"
-        data-workload-date="${key}" ${inMonth ? '' : 'disabled'} aria-pressed="${selected}">
+        data-workload-date="${key}" ${inMonth ? '' : 'disabled'} aria-pressed="${selected}" aria-label="${formatDateID(key)}, ${workload.orders.length} order">
         <span class="mt-calendar-day-number">${date.getDate()}</span>
-        ${inMonth && workload.orders.length ? `
-          <span class="mt-calendar-day-count">${workload.orders.length} order</span>
-          <span class="mt-calendar-day-percent">${workload.percent > 100 ? 'Over 100%' : `${Math.round(workload.percent)}%`}</span>
-        ` : `<span class="mt-calendar-day-empty">${inMonth ? '—' : ''}</span>`}
+        ${
+          inMonth && workload.orders.length
+            ? `<span class="mt-calendar-day-count">${workload.orders.length} order</span>
+               <span class="mt-calendar-day-percent font-mono-code">${workload.percent > 100 ? 'Over' : `${Math.round(workload.percent)}%`}</span>`
+            : `<span class="mt-calendar-day-empty">${inMonth ? '-' : ''}</span>`
+        }
       </button>`;
   }
   grid.innerHTML = markup;
@@ -402,25 +768,16 @@ function renderWorkloadCalendar() {
   selectedProgress.style.width = `${Math.min(100, Math.round(selected.percent))}%`;
   selectedProgress.className = `mt-calendar-progress-fill ${workloadLevel(selected.percent, selected.orders.length)}`;
   selectedNote.textContent = selected.unknownItems
-    ? `${selected.orders.length} order terjadwal. ${selected.unknownItems} item belum memiliki estimasi layanan yang cocok di Pengaturan Toko, sehingga belum masuk hitungan durasi.`
+    ? `${selected.orders.length} order terjadwal. ${selected.unknownItems} item belum memiliki estimasi layanan di katalog, sehingga belum masuk hitungan durasi.`
     : selected.orders.length
       ? `${selected.orders.length} order terjadwal pada tanggal ini. Order Siap Diambil dan Selesai tidak dihitung.`
       : 'Tidak ada order aktif yang dijadwalkan selesai pada tanggal ini.';
-  if (selectedCount) selectedCount.textContent = `${selected.orders.length} order`;
-  const dateFilterLabel = document.getElementById('workload-date-filter-label');
-  if (dateFilterLabel) {
-    dateFilterLabel.textContent = workloadDateFilter
-      ? `Filter tanggal: ${new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }).format(parseLocalDateKey(workloadDateFilter))}`
-      : 'Semua tanggal';
-  }
-  const clearDateFilterBtn = document.getElementById('clear-workload-date-filter');
-  if (clearDateFilterBtn) clearDateFilterBtn.classList.toggle('hidden', !workloadDateFilter);
 }
 
 async function loadWorkloadServices() {
   try {
     workloadServices = await fetchServices();
-    activeServiceCatalog = workloadServices.filter(service => service.is_active);
+    activeServiceCatalog = workloadServices.filter((service) => service.is_active);
   } catch (error) {
     console.warn('Katalog estimasi beban kerja gagal dimuat:', error);
     workloadServices = [];
@@ -445,59 +802,44 @@ function bindWorkloadCalendarEvents() {
     workloadSelectedDate = toLocalDateKey(today);
     renderWorkloadCalendar();
   });
-  document.getElementById('workload-calendar-grid')?.addEventListener('click', event => {
+  document.getElementById('workload-calendar-grid')?.addEventListener('click', (event) => {
     const day = event.target.closest('[data-workload-date]');
     if (!day || day.disabled) return;
     workloadSelectedDate = day.dataset.workloadDate;
     workloadDateFilter = workloadSelectedDate;
     renderWorkloadCalendar();
     renderOrdersList();
-    if (!document.getElementById('reports-page')?.classList.contains('hidden')) renderReports();
-    if (!document.getElementById('archive-page')?.classList.contains('hidden')) renderArchiveOrders();
-    document.getElementById('orders-list-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  });
-  document.getElementById('clear-workload-date-filter')?.addEventListener('click', () => {
-    workloadDateFilter = null;
-    renderWorkloadCalendar();
-    renderOrdersList();
   });
 }
 
-// ============================================================================
-// INITIALIZATION & AUTH GUARD
-// ============================================================================
 document.addEventListener('DOMContentLoaded', async () => {
   mountSeparatedManagementPages();
   applyStoreSettings();
-  fetchStoreSettings().then(settings => { workshopSettings = settings; applyStoreSettings(); }).catch(console.warn);
+  fetchStoreSettings()
+    .then((settings) => {
+      workshopSettings = settings;
+      applyStoreSettings();
+    })
+    .catch(console.warn);
   if (window.lucide) window.lucide.createIcons();
   initConnectionMonitor('connection-badge');
   bindGlobalEvents();
 
   if (!isSupabaseConfigured) {
-    showAuthError(
-      'Kredensial Supabase belum diisi di js/config.js. Silakan lengkapi URL dan Anon Key terlebih dahulu.'
-    );
+    showAuthError('Kredensial Supabase belum diisi di js/config.js. Lengkapi URL dan Anon Key terlebih dahulu.');
     return;
   }
 
-  // Cek sesi login aktif
   const {
     data: { session },
   } = await supabase.auth.getSession();
 
-  if (session) {
-    enterWorkspace();
-  } else {
-    showAuthScreen();
-  }
+  if (session) enterWorkspace();
+  else showAuthScreen();
 
   supabase.auth.onAuthStateChange((_event, newSession) => {
-    if (newSession) {
-      enterWorkspace();
-    } else {
-      showAuthScreen();
-    }
+    if (newSession) enterWorkspace();
+    else showAuthScreen();
   });
 });
 
@@ -521,20 +863,22 @@ function showAuthError(msg) {
   authErrorBox.classList.remove('hidden');
 }
 
-// ============================================================================
-// EVENT BINDINGS
-// ============================================================================
-
 let orderDatePickerMonth = new Date();
 let orderDatePickerSelectedDate = '';
+
 function renderOrderDatePicker() {
   const grid = document.getElementById('order-date-grid');
   if (!grid) return;
-  const y = orderDatePickerMonth.getFullYear(), m = orderDatePickerMonth.getMonth();
-  document.getElementById('order-date-month').textContent = new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(orderDatePickerMonth);
+  const y = orderDatePickerMonth.getFullYear();
+  const m = orderDatePickerMonth.getMonth();
+  document.getElementById('order-date-month').textContent = new Intl.DateTimeFormat('id-ID', {
+    month: 'long',
+    year: 'numeric',
+  }).format(orderDatePickerMonth);
   const offset = (new Date(y, m, 1).getDay() + 6) % 7;
   const count = new Date(y, m + 1, 0).getDate();
   const selected = orderDatePickerSelectedDate || toLocalDateKey(new Date());
+
   let html = '';
   for (let i = 0; i < offset; i++) html += '<span></span>';
   for (let d = 1; d <= count; d++) {
@@ -543,7 +887,7 @@ function renderOrderDatePicker() {
     const today = key === toLocalDateKey(new Date());
     const level = workloadLevel(workload.percent, workload.orders.length);
     const isSelected = selected === key;
-    html += `<button type="button" data-order-date="${key}" aria-pressed="${isSelected}" class="order-date-day ${level} min-h-[42px] rounded-lg border flex items-center justify-center font-semibold ${isSelected ? 'is-selected' : ''} ${today ? 'is-today' : ''}"><span class="text-xs">${d}</span></button>`;
+    html += `<button type="button" data-order-date="${key}" aria-pressed="${isSelected}" aria-label="${formatDateID(key)}" class="order-date-day ${level} ${isSelected ? 'is-selected' : ''} ${today ? 'is-today' : ''}"><span>${d}</span></button>`;
   }
   grid.innerHTML = html;
 
@@ -552,11 +896,22 @@ function renderOrderDatePicker() {
   const progress = document.getElementById('order-date-workload');
   if (progress) {
     const safeWidth = Math.max(0, Math.min(100, selectedWorkload.percent));
-    progress.innerHTML = `<div class="flex items-center justify-between gap-2 mb-1.5"><span class="text-[11px] font-medium text-slate-500">Kapasitas terpakai · ${escapeHTML(formatDateID(selected))}</span><strong class="text-sm font-bold tabular-nums">${selectedPercent}%</strong></div><div class="h-2.5 rounded-full overflow-hidden bg-slate-200"><div class="h-full rounded-full ${selectedWorkload.percent > 100 ? 'bg-rose-600' : selectedWorkload.percent >= 80 ? 'bg-amber-500' : 'bg-emerald-600'}" style="width:${safeWidth}%"></div></div>`;
+    const fillLevel = workloadLevel(selectedWorkload.percent, selectedWorkload.orders.length);
+    progress.innerHTML = `
+      <div class="flex items-center justify-between gap-2 mb-1.5">
+        <span class="text-xs font-medium mt-muted">Kapasitas · ${escapeHTML(formatDateID(selected))}</span>
+        <strong class="text-sm font-bold font-mono-code mt-text">${selectedPercent}%</strong>
+      </div>
+      <div class="mt-calendar-progress-track">
+        <div class="mt-calendar-progress-fill ${fillLevel}" style="width:${safeWidth}%"></div>
+      </div>`;
   }
 }
-function openOrderDatePicker(){
-  const pop=document.getElementById('order-date-picker'), input=document.getElementById('form-estimated-date'); if(!pop||!input)return;
+
+function openOrderDatePicker() {
+  const pop = document.getElementById('order-date-picker');
+  const input = document.getElementById('form-estimated-date');
+  if (!pop || !input) return;
   const current = parseLocalDateKey(input.value);
   orderDatePickerSelectedDate = input.value || toLocalDateKey(new Date());
   orderDatePickerMonth = new Date(current || new Date());
@@ -565,18 +920,40 @@ function openOrderDatePicker(){
   input.setAttribute('aria-expanded', 'true');
   renderOrderDatePicker();
 }
-function closeOrderDatePicker(){document.getElementById('order-date-picker')?.classList.add('hidden');document.getElementById('form-estimated-date')?.setAttribute('aria-expanded','false');}
-function bindOrderDatePicker(){
-  const input=document.getElementById('form-estimated-date');
+
+function closeOrderDatePicker() {
+  document.getElementById('order-date-picker')?.classList.add('hidden');
+  document.getElementById('form-estimated-date')?.setAttribute('aria-expanded', 'false');
+}
+
+function bindOrderDatePicker() {
+  const input = document.getElementById('form-estimated-date');
   input?.addEventListener('click', () => {
     const pop = document.getElementById('order-date-picker');
     if (pop && !pop.classList.contains('hidden')) closeOrderDatePicker();
     else openOrderDatePicker();
   });
-  document.getElementById('order-date-prev')?.addEventListener('click',()=>{orderDatePickerMonth=new Date(orderDatePickerMonth.getFullYear(),orderDatePickerMonth.getMonth()-1,1);renderOrderDatePicker();});
-  document.getElementById('order-date-next')?.addEventListener('click',()=>{orderDatePickerMonth=new Date(orderDatePickerMonth.getFullYear(),orderDatePickerMonth.getMonth()+1,1);renderOrderDatePicker();});
-  document.getElementById('order-date-today')?.addEventListener('click',()=>{const d=new Date();orderDatePickerSelectedDate=toLocalDateKey(d);orderDatePickerMonth=new Date(d.getFullYear(),d.getMonth(),1);renderOrderDatePicker();});
-  document.getElementById('order-date-grid')?.addEventListener('click', event => {
+  input?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openOrderDatePicker();
+    }
+  });
+  document.getElementById('order-date-prev')?.addEventListener('click', () => {
+    orderDatePickerMonth = new Date(orderDatePickerMonth.getFullYear(), orderDatePickerMonth.getMonth() - 1, 1);
+    renderOrderDatePicker();
+  });
+  document.getElementById('order-date-next')?.addEventListener('click', () => {
+    orderDatePickerMonth = new Date(orderDatePickerMonth.getFullYear(), orderDatePickerMonth.getMonth() + 1, 1);
+    renderOrderDatePicker();
+  });
+  document.getElementById('order-date-today')?.addEventListener('click', () => {
+    const d = new Date();
+    orderDatePickerSelectedDate = toLocalDateKey(d);
+    orderDatePickerMonth = new Date(d.getFullYear(), d.getMonth(), 1);
+    renderOrderDatePicker();
+  });
+  document.getElementById('order-date-grid')?.addEventListener('click', (event) => {
     const button = event.target.closest('[data-order-date]');
     if (!button) return;
     orderDatePickerSelectedDate = button.dataset.orderDate;
@@ -585,29 +962,133 @@ function bindOrderDatePicker(){
   document.getElementById('order-date-confirm')?.addEventListener('click', () => {
     if (!orderDatePickerSelectedDate) return;
     input.value = orderDatePickerSelectedDate;
+    clearEstimatedDateError();
     input.dispatchEvent(new Event('change', { bubbles: true }));
+    triggerAutoSaveDraft();
     closeOrderDatePicker();
+    input.focus();
   });
-  document.addEventListener('click', e => { const pop = document.getElementById('order-date-picker'); if (!pop || pop.classList.contains('hidden')) return; const path = typeof e.composedPath === 'function' ? e.composedPath() : []; const clickedInside = path.includes(pop) || pop.contains(e.target); if (!clickedInside && e.target !== input) closeOrderDatePicker(); });
+  document.addEventListener('click', (e) => {
+    const pop = document.getElementById('order-date-picker');
+    if (!pop || pop.classList.contains('hidden')) return;
+    const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+    const clickedInside = path.includes(pop) || pop.contains(e.target);
+    if (!clickedInside && e.target !== input) closeOrderDatePicker();
+  });
+}
+
+function closeActiveDialogOnEscape() {
+  const datePicker = document.getElementById('order-date-picker');
+  if (datePicker && !datePicker.classList.contains('hidden')) {
+    closeOrderDatePicker();
+    document.getElementById('form-estimated-date')?.focus();
+    return;
+  }
+  const serviceEditModal = document.getElementById('service-edit-modal');
+  if (serviceEditModal && !serviceEditModal.classList.contains('hidden')) {
+    closeServiceEditModal();
+    return;
+  }
+  const storeModal = document.getElementById('store-settings-modal');
+  if (storeModal && !storeModal.classList.contains('hidden')) {
+    closeStoreSettings();
+    return;
+  }
+  const customerFormModal = document.getElementById('customer-form-modal');
+  if (customerFormModal && !customerFormModal.classList.contains('hidden')) {
+    closeCustomerCreateForm();
+    return;
+  }
+  const customerDetailModal = document.getElementById('customer-detail-modal');
+  if (customerDetailModal && !customerDetailModal.classList.contains('hidden')) {
+    closeCustomerDetailModal();
+    return;
+  }
+  const cashModal = document.getElementById('cash-modal');
+  if (cashModal && !cashModal.classList.contains('hidden')) {
+    closeCashModal();
+    return;
+  }
+  if (receiptModal && !receiptModal.classList.contains('hidden')) {
+    closeReceiptModal();
+    return;
+  }
+  if (paymentModal && !paymentModal.classList.contains('hidden')) {
+    closePaymentModal();
+    return;
+  }
+  if (orderFormModal && !orderFormModal.classList.contains('hidden')) {
+    closeOrderModal();
+  }
+}
+
+function closeCashModal() {
+  document.getElementById('cash-modal')?.classList.add('hidden');
+  restoreTriggerFocus();
+}
+
+function closePaymentModal() {
+  paymentModal?.classList.add('hidden');
+  restoreTriggerFocus();
+}
+
+function closeReceiptModal() {
+  receiptModal?.classList.add('hidden');
+  restoreTriggerFocus();
+}
+
+function closeCustomerDetailModal() {
+  document.getElementById('customer-detail-modal')?.classList.add('hidden');
+  const heading = document.getElementById('customer-detail-title');
+  if (heading) heading.textContent = 'Detail Pelanggan';
+  restoreTriggerFocus();
+}
+
+function resetOrderFilters() {
+  searchQuery = '';
+  orderStatusFilter = 'all';
+  workloadDateFilter = null;
+  if (adminSearchInput) adminSearchInput.value = '';
+  const statusSelect = document.getElementById('order-status-filter');
+  if (statusSelect) statusSelect.value = 'all';
+  renderWorkloadCalendar();
+  renderOrdersList();
 }
 
 function bindGlobalEvents() {
-  document.querySelectorAll('[data-app-page]').forEach(button => button.addEventListener('click', () => {
-    const page = button.dataset.appPage;
-    if (page === 'settings') { openStoreSettings(); return; }
-    showAppPage(page);
-  }));
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeActiveDialogOnEscape();
+  });
+
+  document.querySelectorAll('[data-app-page]').forEach((button) =>
+    button.addEventListener('click', () => {
+      const page = button.dataset.appPage;
+      if (page === 'settings') {
+        openStoreSettings();
+        return;
+      }
+      showAppPage(page);
+    })
+  );
+
   document.getElementById('report-period')?.addEventListener('change', renderReports);
   bindOrderDatePicker();
   document.getElementById('cash-period')?.addEventListener('change', renderCash);
   document.getElementById('cash-add-btn')?.addEventListener('click', openCashModal);
-  document.getElementById('cash-modal-close')?.addEventListener('click', () => document.getElementById('cash-modal')?.classList.add('hidden'));
+  document.getElementById('cash-modal-close')?.addEventListener('click', closeCashModal);
+  document.getElementById('cash-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'cash-modal') closeCashModal();
+  });
   document.getElementById('cash-type')?.addEventListener('change', updateCashCategoryOptions);
   document.getElementById('cash-form')?.addEventListener('submit', submitCashForm);
   document.getElementById('sidebar-new-order-btn')?.addEventListener('click', () => openOrderModal(null));
-  document.getElementById('archive-orders-list')?.addEventListener('click', event => { const button = event.target.closest('[data-edit-order]'); if (!button) return; const order = allOrders.find(item => item.id === button.dataset.editOrder); if (order) openOrderModal(order); });
+  document.getElementById('archive-orders-list')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-edit-order]');
+    if (!button) return;
+    const order = allOrders.find((item) => item.id === button.dataset.editOrder);
+    if (order) openOrderModal(order);
+  });
 
-  // Login Submit
   loginForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
     authErrorBox?.classList.add('hidden');
@@ -622,27 +1103,21 @@ function bindGlobalEvents() {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
     } catch (err) {
-      showAuthError(err.message || 'Gagal masuk. Periksa email dan password.');
+      showAuthError(err.message || 'Gagal masuk. Periksa email dan kata sandi.');
     } finally {
       submitBtn.disabled = false;
-      submitBtn.innerHTML =
-        '<i data-lucide="log-in" class="w-4 h-4"></i><span>Masuk ke Workshop</span>';
+      submitBtn.innerHTML = '<i data-lucide="log-in" class="w-4 h-4" aria-hidden="true"></i><span>Masuk ke Workshop</span>';
       if (window.lucide) window.lucide.createIcons();
     }
   });
 
-  // Header menu and store settings
-  headerMenuBtn?.addEventListener('click', () => {
-    const isOpen = !headerMenuPanel?.classList.contains('hidden');
-    headerMenuPanel?.classList.toggle('hidden', isOpen);
-    headerMenuBtn.setAttribute('aria-expanded', String(!isOpen));
-  });
   openStoreSettingsBtn?.addEventListener('click', openStoreSettings);
   document.getElementById('close-store-settings-btn')?.addEventListener('click', closeStoreSettings);
   document.getElementById('cancel-store-settings-btn')?.addEventListener('click', closeStoreSettings);
   document.getElementById('store-settings-modal')?.addEventListener('click', (event) => {
     if (event.target.id === 'store-settings-modal') closeStoreSettings();
   });
+
   document.getElementById('store-logo-input')?.addEventListener('change', async (event) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -655,10 +1130,12 @@ function bindGlobalEvents() {
       event.target.value = '';
     }
   });
+
   document.getElementById('remove-store-logo-btn')?.addEventListener('click', () => {
     document.getElementById('store-settings-modal').dataset.pendingLogo = '';
     renderStoreLogoPreview('');
   });
+
   document.getElementById('store-settings-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const modal = document.getElementById('store-settings-modal');
@@ -668,7 +1145,9 @@ function bindGlobalEvents() {
       ADMIN_PHONE: normalizePhone(document.getElementById('store-phone-input').value),
       TAGLINE: document.getElementById('store-tagline-input').value.trim(),
       OPENING_HOURS: document.getElementById('store-hours-input').value.trim(),
-      DAILY_CAPACITY_MINUTES: Number(document.getElementById('daily-capacity-hours').value || 0) * 60 + Number(document.getElementById('daily-capacity-minutes').value || 0),
+      DAILY_CAPACITY_MINUTES:
+        Number(document.getElementById('daily-capacity-hours').value || 0) * 60 +
+        Number(document.getElementById('daily-capacity-minutes').value || 0),
       LOGO: Object.prototype.hasOwnProperty.call(modal.dataset, 'pendingLogo')
         ? modal.dataset.pendingLogo
         : workshopSettings.LOGO,
@@ -677,7 +1156,10 @@ function bindGlobalEvents() {
       alert('Nama toko wajib diisi.');
       return;
     }
-    if (!Number.isInteger(settings.DAILY_CAPACITY_MINUTES) || settings.DAILY_CAPACITY_MINUTES <= 0) { alert('Kapasitas harian harus lebih dari 0 menit.'); return; }
+    if (!Number.isInteger(settings.DAILY_CAPACITY_MINUTES) || settings.DAILY_CAPACITY_MINUTES <= 0) {
+      alert('Kapasitas harian harus lebih dari 0 menit.');
+      return;
+    }
     try {
       await persistStoreSettings(settings);
       workshopSettings = await fetchStoreSettings();
@@ -685,28 +1167,38 @@ function bindGlobalEvents() {
       renderWorkloadCalendar();
       delete modal.dataset.pendingLogo;
       closeStoreSettings();
-      alert('Pengaturan toko berhasil disimpan di Supabase.');
+      alert('Pengaturan toko berhasil disimpan.');
     } catch (error) {
-      alert('Gagal menyimpan ke Supabase: ' + (error.message || 'Periksa tabel, kebijakan akses, dan koneksi.'));
+      alert('Gagal menyimpan pengaturan: ' + (error.message || 'Periksa tabel, kebijakan akses, dan koneksi.'));
     }
   });
 
   document.getElementById('add-service-btn')?.addEventListener('click', async (event) => {
     const button = event.currentTarget;
     const nameInput = document.getElementById('service-name-input');
+    const categoryInput = document.getElementById('service-category-input');
     const hoursInput = document.getElementById('service-hours-input');
     const minutesInput = document.getElementById('service-minutes-input');
     const hours = Number(hoursInput.value || 0);
     const minutes = Number(minutesInput.value || 0);
     const total = hours * 60 + minutes;
     const name = nameInput.value.trim();
-    if (!name) { alert('Masukkan nama layanan.'); nameInput.focus(); return; }
-    if (!Number.isInteger(hours) || hours < 0 || !Number.isInteger(minutes) || minutes < 0 || minutes > 59 || total <= 0) { alert('Estimasi layanan harus lebih dari 0 menit.'); return; }
+    const category = categoryInput?.value === 'custom' ? 'custom' : 'reparasi';
+    if (!name) {
+      alert('Masukkan nama layanan.');
+      nameInput.focus();
+      return;
+    }
+    if (!Number.isInteger(hours) || hours < 0 || !Number.isInteger(minutes) || minutes < 0 || minutes > 59 || total <= 0) {
+      alert('Estimasi layanan harus lebih dari 0 menit.');
+      return;
+    }
     button.disabled = true;
     button.textContent = 'Menyimpan...';
     try {
-      await createService(name, total);
+      await createService(name, total, category);
       nameInput.value = '';
+      if (categoryInput) categoryInput.value = 'reparasi';
       hoursInput.value = '1';
       minutesInput.value = '0';
       await renderServicesList();
@@ -714,23 +1206,28 @@ function bindGlobalEvents() {
       renderWorkloadCalendar();
     } catch (error) {
       console.error('Gagal menambah layanan:', error);
-      alert('Gagal menambah layanan: ' + (error.message || 'Periksa hak akses tabel services dan policy RLS.'));
+      alert('Gagal menambah layanan: ' + (error.message || 'Periksa hak akses tabel services.'));
     } finally {
       button.disabled = false;
       button.textContent = 'Tambah Layanan';
     }
   });
+
+  document.getElementById('close-service-edit-btn')?.addEventListener('click', closeServiceEditModal);
+  document.getElementById('cancel-service-edit-btn')?.addEventListener('click', closeServiceEditModal);
+  document.getElementById('service-edit-modal')?.addEventListener('click', (event) => {
+    if (event.target.id === 'service-edit-modal') closeServiceEditModal();
+  });
+  document.getElementById('service-edit-form')?.addEventListener('submit', handleServiceEditSubmit);
+
   document.getElementById('services-list')?.addEventListener('click', async (event) => {
     const editButton = event.target.closest('[data-edit-service]');
     const disableButton = event.target.closest('[data-disable-service]');
     const activateButton = event.target.closest('[data-activate-service]');
     if (editButton) {
       const id = editButton.dataset.editService;
-      const current = (await fetchServices()).find(item => item.id === id); if (!current) return;
-      const name = prompt('Nama layanan:', current.name); if (name === null) return;
-      const duration = prompt('Estimasi dalam menit:', String(current.estimated_minutes)); if (duration === null) return;
-      const total = Number(duration); if (!name.trim() || !Number.isInteger(total) || total <= 0) return alert('Nama dan estimasi lebih dari 0 menit wajib diisi.');
-      try { await updateService(id, name.trim(), total); await renderServicesList(); await loadWorkloadServices(); renderWorkloadCalendar(); } catch (error) { alert('Gagal mengubah layanan: ' + error.message); }
+      const current = (await fetchServices()).find((item) => item.id === id);
+      if (current) openServiceEditModal(current);
     }
     if (disableButton && confirm('Nonaktifkan layanan ini? Riwayat order tidak akan dihapus.')) {
       try {
@@ -738,7 +1235,9 @@ function bindGlobalEvents() {
         await renderServicesList();
         await loadWorkloadServices();
         renderWorkloadCalendar();
-      } catch (error) { alert('Gagal menonaktifkan layanan: ' + error.message); }
+      } catch (error) {
+        alert('Gagal menonaktifkan layanan: ' + error.message);
+      }
     }
     if (activateButton) {
       try {
@@ -746,25 +1245,18 @@ function bindGlobalEvents() {
         await renderServicesList();
         await loadWorkloadServices();
         renderWorkloadCalendar();
-      } catch (error) { alert('Gagal mengaktifkan layanan: ' + error.message); }
+      } catch (error) {
+        alert('Gagal mengaktifkan layanan: ' + error.message);
+      }
     }
   });
 
-  document.addEventListener('click', (event) => {
-    if (!event.target.closest('#header-menu-btn') && !event.target.closest('#header-menu-panel')) {
-      headerMenuPanel?.classList.add('hidden');
-      headerMenuBtn?.setAttribute('aria-expanded', 'false');
-    }
-  });
-
-  // Logout
   logoutBtn?.addEventListener('click', async () => {
     await supabase.auth.signOut();
   });
 
   bindWorkloadCalendarEvents();
 
-  // Search & Filter
   adminSearchInput?.addEventListener(
     'input',
     debounce((e) => {
@@ -777,33 +1269,30 @@ function bindGlobalEvents() {
     orderStatusFilter = event.target.value || 'all';
     renderOrdersList();
   });
-  document.getElementById('clear-order-filters')?.addEventListener('click', () => {
-    searchQuery = '';
-    orderStatusFilter = 'all';
-    workloadDateFilter = null;
-    if (adminSearchInput) adminSearchInput.value = '';
-    const statusSelect = document.getElementById('order-status-filter');
-    if (statusSelect) statusSelect.value = 'all';
-    renderWorkloadCalendar();
-    renderOrdersList();
-  });
+  document.getElementById('clear-order-filters')?.addEventListener('click', resetOrderFilters);
   refreshOrdersBtn?.addEventListener('click', () => renderOrdersList());
-  document.getElementById('bottom-nav-customers')?.addEventListener('click', showCustomersPage);
-  document.getElementById('bottom-nav-orders')?.addEventListener('click', showOrdersPage);
+
+  document.getElementById('bottom-nav-customers')?.addEventListener('click', () => showAppPage('customers'));
+  document.getElementById('bottom-nav-orders')?.addEventListener('click', () => showAppPage('orders'));
   document.getElementById('customers-search-input')?.addEventListener('input', debounce(renderCustomersList, 200));
   document.getElementById('open-add-customer-from-list-btn')?.addEventListener('click', openCustomerCreateForm);
   document.getElementById('close-customer-form-btn')?.addEventListener('click', closeCustomerCreateForm);
   document.getElementById('cancel-customer-form-btn')?.addEventListener('click', closeCustomerCreateForm);
+  document.getElementById('customer-form-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'customer-form-modal') closeCustomerCreateForm();
+  });
   document.getElementById('customer-create-form')?.addEventListener('submit', handleCustomerCreateSubmit);
   customersList?.addEventListener('click', handleCustomerListAction);
-  document.getElementById('close-customer-detail-btn')?.addEventListener('click', () => { document.getElementById('customer-detail-modal')?.classList.add('hidden'); const h = document.querySelector('#customer-detail-modal h3'); if (h) h.textContent = 'Detail Pelanggan'; });
+  document.getElementById('close-customer-detail-btn')?.addEventListener('click', closeCustomerDetailModal);
+  document.getElementById('customer-detail-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'customer-detail-modal') closeCustomerDetailModal();
+  });
   document.getElementById('customer-detail-content')?.addEventListener('click', handleCustomerDetailAction);
   document.getElementById('customer-detail-content')?.addEventListener('change', handleMeasurementFormChange);
   document.getElementById('customer-detail-content')?.addEventListener('submit', handleCustomerEditSubmit);
   document.getElementById('measurement-templates-list')?.addEventListener('click', handleMeasurementTemplateAction);
   document.getElementById('add-measurement-template-btn')?.addEventListener('click', addMeasurementTemplate);
 
-  // Draft Banner Actions
   restoreDraftBtn?.addEventListener('click', () => {
     const draft = loadOrderDraft();
     if (draft && draft.data) {
@@ -811,19 +1300,20 @@ function bindGlobalEvents() {
       draftBanner?.classList.add('hidden');
     }
   });
-
   discardDraftBtn?.addEventListener('click', () => {
     clearOrderDraft();
     draftBanner?.classList.add('hidden');
   });
 
-  // Order Modal Triggers
   openNewOrderBtn?.addEventListener('click', () => {
     const selectedDate = workloadDateFilter || workloadSelectedDate;
     openOrderModal(null, { estimated_done_date: selectedDate });
   });
   closeOrderModalBtn?.addEventListener('click', closeOrderModal);
   cancelOrderModalBtn?.addEventListener('click', closeOrderModal);
+  orderFormModal?.addEventListener('click', (e) => {
+    if (e.target === orderFormModal) closeOrderModal();
+  });
 
   addItemRowBtn?.addEventListener('click', () => {
     appendItemRow();
@@ -841,39 +1331,47 @@ function bindGlobalEvents() {
   });
 
   const customerPhoneInput = document.getElementById('form-customer-phone');
-  customerPhoneInput?.addEventListener('input', debounce(() => {
-    checkCustomerPhoneInForm();
-  }, 450));
+  customerPhoneInput?.addEventListener(
+    'input',
+    debounce(() => {
+      checkCustomerPhoneInForm();
+    }, 450)
+  );
   customerPhoneInput?.addEventListener('blur', checkCustomerPhoneInForm);
-
   orderCrudForm?.addEventListener('submit', handleSaveOrderSubmit);
 
-  // Payment Modal Triggers
-  closePaymentModalBtn?.addEventListener('click', () => paymentModal?.classList.add('hidden'));
+  closePaymentModalBtn?.addEventListener('click', closePaymentModal);
+  paymentModal?.addEventListener('click', (e) => {
+    if (e.target === paymentModal) closePaymentModal();
+  });
   payFullQuickBtn?.addEventListener('click', () => {
     const total = Number(payFullQuickBtn.dataset.totalAmount || 0);
     document.getElementById('pay-new-paid-input').value = total;
   });
   paymentForm?.addEventListener('submit', handlePaymentSubmit);
 
-  // Receipt Modal Triggers
-  closeReceiptModalBtn?.addEventListener('click', () => receiptModal?.classList.add('hidden'));
+  closeReceiptModalBtn?.addEventListener('click', closeReceiptModal);
+  receiptModal?.addEventListener('click', (e) => {
+    if (e.target === receiptModal) closeReceiptModal();
+  });
   printReceiptBtn?.addEventListener('click', () => window.print());
   copyReceiptWaBtn?.addEventListener('click', handleSendReceiptViaWA);
-
-  // WA Toast Close
   closeWaToastBtn?.addEventListener('click', () => waReadyToast?.classList.add('hidden'));
 }
 
-// ============================================================================
-// CUSTOMER DIRECTORY
-// ============================================================================
 async function fetchCustomers() {
   if (!customersList) return;
-  customersList.innerHTML = '<p class="py-5 text-center text-sm text-slate-500">Memuat pelanggan...</p>';
-  const { data, error } = await supabase.from('customers').select('id, name, phone, created_at, updated_at').order('name', { ascending: true });
+  customersList.innerHTML = '<p class="py-5 text-center text-sm mt-muted" role="status">Memuat pelanggan...</p>';
+  const { data, error } = await supabase
+    .from('customers')
+    .select('id, name, phone, created_at, updated_at')
+    .order('name', { ascending: true });
   if (error) {
-    customersList.innerHTML = `<p class="py-5 text-sm text-rose-600">Gagal memuat pelanggan: ${escapeHTML(error.message)}</p>`;
+    customersList.innerHTML = `<div role="alert" class="py-4 text-sm mt-danger-text flex items-center justify-between gap-2">
+      <span>Gagal memuat pelanggan: ${escapeHTML(error.message)}</span>
+      <button type="button" data-retry-customers class="mt-btn mt-btn-secondary text-xs">Muat ulang</button>
+    </div>`;
+    customersList.querySelector('[data-retry-customers]')?.addEventListener('click', fetchCustomers);
     return;
   }
   customerRecords = data || [];
@@ -883,24 +1381,36 @@ async function fetchCustomers() {
 function renderCustomersList() {
   if (!customersList) return;
   const query = (document.getElementById('customers-search-input')?.value || '').trim().toLowerCase();
-  const filtered = customerRecords.filter(customer => `${customer.name} ${customer.phone}`.toLowerCase().includes(query));
+  const filtered = customerRecords.filter((customer) =>
+    `${customer.name} ${customer.phone}`.toLowerCase().includes(query)
+  );
   const count = document.getElementById('customers-count');
-  if (count) count.textContent = `${customerRecords.length} pelanggan`;
+  if (count) count.textContent = `${customerRecords.length} pelanggan terdaftar`;
   if (!filtered.length) {
-    customersList.innerHTML = '<p class="py-6 text-center text-sm text-slate-500">Belum ada pelanggan yang cocok.</p>';
+    customersList.innerHTML = query
+      ? '<p class="py-6 text-center text-sm mt-muted">Tidak ada pelanggan yang cocok dengan kata kunci tersebut.</p>'
+      : '<p class="py-6 text-center text-sm mt-muted">Belum ada pelanggan terdaftar. Gunakan tombol Tambah Pelanggan di atas.</p>';
     return;
   }
-  customersList.innerHTML = filtered.map(customer => `
-    <div class="py-3 flex items-center gap-2 border-b border-slate-100 last:border-0 min-w-0">
+  customersList.innerHTML = filtered
+    .map(
+      (customer) => `
+    <div class="py-3 flex items-center gap-2 border-b last:border-0 min-w-0" style="border-color: var(--mt-border);">
       <div class="min-w-0 flex-1 text-left">
-        <span class="block text-sm font-semibold text-slate-900 truncate">${escapeHTML(customer.name)}</span>
-        <span class="block text-xs text-slate-500 font-mono-code truncate">${escapeHTML(customer.phone)}</span>
+        <span class="block text-sm font-semibold mt-text truncate">${escapeHTML(customer.name)}</span>
+        <span class="block text-xs mt-muted font-mono-code truncate">${escapeHTML(customer.phone)}</span>
       </div>
       <div class="flex items-center gap-2 shrink-0">
-        <button type="button" data-customer-edit="${customer.id}" class="h-10 w-10 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 inline-flex items-center justify-center" title="Edit pelanggan" aria-label="Edit pelanggan"><i data-lucide="pencil" class="w-4 h-4"></i></button>
-        <button type="button" data-customer-order="${customer.id}" class="h-10 w-10 rounded-lg bg-[#4F6BFF] text-white hover:bg-[#3D55E0] inline-flex items-center justify-center" title="Tambah order" aria-label="Tambah order"><i data-lucide="plus" class="w-5 h-5"></i></button>
+        <button type="button" data-customer-edit="${customer.id}" class="mt-btn-icon mt-btn-secondary" title="Edit pelanggan" aria-label="Edit pelanggan ${escapeHTML(customer.name)}">
+          <i data-lucide="pencil" class="w-4 h-4" aria-hidden="true"></i>
+        </button>
+        <button type="button" data-customer-order="${customer.id}" class="mt-btn-icon mt-btn-primary" title="Tambah order" aria-label="Tambah order untuk ${escapeHTML(customer.name)}">
+          <i data-lucide="plus" class="w-5 h-5" aria-hidden="true"></i>
+        </button>
       </div>
-    </div>`).join('');
+    </div>`
+    )
+    .join('');
   if (window.lucide) window.lucide.createIcons();
 }
 
@@ -909,10 +1419,10 @@ async function handleCustomerListAction(event) {
   const orderButton = event.target.closest('[data-customer-order]');
   const id = editButton?.dataset.customerEdit || orderButton?.dataset.customerOrder;
   if (!id) return;
-  const customer = customerRecords.find(item => item.id === id);
+  const customer = customerRecords.find((item) => item.id === id);
   if (!customer) return;
   if (orderButton) {
-    showOrdersPage();
+    showAppPage('orders');
     openOrderModal(null, { customer_name: customer.name, customer_phone: customer.phone });
     return;
   }
@@ -922,6 +1432,7 @@ async function handleCustomerListAction(event) {
 function openCustomerCreateForm() {
   const modal = document.getElementById('customer-form-modal');
   const form = document.getElementById('customer-create-form');
+  rememberTrigger();
   form?.reset();
   modal?.classList.remove('hidden');
   document.getElementById('new-customer-name')?.focus();
@@ -930,16 +1441,15 @@ function openCustomerCreateForm() {
 
 function closeCustomerCreateForm() {
   document.getElementById('customer-form-modal')?.classList.add('hidden');
+  restoreTriggerFocus();
 }
 
 async function handleCustomerCreateSubmit(event) {
   event.preventDefault();
-  const form = event.currentTarget;
   const submit = document.getElementById('save-customer-btn');
   const name = document.getElementById('new-customer-name')?.value.trim() || '';
   const phone = normalizePhone(document.getElementById('new-customer-phone')?.value || '');
 
-  // Identitas pelanggan memang hanya membutuhkan nama dan nomor HP.
   if (!name) return alert('Nama pelanggan wajib diisi.');
   if (!phone || phone.length < 10) return alert('Nomor HP tidak valid. Masukkan minimal 10 digit.');
 
@@ -959,8 +1469,9 @@ async function handleCustomerCreateSubmit(event) {
     if (error) throw error;
 
     if (data) {
-      customerRecords = [...customerRecords.filter(item => item.id !== data.id), data]
-        .sort((a, b) => a.name.localeCompare(b.name, 'id'));
+      customerRecords = [...customerRecords.filter((item) => item.id !== data.id), data].sort((a, b) =>
+        a.name.localeCompare(b.name, 'id')
+      );
     }
     closeCustomerCreateForm();
     await fetchCustomers();
@@ -977,21 +1488,6 @@ let activeCustomerDetail = null;
 let activeMeasurementTemplates = [];
 let activeMeasurementTemplateFields = [];
 let customerMeasurementRecords = [];
-
-function setBottomNavActive(page) {
-  const ordersButton = document.getElementById('bottom-nav-orders');
-  const customersButton = document.getElementById('bottom-nav-customers');
-  ordersButton?.classList.toggle('is-active', page === 'orders');
-  customersButton?.classList.toggle('is-active', page === 'customers');
-  if (page === 'orders') ordersButton?.setAttribute('aria-current', 'page');
-  else ordersButton?.removeAttribute('aria-current');
-  if (page === 'customers') customersButton?.setAttribute('aria-current', 'page');
-  else customersButton?.removeAttribute('aria-current');
-}
-
-function showCustomersPage() { showAppPage('customers'); }
-
-function showOrdersPage() { showAppPage('orders'); }
 
 async function fetchMeasurementTemplates() {
   const { data: templates, error: templateError } = await supabase
@@ -1022,22 +1518,51 @@ async function fetchCustomerMeasurements(customerId) {
 
 function openCustomerEdit(customer = activeCustomerDetail) {
   if (!customer) return;
-  activeCustomerDetail = customer;
   const modal = document.getElementById('customer-detail-modal');
+  if (modal?.classList.contains('hidden')) rememberTrigger();
+  activeCustomerDetail = customer;
   const content = document.getElementById('customer-detail-content');
-  const heading = modal?.querySelector('h3');
+  const heading = document.getElementById('customer-detail-title');
   if (heading) heading.textContent = 'Edit Pelanggan';
   content.innerHTML = `
     <form id="customer-edit-form" class="space-y-4">
-      <label class="block"><span class="block text-xs font-semibold text-slate-700 mb-1">Nama Pelanggan</span><input id="edit-customer-name" type="text" required maxlength="120" value="${escapeHTML(customer.name)}" class="w-full h-11 px-3 rounded-xl border border-slate-300 text-sm"></label>
-      <label class="block"><span class="block text-xs font-semibold text-slate-700 mb-1">Nomor WhatsApp</span><input id="edit-customer-phone" type="tel" inputmode="tel" required value="${escapeHTML(customer.phone)}" class="w-full h-11 px-3 rounded-xl border border-slate-300 text-sm"></label>
-      <div class="grid grid-cols-1 gap-3 pt-1">
-        <button type="button" data-customer-detail-view="measurements" class="min-h-16 rounded-xl border border-slate-200 hover:border-[#4F6BFF] p-3 text-left flex items-center gap-3"><span class="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center"><i data-lucide="ruler" class="w-5 h-5 text-slate-700"></i></span><span><strong class="block text-sm text-slate-900">List Ukuran</strong><small class="text-xs text-slate-500">Lihat, tambah, dan edit ukuran pelanggan</small></span><i data-lucide="chevron-right" class="w-4 h-4 ml-auto"></i></button>
-        <button type="button" data-customer-detail-view="orders" class="min-h-16 rounded-xl border border-slate-200 hover:border-[#4F6BFF] p-3 text-left flex items-center gap-3"><span class="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center"><i data-lucide="clipboard-list" class="w-5 h-5 text-slate-700"></i></span><span><strong class="block text-sm text-slate-900">Riwayat Order</strong><small class="text-xs text-slate-500">Lihat semua pesanan pelanggan</small></span><i data-lucide="chevron-right" class="w-4 h-4 ml-auto"></i></button>
+      <div>
+        <label for="edit-customer-name" class="block text-xs font-semibold mt-text mb-1">Nama pelanggan</label>
+        <input id="edit-customer-name" type="text" required maxlength="120" value="${escapeHTML(customer.name)}" class="mt-input" />
       </div>
-      <div class="flex gap-2 pt-2"><button type="button" data-customer-detail-close class="flex-1 h-11 rounded-xl border border-slate-200 text-slate-700 text-sm font-semibold">Tutup</button><button type="submit" class="flex-1 h-11 rounded-xl bg-[#4F6BFF] text-white text-sm font-semibold">Simpan Perubahan</button></div>
+      <div>
+        <label for="edit-customer-phone" class="block text-xs font-semibold mt-text mb-1">Nomor WhatsApp</label>
+        <input id="edit-customer-phone" type="tel" inputmode="tel" required value="${escapeHTML(customer.phone)}" class="mt-input font-mono-code" />
+      </div>
+      <div class="grid grid-cols-1 gap-3 pt-1">
+        <button type="button" data-customer-detail-view="measurements" class="mt-card-muted min-h-16 p-3 text-left flex items-center gap-3 hover:border-[var(--mt-accent)]">
+          <span class="w-10 h-10 rounded-lg mt-card flex items-center justify-center shrink-0" aria-hidden="true">
+            <i data-lucide="ruler" class="w-5 h-5 mt-text"></i>
+          </span>
+          <span>
+            <strong class="block text-sm mt-text">Daftar Ukuran</strong>
+            <small class="text-xs mt-muted">Lihat, tambah, dan edit ukuran pelanggan</small>
+          </span>
+          <i data-lucide="chevron-right" class="w-4 h-4 ml-auto mt-muted" aria-hidden="true"></i>
+        </button>
+        <button type="button" data-customer-detail-view="orders" class="mt-card-muted min-h-16 p-3 text-left flex items-center gap-3 hover:border-[var(--mt-accent)]">
+          <span class="w-10 h-10 rounded-lg mt-card flex items-center justify-center shrink-0" aria-hidden="true">
+            <i data-lucide="clipboard-list" class="w-5 h-5 mt-text"></i>
+          </span>
+          <span>
+            <strong class="block text-sm mt-text">Riwayat Order</strong>
+            <small class="text-xs mt-muted">Lihat semua pesanan pelanggan</small>
+          </span>
+          <i data-lucide="chevron-right" class="w-4 h-4 ml-auto mt-muted" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="flex gap-2 pt-2">
+        <button type="button" data-customer-detail-close class="mt-btn mt-btn-secondary flex-1">Tutup</button>
+        <button type="submit" class="mt-btn mt-btn-primary flex-1">Simpan Perubahan</button>
+      </div>
     </form>`;
   modal?.classList.remove('hidden');
+  document.getElementById('edit-customer-name')?.focus();
   if (window.lucide) window.lucide.createIcons();
 }
 
@@ -1048,13 +1573,24 @@ async function handleCustomerEditSubmit(event) {
   const phone = normalizePhone(document.getElementById('edit-customer-phone')?.value || '');
   if (!name) return alert('Nama pelanggan wajib diisi.');
   if (!phone || phone.length < 10) return alert('Nomor WhatsApp tidak valid.');
-  const duplicate = customerRecords.find(item => item.id !== activeCustomerDetail.id && item.phone === phone);
+  const duplicate = customerRecords.find((item) => item.id !== activeCustomerDetail.id && item.phone === phone);
   if (duplicate) return alert(`Nomor ini sudah terdaftar atas nama ${duplicate.name}.`);
   const submit = event.target.querySelector('button[type="submit"]');
-  if (submit) { submit.disabled = true; submit.textContent = 'Menyimpan...'; }
-  const { data, error } = await supabase.from('customers').update({ name, phone, updated_at: new Date().toISOString() }).eq('id', activeCustomerDetail.id).select('id, name, phone, created_at, updated_at').single();
+  if (submit) {
+    submit.disabled = true;
+    submit.textContent = 'Menyimpan...';
+  }
+  const { data, error } = await supabase
+    .from('customers')
+    .update({ name, phone, updated_at: new Date().toISOString() })
+    .eq('id', activeCustomerDetail.id)
+    .select('id, name, phone, created_at, updated_at')
+    .single();
   if (error) {
-    if (submit) { submit.disabled = false; submit.textContent = 'Simpan Perubahan'; }
+    if (submit) {
+      submit.disabled = false;
+      submit.textContent = 'Simpan Perubahan';
+    }
     return alert(`Gagal memperbarui pelanggan: ${error.message}`);
   }
   activeCustomerDetail = data;
@@ -1070,28 +1606,32 @@ async function handleCustomerDetailAction(event) {
   const editButton = event.target.closest('[data-edit-customer-measurement]');
   const deleteButton = event.target.closest('[data-delete-customer-measurement]');
   const closeButton = event.target.closest('[data-customer-detail-close]');
-  if (closeButton) { document.getElementById('customer-detail-modal')?.classList.add('hidden'); const heading = document.querySelector('#customer-detail-modal h3'); if (heading) heading.textContent = 'Detail Pelanggan'; return; }
+  if (closeButton) return closeCustomerDetailModal();
   if (backButton) return openCustomerEdit(activeCustomerDetail);
   if (viewButton?.dataset.customerDetailView === 'measurements') return renderCustomerMeasurements();
   if (viewButton?.dataset.customerDetailView === 'orders') return renderCustomerOrderHistory();
   if (addButton) return openCustomerMeasurementForm();
   if (editButton) {
-    const record = customerMeasurementRecords.find(item => item.id === editButton.dataset.editCustomerMeasurement);
+    const record = customerMeasurementRecords.find((item) => item.id === editButton.dataset.editCustomerMeasurement);
     if (record) return openCustomerMeasurementForm(record);
   }
   if (deleteButton) {
     const id = deleteButton.dataset.deleteCustomerMeasurement;
-    if (!confirm('Hapus koleksi ukuran ini?')) return;
-    const { error } = await supabase.from('customer_measurements').delete().eq('id', id).eq('customer_id', activeCustomerDetail.id);
+    if (!confirm('Hapus catatan ukuran ini?')) return;
+    const { error } = await supabase
+      .from('customer_measurements')
+      .delete()
+      .eq('id', id)
+      .eq('customer_id', activeCustomerDetail.id);
     if (error) return alert(`Gagal menghapus ukuran: ${error.message}`);
     await renderCustomerMeasurements();
   }
   const orderButton = event.target.closest('[data-customer-open-order]');
   if (orderButton) {
-    const order = allOrders.find(item => item.id === orderButton.dataset.customerOpenOrder);
+    const order = allOrders.find((item) => item.id === orderButton.dataset.customerOpenOrder);
     if (order) {
-      document.getElementById('customer-detail-modal')?.classList.add('hidden');
-      showOrdersPage();
+      closeCustomerDetailModal();
+      showAppPage('orders');
       openOrderModal(order);
     }
   }
@@ -1099,48 +1639,106 @@ async function handleCustomerDetailAction(event) {
 
 async function renderCustomerMeasurements() {
   const content = document.getElementById('customer-detail-content');
-  const modalHeading = document.querySelector('#customer-detail-modal h3'); if (modalHeading) modalHeading.textContent = 'List Ukuran';
-  content.innerHTML = '<p class="py-6 text-center text-sm text-slate-500">Memuat daftar ukuran...</p>';
+  const modalHeading = document.getElementById('customer-detail-title');
+  if (modalHeading) modalHeading.textContent = 'Daftar Ukuran';
+  content.innerHTML = '<p class="py-6 text-center text-sm mt-muted" role="status">Memuat daftar ukuran...</p>';
   try {
     await Promise.all([fetchCustomerMeasurements(activeCustomerDetail.id), fetchMeasurementTemplates()]);
     content.innerHTML = `
       <div class="flex items-center justify-between gap-2">
-        <div><h4 class="font-bold text-[#0B1220]">List Ukuran</h4><p class="text-xs text-slate-500">${escapeHTML(activeCustomerDetail.name)}</p></div>
-        <button type="button" data-customer-detail-back class="text-xs font-semibold text-slate-600 hover:text-[#4F6BFF]">Kembali</button>
+        <div>
+          <h3 class="font-bold mt-text">Daftar Ukuran</h3>
+          <p class="text-xs mt-muted">${escapeHTML(activeCustomerDetail.name)}</p>
+        </div>
+        <button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary text-xs">Kembali</button>
       </div>
-      <button type="button" data-add-customer-measurement class="w-full h-10 rounded-lg bg-[#4F6BFF] text-white text-sm font-semibold inline-flex items-center justify-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>Tambah Ukuran</button>
-      <div class="space-y-2">
-        ${customerMeasurementRecords.length ? customerMeasurementRecords.map(record => {
-          const values = Object.entries(record.measurement_data || {}).slice(0, 4).map(([key, value]) => {
-            const field = (record.template_snapshot || []).find(item => item.field_key === key);
-            const displayUnit = getMeasurementDisplayUnit();
-            const storedUnit = field?.unit || 'cm';
-            const displayValue = convertMeasurementValue(value, storedUnit, displayUnit);
-            return `<span class="inline-block text-[11px] text-slate-600 bg-slate-100 rounded-md px-2 py-1 mr-1 mb-1">${escapeHTML(field?.field_label || key)}: ${escapeHTML(String(Number(displayValue.toFixed(2))))} ${displayUnit === 'inch' ? 'in' : 'cm'}</span>`;
-          }).join('');
-          return `<article class="rounded-xl border border-slate-200 p-3">
-            <div class="flex items-start justify-between gap-2"><div class="min-w-0"><p class="text-sm font-bold text-slate-900">${escapeHTML(record.garment_type)}${record.model ? ` · ${escapeHTML(record.model)}` : ''}</p><p class="text-xs text-slate-500 mt-0.5">${escapeHTML(record.description || 'Tanpa keterangan')}</p></div><div class="flex gap-1 shrink-0"><button type="button" data-edit-customer-measurement="${record.id}" class="h-8 w-8 rounded-lg border border-slate-200 text-slate-600" aria-label="Edit ukuran"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button><button type="button" data-delete-customer-measurement="${record.id}" class="h-8 w-8 rounded-lg border border-slate-200 text-rose-600" aria-label="Hapus ukuran"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button></div></div>
-            <div class="mt-2">${values || '<span class="text-xs text-slate-400">Belum ada nilai ukuran.</span>'}</div>
-          </article>`;
-        }).join('') : '<p class="py-6 text-center text-sm text-slate-500 border border-dashed border-slate-300 rounded-xl">Belum ada ukuran tersimpan.</p>'}
+      <button type="button" data-add-customer-measurement class="mt-btn mt-btn-primary w-full">
+        <i data-lucide="plus" class="w-4 h-4" aria-hidden="true"></i>
+        <span>Tambah Ukuran</span>
+      </button>
+      <div class="space-y-2.5">
+        ${
+          customerMeasurementRecords.length
+            ? customerMeasurementRecords
+                .map((record) => {
+                  const values = Object.entries(record.measurement_data || {})
+                    .slice(0, 4)
+                    .map(([key, value]) => {
+                      const field = (record.template_snapshot || []).find((item) => item.field_key === key);
+                      const displayUnit = getMeasurementDisplayUnit();
+                      const storedUnit = field?.unit || 'cm';
+                      const displayValue = convertMeasurementValue(value, storedUnit, displayUnit);
+                      return `<span class="inline-block text-xs mt-text mt-card-muted px-2 py-1 mr-1 mb-1 font-mono-code">${escapeHTML(field?.field_label || key)}: ${escapeHTML(String(Number(displayValue.toFixed(2))))} ${displayUnit === 'inch' ? 'in' : 'cm'}</span>`;
+                    })
+                    .join('');
+                  return `<article class="mt-card p-3.5">
+                    <div class="flex items-start justify-between gap-2">
+                      <div class="min-w-0">
+                        <p class="text-sm font-bold mt-text">${escapeHTML(record.garment_type)}${record.model ? ` · ${escapeHTML(record.model)}` : ''}</p>
+                        <p class="text-xs mt-muted mt-0.5">${escapeHTML(record.description || 'Tanpa keterangan')}</p>
+                      </div>
+                      <div class="flex gap-1.5 shrink-0">
+                        <button type="button" data-edit-customer-measurement="${record.id}" class="mt-btn-icon mt-btn-secondary" aria-label="Edit ukuran ${escapeHTML(record.garment_type)}">
+                          <i data-lucide="pencil" class="w-4 h-4" aria-hidden="true"></i>
+                        </button>
+                        <button type="button" data-delete-customer-measurement="${record.id}" class="mt-btn-icon mt-btn-danger-ghost" aria-label="Hapus ukuran ${escapeHTML(record.garment_type)}">
+                          <i data-lucide="trash-2" class="w-4 h-4" aria-hidden="true"></i>
+                        </button>
+                      </div>
+                    </div>
+                    <div class="mt-2">${values || '<span class="text-xs mt-muted">Belum ada nilai ukuran.</span>'}</div>
+                  </article>`;
+                })
+                .join('')
+            : '<p class="py-6 text-center text-sm mt-muted mt-card-muted">Belum ada ukuran tersimpan.</p>'
+        }
       </div>`;
     if (window.lucide) window.lucide.createIcons();
   } catch (error) {
-    content.innerHTML = `<p class="text-sm text-rose-600">Gagal memuat ukuran: ${escapeHTML(error.message || '')}</p><button type="button" data-customer-detail-back class="mt-3 text-sm underline">Kembali</button>`;
+    content.innerHTML = `<p class="text-sm mt-danger-text">Gagal memuat ukuran: ${escapeHTML(error.message || '')}</p><button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary mt-3 text-xs">Kembali</button>`;
   }
 }
 
 function renderCustomerOrderHistory() {
-  const modalHeading = document.querySelector('#customer-detail-modal h3'); if (modalHeading) modalHeading.textContent = 'Riwayat Order';
+  const modalHeading = document.getElementById('customer-detail-title');
+  if (modalHeading) modalHeading.textContent = 'Riwayat Order';
   const content = document.getElementById('customer-detail-content');
-  const transactions = allOrders.filter(order => order.customer_id === activeCustomerDetail.id || normalizePhone(order.customer_phone) === activeCustomerDetail.phone).sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
+  const transactions = allOrders
+    .filter((order) => order.customer_id === activeCustomerDetail.id || normalizePhone(order.customer_phone) === activeCustomerDetail.phone)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   content.innerHTML = `
-    <div class="flex items-center justify-between gap-2"><div><h4 class="font-bold text-[#0B1220]">Riwayat Order</h4><p class="text-xs text-slate-500">${transactions.length} transaksi</p></div><button type="button" data-customer-detail-back class="text-xs font-semibold text-slate-600 hover:text-[#4F6BFF]">Kembali</button></div>
-    ${transactions.length ? `<div class="space-y-2">${transactions.map(order => { const meta = STATUS_META[order.status] || STATUS_META.received; return `<button type="button" data-customer-open-order="${order.id}" class="w-full text-left rounded-xl border border-slate-200 p-3 hover:border-slate-300"><div class="flex items-center justify-between gap-2"><span class="font-mono-code text-sm font-bold text-[#0B1220]">${escapeHTML(order.ticket_code)}</span><span class="text-xs font-semibold ${meta.textClass || 'text-slate-600'}">${escapeHTML(meta.label)}</span></div><div class="flex items-center justify-between gap-2 mt-1"><span class="text-xs text-slate-500">${formatDateID(order.created_at)}</span><span class="text-sm font-semibold">${formatCurrency(order.total_amount)}</span></div></button>`; }).join('')}</div>` : '<p class="text-xs text-slate-500 py-6 text-center border border-dashed border-slate-300 rounded-xl">Belum ada riwayat order.</p>'}`;
+    <div class="flex items-center justify-between gap-2">
+      <div>
+        <h3 class="font-bold mt-text">Riwayat Order</h3>
+        <p class="text-xs mt-muted">${transactions.length} transaksi</p>
+      </div>
+      <button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary text-xs">Kembali</button>
+    </div>
+    ${
+      transactions.length
+        ? `<div class="space-y-2">${transactions
+            .map((order) => {
+              const meta = STATUS_META[order.status] || STATUS_META.received;
+              return `<button type="button" data-customer-open-order="${order.id}" class="w-full text-left mt-card p-3.5 hover:border-[var(--mt-accent)]">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="font-mono-code text-sm font-bold mt-text">${escapeHTML(order.ticket_code)}</span>
+                  <span class="${meta.badgeClass}">${escapeHTML(meta.label)}</span>
+                </div>
+                <div class="flex items-center justify-between gap-2 mt-1.5">
+                  <span class="text-xs mt-muted">${formatDateID(order.created_at)}</span>
+                  <span class="text-sm font-mono-code font-semibold mt-text">${formatCurrency(order.total_amount)}</span>
+                </div>
+              </button>`;
+            })
+            .join('')}</div>`
+        : '<p class="text-xs mt-muted py-6 text-center mt-card-muted">Belum ada riwayat order.</p>'
+    }`;
 }
 
 function getActiveTemplateFields(templateId) {
-  return activeMeasurementTemplateFields.filter(field => field.template_id === templateId && field.is_active).sort((a,b) => a.sort_order - b.sort_order);
+  return activeMeasurementTemplateFields
+    .filter((field) => field.template_id === templateId && field.is_active)
+    .sort((a, b) => a.sort_order - b.sort_order);
 }
 
 function getMeasurementDisplayUnit() {
@@ -1159,69 +1757,133 @@ function convertMeasurementValue(value, fromUnit, toUnit) {
 }
 
 function renderMeasurementFields(fields, values = {}) {
-  if (!fields.length) return '<p class="text-xs text-slate-500 rounded-lg bg-slate-50 p-3">Belum ada komponen ukuran pada template ini. Tambahkan melalui Pengaturan Toko → Template Ukuran.</p>';
+  if (!fields.length) {
+    return '<p class="text-xs mt-muted mt-card-muted p-3">Belum ada komponen ukuran pada template ini. Tambahkan melalui menu Template Ukuran.</p>';
+  }
   const displayUnit = getMeasurementDisplayUnit();
-  return fields.map(field => {
-    const storedValue = values[field.field_key];
-    const displayValue = storedValue === undefined || storedValue === null || storedValue === ''
-      ? ''
-      : Number(convertMeasurementValue(storedValue, field.unit || 'cm', displayUnit).toFixed(2));
-    return `<label class="block"><span class="block text-xs font-semibold text-slate-700 mb-1">${escapeHTML(field.field_label)}</span><div class="flex items-center gap-2"><input type="number" inputmode="decimal" step="0.1" data-measurement-value="${escapeHTML(field.field_key)}" data-storage-unit="${escapeHTML(field.unit || 'cm')}" value="${displayValue}" class="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm"><span class="text-xs text-slate-500 min-w-8">${displayUnit === 'inch' ? 'in' : 'cm'}</span></div></label>`;
-  }).join('');
+  return fields
+    .map((field, idx) => {
+      const storedValue = values[field.field_key];
+      const displayValue =
+        storedValue === undefined || storedValue === null || storedValue === ''
+          ? ''
+          : Number(convertMeasurementValue(storedValue, field.unit || 'cm', displayUnit).toFixed(2));
+      const inputId = `measure-field-${idx}-${escapeHTML(field.field_key)}`;
+      return `<div>
+        <label for="${inputId}" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(field.field_label)}</label>
+        <div class="flex items-center gap-2">
+          <input id="${inputId}" type="number" inputmode="decimal" step="0.1" data-measurement-value="${escapeHTML(field.field_key)}" data-storage-unit="${escapeHTML(field.unit || 'cm')}" value="${displayValue}" class="mt-input font-mono-code" />
+          <span class="text-xs mt-muted min-w-8 font-mono-code">${displayUnit === 'inch' ? 'in' : 'cm'}</span>
+        </div>
+      </div>`;
+    })
+    .join('');
 }
 
 async function openCustomerMeasurementForm(record = null) {
   const content = document.getElementById('customer-detail-content');
   try {
     await fetchMeasurementTemplates();
-    const activeTemplates = activeMeasurementTemplates.filter(item => item.is_active);
-    const initialTemplate = activeTemplates.find(item => item.id === record?.template_id) || activeTemplates.find(item => item.garment_type === record?.garment_type) || activeTemplates[0];
-    if (!initialTemplate) throw new Error('Template ukuran belum tersedia. Tambahkan melalui Pengaturan Toko.');
+    const activeTemplates = activeMeasurementTemplates.filter((item) => item.is_active);
+    const initialTemplate =
+      activeTemplates.find((item) => item.id === record?.template_id) ||
+      activeTemplates.find((item) => item.garment_type === record?.garment_type) ||
+      activeTemplates[0];
+    if (!initialTemplate) {
+      throw new Error('Template ukuran belum tersedia. Tambahkan melalui menu Template Ukuran.');
+    }
     const snapshotFields = record?.template_snapshot?.length ? record.template_snapshot : null;
     const fields = snapshotFields || getActiveTemplateFields(initialTemplate.id);
     content.innerHTML = `
-      <div class="flex items-center justify-between"><div><h4 class="font-bold text-[#0B1220]">${record ? 'Edit Ukuran' : 'Tambah Ukuran'}</h4><p class="text-xs text-slate-500">${escapeHTML(activeCustomerDetail.name)}</p></div><button type="button" data-customer-detail-back class="text-xs font-semibold text-slate-600">Batal</button></div>
+      <div class="flex items-center justify-between gap-2">
+        <div>
+          <h3 class="font-bold mt-text">${record ? 'Edit Ukuran' : 'Tambah Ukuran'}</h3>
+          <p class="text-xs mt-muted">${escapeHTML(activeCustomerDetail.name)}</p>
+        </div>
+        <button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary text-xs">Batal</button>
+      </div>
       <form id="customer-measurement-form" class="space-y-3" data-edit-id="${record?.id || ''}">
-        <label class="block"><span class="block text-xs font-semibold text-slate-700 mb-1">Jenis Pakaian</span><select id="measurement-garment-type" required class="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm">${activeTemplates.map(item => `<option value="${item.id}" ${item.id === initialTemplate.id ? 'selected' : ''}>${escapeHTML(item.garment_type)}</option>`).join('')}</select></label>
-        <label class="block"><span class="block text-xs font-semibold text-slate-700 mb-1">Model</span><input id="measurement-model" type="text" maxlength="100" value="${escapeHTML(record?.model || '')}" placeholder="Contoh: Slim Fit, Trucker" class="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm"></label>
-        <label class="block"><span class="block text-xs font-semibold text-slate-700 mb-1">Keterangan / Pemakai</span><input id="measurement-description" type="text" maxlength="160" value="${escapeHTML(record?.description || '')}" placeholder="Contoh: Budi, Ani, Andi" class="w-full h-10 px-3 rounded-lg border border-slate-300 text-sm"></label>
-        <div class="border-t border-slate-200 pt-3"><h5 class="text-sm font-bold text-slate-800 mb-3">Data Ukuran</h5><div id="measurement-fields-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">${renderMeasurementFields(fields, record?.measurement_data || {})}</div></div>
-        <p id="measurement-form-error" class="hidden text-xs text-rose-600"></p>
-        <div class="flex gap-2"><button type="button" data-customer-detail-back class="flex-1 h-10 rounded-lg border border-slate-300 text-sm font-semibold">Batal</button><button type="submit" class="flex-1 h-10 rounded-lg bg-[#4F6BFF] text-white text-sm font-semibold">Simpan Ukuran</button></div>
+        <div>
+          <label for="measurement-garment-type" class="block text-xs font-semibold mt-text mb-1">Jenis pakaian</label>
+          <select id="measurement-garment-type" required class="mt-select">
+            ${activeTemplates
+              .map((item) => `<option value="${item.id}" ${item.id === initialTemplate.id ? 'selected' : ''}>${escapeHTML(item.garment_type)}</option>`)
+              .join('')}
+          </select>
+        </div>
+        <div>
+          <label for="measurement-model" class="block text-xs font-semibold mt-text mb-1">Model</label>
+          <input id="measurement-model" type="text" maxlength="100" value="${escapeHTML(record?.model || '')}" placeholder="Contoh: Slim Fit, Trucker" class="mt-input" />
+        </div>
+        <div>
+          <label for="measurement-description" class="block text-xs font-semibold mt-text mb-1">Keterangan / pemakai</label>
+          <input id="measurement-description" type="text" maxlength="160" value="${escapeHTML(record?.description || '')}" placeholder="Nama pemakai atau catatan fitting" class="mt-input" />
+        </div>
+        <div class="pt-3 mt-seam-t">
+          <h4 class="text-sm font-bold mt-text mb-3">Data ukuran</h4>
+          <div id="measurement-fields-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">${renderMeasurementFields(fields, record?.measurement_data || {})}</div>
+        </div>
+        <p id="measurement-form-error" class="hidden text-xs mt-danger-text"></p>
+        <div class="flex gap-2">
+          <button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary flex-1">Batal</button>
+          <button type="submit" class="mt-btn mt-btn-primary flex-1">Simpan Ukuran</button>
+        </div>
       </form>`;
     const form = document.getElementById('customer-measurement-form');
     form.dataset.snapshot = JSON.stringify(fields);
     form.addEventListener('submit', saveCustomerMeasurement);
   } catch (error) {
-    content.innerHTML = `<p class="text-sm text-rose-600">${escapeHTML(error.message || 'Gagal membuka formulir ukuran.')}</p><button type="button" data-customer-detail-back class="mt-3 text-sm underline">Kembali</button>`;
+    content.innerHTML = `<p class="text-sm mt-danger-text">${escapeHTML(error.message || 'Gagal membuka formulir ukuran.')}</p><button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary mt-3 text-xs">Kembali</button>`;
   }
 }
 
 function handleMeasurementFormChange(event) {
   if (event.target.id !== 'measurement-garment-type') return;
-  const template = activeMeasurementTemplates.find(item => item.id === event.target.value);
+  const template = activeMeasurementTemplates.find((item) => item.id === event.target.value);
   const grid = document.getElementById('measurement-fields-grid');
   const fields = template ? getActiveTemplateFields(template.id) : [];
   if (grid && template) {
     grid.innerHTML = renderMeasurementFields(fields);
     const form = document.getElementById('customer-measurement-form');
-    if (form) form.dataset.snapshot = JSON.stringify(fields.map(field => ({ field_key: field.field_key, field_label: field.field_label, unit: field.unit, is_required: field.is_required, sort_order: field.sort_order })));
+    if (form) {
+      form.dataset.snapshot = JSON.stringify(
+        fields.map((field) => ({
+          field_key: field.field_key,
+          field_label: field.field_label,
+          unit: field.unit,
+          is_required: field.is_required,
+          sort_order: field.sort_order,
+        }))
+      );
+    }
   }
 }
 
 async function saveCustomerMeasurement(event) {
   event.preventDefault();
   const form = event.currentTarget;
-  const template = activeMeasurementTemplates.find(item => item.id === document.getElementById('measurement-garment-type').value);
+  const template = activeMeasurementTemplates.find(
+    (item) => item.id === document.getElementById('measurement-garment-type').value
+  );
   if (!template) return alert('Template ukuran tidak ditemukan.');
   const fields = JSON.parse(form.dataset.snapshot || '[]');
   const values = {};
   for (const input of form.querySelectorAll('[data-measurement-value]')) {
     const raw = input.value.trim();
-    const field = fields.find(item => item.field_key === input.dataset.measurementValue);
-    if (raw !== '') values[input.dataset.measurementValue] = Number(convertMeasurementValue(raw, getMeasurementDisplayUnit(), input.dataset.storageUnit || field?.unit || 'cm').toFixed(2));
+    const field = fields.find((item) => item.field_key === input.dataset.measurementValue);
+    if (raw !== '') {
+      values[input.dataset.measurementValue] = Number(
+        convertMeasurementValue(raw, getMeasurementDisplayUnit(), input.dataset.storageUnit || field?.unit || 'cm').toFixed(2)
+      );
+    }
   }
-  const snapshot = fields.map(field => ({ field_key: field.field_key, field_label: field.field_label, unit: field.unit, is_required: false, sort_order: field.sort_order }));
+  const snapshot = fields.map((field) => ({
+    field_key: field.field_key,
+    field_label: field.field_label,
+    unit: field.unit,
+    is_required: false,
+    sort_order: field.sort_order,
+  }));
   const payload = {
     customer_id: activeCustomerDetail.id,
     template_id: template.id,
@@ -1234,58 +1896,95 @@ async function saveCustomerMeasurement(event) {
   };
   const editId = form.dataset.editId;
   const result = editId
-    ? await supabase.from('customer_measurements').update(payload).eq('id', editId).eq('customer_id', activeCustomerDetail.id)
+    ? await supabase
+        .from('customer_measurements')
+        .update(payload)
+        .eq('id', editId)
+        .eq('customer_id', activeCustomerDetail.id)
     : await supabase.from('customer_measurements').insert(payload);
   if (result.error) return alert(`Gagal menyimpan ukuran: ${result.error.message}`);
   await renderCustomerMeasurements();
 }
 
 const measurementTemplateEditModes = new Set();
-let measurementReorderState = null;
 
 async function renderMeasurementTemplateSettings() {
   const container = document.getElementById('measurement-templates-list');
   if (!container) return;
-  container.innerHTML = '<p class="text-xs text-slate-500">Memuat template ukuran...</p>';
+  container.innerHTML = '<p class="text-xs mt-muted" role="status">Memuat template ukuran...</p>';
   try {
     await fetchMeasurementTemplates();
     const unit = getMeasurementDisplayUnit();
-    const header = `<div class="flex items-center justify-between gap-3 mb-3">
-      <div><p class="text-xs font-semibold text-slate-600">Satuan ukuran</p><p class="text-[11px] text-slate-400">Berlaku untuk input ukuran pelanggan</p></div>
-      <div class="inline-flex rounded-lg border border-slate-300 p-1 bg-slate-50" role="group" aria-label="Satuan ukuran">
-        <button type="button" data-measurement-unit="cm" aria-pressed="${unit === 'cm'}" class="px-3 py-1.5 rounded-md text-xs font-semibold ${unit === 'cm' ? 'bg-[#4F6BFF] text-white' : 'text-slate-600'}">CM</button>
-        <button type="button" data-measurement-unit="inch" aria-pressed="${unit === 'inch'}" class="px-3 py-1.5 rounded-md text-xs font-semibold ${unit === 'inch' ? 'bg-[#4F6BFF] text-white' : 'text-slate-600'}">INCH</button>
+    const header = `<div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+      <div>
+        <p class="text-xs font-semibold mt-text">Satuan ukuran</p>
+        <p class="text-xs mt-muted">Berlaku untuk input dan tampilan ukuran pelanggan</p>
+      </div>
+      <div class="inline-flex gap-1.5" role="group" aria-label="Satuan ukuran">
+        <button type="button" data-measurement-unit="cm" aria-pressed="${unit === 'cm'}" class="mt-btn text-xs ${unit === 'cm' ? 'mt-btn-primary' : 'mt-btn-secondary'}">CM</button>
+        <button type="button" data-measurement-unit="inch" aria-pressed="${unit === 'inch'}" class="mt-btn text-xs ${unit === 'inch' ? 'mt-btn-primary' : 'mt-btn-secondary'}">INCH</button>
       </div>
     </div>`;
-    const cards = activeMeasurementTemplates.map(template => {
-      const fields = activeMeasurementTemplateFields
-        .filter(field => field.template_id === template.id && field.is_active)
-        .sort((a, b) => a.sort_order - b.sort_order);
-      const isEditing = measurementTemplateEditModes.has(template.id);
-      return `<section class="measurement-template-card rounded-xl border border-slate-200 p-3 ${template.is_active ? '' : 'opacity-60'}" data-template-card="${template.id}">
-        <div class="flex items-center justify-between gap-2 mb-2">
-          <div class="min-w-0"><p class="text-sm font-bold text-slate-800">${escapeHTML(template.garment_type)}</p><p class="text-[11px] text-slate-500">${fields.length} komponen</p></div>
-          ${!template.is_active ? '<span class="text-[10px] text-slate-400">Nonaktif</span>' : ''}
-        </div>
-        <div class="measurement-template-fields space-y-1" data-template-fields="${template.id}">
-          ${fields.map(field => `<div class="measurement-template-field flex items-center gap-2 min-h-9 rounded-lg px-1" data-field-row="${field.id}" data-template-id="${template.id}">
-            ${isEditing
-              ? `<span class="text-slate-400 shrink-0"><i data-lucide="grip-vertical" class="w-4 h-4"></i></span><input type="text" maxlength="100" data-field-label-input="${field.id}" value="${escapeHTML(field.field_label)}" class="min-w-0 flex-1 h-9 px-2 rounded-lg border border-slate-300 bg-white text-sm"><button type="button" data-field-delete="${field.id}" title="Hapus komponen" aria-label="Hapus ${escapeHTML(field.field_label)}" class="w-9 h-9 inline-flex items-center justify-center rounded-lg text-rose-600 hover:bg-rose-50"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`
-              : `<span class="measurement-drag-handle text-slate-400 shrink-0 cursor-grab touch-none" data-drag-handle="${field.id}" title="Tekan agak lama lalu geser" aria-label="Geser ${escapeHTML(field.field_label)}"><i data-lucide="grip-vertical" class="w-4 h-4"></i></span><span class="flex-1 text-sm text-slate-700">${escapeHTML(field.field_label)}</span>`}
-          </div>`).join('')}
-          ${fields.length ? '' : '<p class="text-xs text-slate-400 py-2">Belum ada komponen ukuran.</p>'}
-        </div>
-        <div class="flex items-center justify-end gap-2 border-t border-slate-200 mt-3 pt-2">
-          <button type="button" data-template-edit="${template.id}" aria-label="${isEditing ? 'Selesai edit' : 'Edit template'}" title="${isEditing ? 'Selesai' : 'Edit'}" class="w-10 h-9 inline-flex items-center justify-center rounded-lg ${isEditing ? 'bg-emerald-50 text-emerald-700' : 'text-slate-600 hover:bg-slate-100'}"><i data-lucide="${isEditing ? 'check' : 'pencil'}" class="w-4 h-4"></i></button>
-          <button type="button" data-field-add="${template.id}" aria-label="Tambah komponen" title="Tambah komponen" class="w-10 h-9 inline-flex items-center justify-center rounded-lg text-[#4F6BFF] hover:bg-indigo-50"><i data-lucide="plus" class="w-5 h-5"></i></button>
-        </div>
-      </section>`;
-    }).join('');
+
+    const cards = activeMeasurementTemplates
+      .map((template) => {
+        const fields = activeMeasurementTemplateFields
+          .filter((field) => field.template_id === template.id && field.is_active)
+          .sort((a, b) => a.sort_order - b.sort_order);
+        const isEditing = measurementTemplateEditModes.has(template.id);
+        return `<section class="measurement-template-card mt-card p-3.5 ${template.is_active ? '' : 'opacity-65'}" data-template-card="${template.id}">
+          <div class="flex items-center justify-between gap-2 mb-2.5">
+            <div class="min-w-0">
+              <p class="text-sm font-bold mt-text">${escapeHTML(template.garment_type)}</p>
+              <p class="text-xs mt-muted">${fields.length} komponen</p>
+            </div>
+            ${!template.is_active ? '<span class="mt-badge mt-badge-received">Nonaktif</span>' : ''}
+          </div>
+          <div class="measurement-template-fields space-y-1.5" data-template-fields="${template.id}">
+            ${fields
+              .map(
+                (field, idx) => `<div class="measurement-template-field flex items-center gap-2 min-h-11 rounded-lg px-1.5" data-field-row="${field.id}" data-template-id="${template.id}">
+                  ${
+                    isEditing
+                      ? `<button type="button" data-field-move-up="${field.id}" data-template-id="${template.id}" ${idx === 0 ? 'disabled' : ''} aria-label="Geser ${escapeHTML(field.field_label)} ke atas" title="Geser ke atas" class="mt-btn-icon mt-btn-secondary shrink-0">
+                           <i data-lucide="chevron-up" class="w-4 h-4" aria-hidden="true"></i>
+                         </button>
+                         <button type="button" data-field-move-down="${field.id}" data-template-id="${template.id}" ${idx === fields.length - 1 ? 'disabled' : ''} aria-label="Geser ${escapeHTML(field.field_label)} ke bawah" title="Geser ke bawah" class="mt-btn-icon mt-btn-secondary shrink-0">
+                           <i data-lucide="chevron-down" class="w-4 h-4" aria-hidden="true"></i>
+                         </button>
+                         <input type="text" maxlength="100" aria-label="Nama komponen ${escapeHTML(field.field_label)}" data-field-label-input="${field.id}" value="${escapeHTML(field.field_label)}" class="mt-input min-w-0 flex-1" />
+                         <button type="button" data-field-delete="${field.id}" title="Hapus komponen" aria-label="Hapus komponen ${escapeHTML(field.field_label)}" class="mt-btn-icon mt-btn-danger-ghost shrink-0">
+                           <i data-lucide="trash-2" class="w-4 h-4" aria-hidden="true"></i>
+                         </button>`
+                      : `<span class="measurement-drag-handle mt-muted shrink-0 cursor-grab touch-none p-2" data-drag-handle="${field.id}" title="Tekan agak lama lalu geser, atau klik tombol Edit untuk urutkan dengan keyboard" aria-hidden="true">
+                           <i data-lucide="grip-vertical" class="w-4 h-4"></i>
+                         </span>
+                         <span class="flex-1 text-sm mt-text">${escapeHTML(field.field_label)}</span>`
+                  }
+                </div>`
+              )
+              .join('')}
+            ${fields.length ? '' : '<p class="text-xs mt-muted py-2">Belum ada komponen ukuran.</p>'}
+          </div>
+          <div class="flex items-center justify-end gap-2 mt-seam-t mt-3 pt-3">
+            <button type="button" data-template-edit="${template.id}" aria-label="${isEditing ? 'Selesai edit template' : 'Edit dan urutkan komponen'}" class="mt-btn text-xs ${isEditing ? 'mt-btn-success' : 'mt-btn-secondary'}">
+              <i data-lucide="${isEditing ? 'check' : 'pencil'}" class="w-4 h-4" aria-hidden="true"></i>
+              <span>${isEditing ? 'Selesai' : 'Edit & Urutkan'}</span>
+            </button>
+            <button type="button" data-field-add="${template.id}" aria-label="Tambah komponen untuk ${escapeHTML(template.garment_type)}" class="mt-btn mt-btn-primary text-xs">
+              <i data-lucide="plus" class="w-4 h-4" aria-hidden="true"></i>
+              <span>Komponen</span>
+            </button>
+          </div>
+        </section>`;
+      })
+      .join('');
+
     container.innerHTML = `${header}${cards}`;
     bindMeasurementTemplateReorder(container);
     if (window.lucide) window.lucide.createIcons();
   } catch (error) {
-    container.innerHTML = `<p class="text-xs text-rose-600">Gagal memuat template: ${escapeHTML(error.message || '')}</p>`;
+    container.innerHTML = `<p class="text-xs mt-danger-text">Gagal memuat template: ${escapeHTML(error.message || '')}</p>`;
   }
 }
 
@@ -1297,7 +1996,7 @@ function bindMeasurementTemplateReorder(container) {
   let pointerStartY = 0;
   let dragActivated = false;
 
-  container.addEventListener('pointerdown', event => {
+  container.addEventListener('pointerdown', (event) => {
     const handle = event.target.closest('[data-drag-handle]');
     if (!handle || event.button !== 0) return;
     activeRow = handle.closest('[data-field-row]');
@@ -1307,12 +2006,12 @@ function bindMeasurementTemplateReorder(container) {
     holdTimer = setTimeout(() => {
       dragActivated = true;
       activeRow.classList.add('is-reordering');
-      activeRow.style.opacity = '0.55';
+      activeRow.style.opacity = '0.6';
       handle.setPointerCapture?.(event.pointerId);
     }, 350);
   });
 
-  container.addEventListener('pointermove', event => {
+  container.addEventListener('pointermove', (event) => {
     if (!activeRow) return;
     if (!dragActivated && Math.abs(event.clientY - pointerStartY) > 8) {
       clearTimeout(holdTimer);
@@ -1336,26 +2035,27 @@ function bindMeasurementTemplateReorder(container) {
       const rows = [...list.querySelectorAll('[data-field-row]')];
       activeRow.classList.remove('is-reordering');
       activeRow.style.opacity = '';
-      const updates = rows.map((row, index) => supabase
-        .from('measurement_template_fields')
-        .update({ sort_order: index + 1 })
-        .eq('id', row.dataset.fieldRow));
+      const updates = rows.map((row, index) =>
+        supabase.from('measurement_template_fields').update({ sort_order: index + 1 }).eq('id', row.dataset.fieldRow)
+      );
       const results = await Promise.all(updates);
-      const failed = results.find(result => result.error);
+      const failed = results.find((result) => result.error);
       if (failed) alert(`Gagal menyimpan urutan komponen: ${failed.error.message}`);
       await renderMeasurementTemplateSettings();
     }
     activeRow = null;
     dragActivated = false;
   };
+
   container.addEventListener('pointerup', finishReorder);
   container.addEventListener('pointercancel', finishReorder);
-  container.addEventListener('change', async event => {
+  container.addEventListener('change', async (event) => {
     const input = event.target.closest('[data-field-label-input]');
     if (!input) return;
     const label = input.value.trim();
     if (!label) return alert('Nama komponen wajib diisi.');
-    const { error } = await supabase.from('measurement_template_fields')
+    const { error } = await supabase
+      .from('measurement_template_fields')
       .update({ field_label: label })
       .eq('id', input.dataset.fieldLabelInput);
     if (error) return alert(`Gagal mengubah komponen: ${error.message}`);
@@ -1364,15 +2064,40 @@ function bindMeasurementTemplateReorder(container) {
 }
 
 function makeMeasurementFieldKey(label) {
-  return label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 60);
+  return label
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_|_$/g, '')
+    .slice(0, 60);
 }
 
 async function addMeasurementTemplate() {
   const name = prompt('Nama jenis pakaian baru:');
   if (name === null) return;
   if (!name.trim()) return alert('Nama jenis pakaian wajib diisi.');
-  const { error } = await supabase.from('measurement_templates').insert({ garment_type: name.trim(), description: `Template ukuran ${name.trim()}` });
+  const { error } = await supabase
+    .from('measurement_templates')
+    .insert({ garment_type: name.trim(), description: `Template ukuran ${name.trim()}` });
   if (error) return alert(`Gagal menambahkan jenis pakaian: ${error.message}`);
+  await renderMeasurementTemplateSettings();
+}
+
+async function moveMeasurementField(templateId, fieldId, direction) {
+  const fields = getActiveTemplateFields(templateId);
+  const idx = fields.findIndex((f) => f.id === fieldId);
+  const swapIdx = idx + direction;
+  if (idx === -1 || swapIdx < 0 || swapIdx >= fields.length) return;
+  const reordered = [...fields];
+  [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
+  const results = await Promise.all(
+    reordered.map((field, orderIdx) =>
+      supabase.from('measurement_template_fields').update({ sort_order: orderIdx + 1 }).eq('id', field.id)
+    )
+  );
+  const failed = results.find((r) => r.error);
+  if (failed) alert(`Gagal memindahkan urutan komponen: ${failed.error.message}`);
   await renderMeasurementTemplateSettings();
 }
 
@@ -1381,7 +2106,15 @@ async function handleMeasurementTemplateAction(event) {
   const editButton = event.target.closest('[data-template-edit]');
   const addField = event.target.closest('[data-field-add]');
   const deleteField = event.target.closest('[data-field-delete]');
+  const moveUp = event.target.closest('[data-field-move-up]');
+  const moveDown = event.target.closest('[data-field-move-down]');
 
+  if (moveUp) {
+    return moveMeasurementField(moveUp.dataset.templateId, moveUp.dataset.fieldMoveUp, -1);
+  }
+  if (moveDown) {
+    return moveMeasurementField(moveDown.dataset.templateId, moveDown.dataset.fieldMoveDown, 1);
+  }
   if (unitButton) {
     localStorage.setItem('mendtrack-measurement-unit', unitButton.dataset.measurementUnit);
     await renderMeasurementTemplateSettings();
@@ -1395,23 +2128,30 @@ async function handleMeasurementTemplateAction(event) {
     return;
   }
   if (deleteField) {
-    const field = activeMeasurementTemplateFields.find(item => item.id === deleteField.dataset.fieldDelete);
+    const field = activeMeasurementTemplateFields.find((item) => item.id === deleteField.dataset.fieldDelete);
     if (!field) return;
-    if (!confirm(`Yakin ingin menghapus komponen "${field.field_label}"? Data ukuran pelanggan yang sudah tersimpan tidak akan diubah.`)) return;
+    if (!confirm(`Yakin ingin menghapus komponen "${field.field_label}"? Data ukuran pelanggan yang sudah tersimpan tidak akan diubah.`)) {
+      return;
+    }
     const { error } = await supabase.from('measurement_template_fields').delete().eq('id', field.id);
     if (error) return alert(`Gagal menghapus komponen: ${error.message}`);
     await renderMeasurementTemplateSettings();
     return;
   }
   if (addField) {
-    const template = activeMeasurementTemplates.find(item => item.id === addField.dataset.fieldAdd);
+    const template = activeMeasurementTemplates.find((item) => item.id === addField.dataset.fieldAdd);
     if (!template) return;
     const label = prompt(`Nama komponen ukuran untuk ${template.garment_type}:`);
     if (label === null) return;
     if (!label.trim()) return alert('Nama komponen wajib diisi.');
     const key = makeMeasurementFieldKey(label);
     if (!key) return alert('Nama komponen tidak valid.');
-    const maxOrder = Math.max(0, ...activeMeasurementTemplateFields.filter(field => field.template_id === template.id).map(field => field.sort_order));
+    const maxOrder = Math.max(
+      0,
+      ...activeMeasurementTemplateFields
+        .filter((field) => field.template_id === template.id)
+        .map((field) => field.sort_order)
+    );
     const { error } = await supabase.from('measurement_template_fields').insert({
       template_id: template.id,
       field_key: key,
@@ -1419,20 +2159,17 @@ async function handleMeasurementTemplateAction(event) {
       unit: 'cm',
       is_required: false,
       is_active: true,
-      sort_order: maxOrder + 1
+      sort_order: maxOrder + 1,
     });
     if (error) return alert(`Gagal menambahkan komponen: ${error.message}`);
     await renderMeasurementTemplateSettings();
   }
 }
 
-// ============================================================================
-// FETCH ORDERS & UPDATE METRICS
-// ============================================================================
 async function fetchOrders() {
   if (!ordersListContainer) return;
   ordersListContainer.innerHTML = `
-    <div class="bg-white rounded-2xl border border-slate-200 p-8 text-center text-sm text-slate-500">
+    <div class="mt-card p-8 text-center text-sm mt-muted" role="status">
       Memuat daftar order workshop...
     </div>
   `;
@@ -1452,10 +2189,12 @@ async function fetchOrders() {
   } catch (err) {
     console.error('Fetch orders failed:', err);
     ordersListContainer.innerHTML = `
-      <div class="bg-rose-50 border border-rose-200 rounded-2xl p-5 text-sm text-rose-800">
-        Gagal memuat order: ${escapeHTML(err.message)}
+      <div role="alert" class="mt-notice-error p-5 text-sm flex flex-wrap items-center justify-between gap-3">
+        <span>Gagal memuat order: ${escapeHTML(err.message)}</span>
+        <button type="button" id="retry-fetch-orders-btn" class="mt-btn mt-btn-secondary text-xs">Muat ulang</button>
       </div>
     `;
+    document.getElementById('retry-fetch-orders-btn')?.addEventListener('click', fetchOrders);
   }
 }
 
@@ -1468,14 +2207,11 @@ function updateDashboardMetrics() {
 
   if (activeCountEl) activeCountEl.textContent = String(activeOrders.length);
 
-  // Hitung Total Sisa Piutang
   const totalPiutang = allOrders.reduce((acc, o) => {
-    const sisa = Math.max(0, Number(o.total_amount || 0) - Number(o.paid_amount || 0));
-    return acc + sisa;
+    return acc + Math.max(0, Number(o.total_amount || 0) - Number(o.paid_amount || 0));
   }, 0);
   if (unpaidTotalEl) unpaidTotalEl.textContent = formatCurrency(totalPiutang);
 
-  // Cari Deadline Terdekat di antara order yang belum ready/completed
   const ongoingWithDeadline = activeOrders
     .filter((o) => o.estimated_done_date && !['ready', 'completed'].includes(o.status))
     .sort((a, b) => new Date(a.estimated_done_date) - new Date(b.estimated_done_date));
@@ -1485,44 +2221,33 @@ function updateDashboardMetrics() {
     const dStatus = getDeadlineStatus(nearest.estimated_done_date);
     if (nearestDeadlineEl) {
       nearestDeadlineEl.textContent = formatDateID(nearest.estimated_done_date);
-      nearestDeadlineEl.className = `text-base sm:text-lg font-bold mt-1 ${
-        dStatus.isUrgent ? 'text-rose-600' : 'text-[#0B1220]'
+      nearestDeadlineEl.className = `text-xl sm:text-2xl font-extrabold mt-1 ${
+        dStatus.isUrgent ? 'mt-danger-text' : 'mt-text'
       }`;
     }
     if (nearestTicketEl) {
-      nearestTicketEl.textContent = `${nearest.ticket_code} • ${dStatus.label}`;
+      nearestTicketEl.textContent = `${nearest.ticket_code} · ${dStatus.label}`;
     }
   } else {
     if (nearestDeadlineEl) {
       nearestDeadlineEl.textContent = '-';
-      nearestDeadlineEl.className = 'text-base sm:text-lg font-bold text-[#0B1220] mt-1';
+      nearestDeadlineEl.className = 'text-xl sm:text-2xl font-extrabold mt-text mt-1';
     }
     if (nearestTicketEl) nearestTicketEl.textContent = 'Tidak ada antrean mendesak';
   }
 }
 
-// ============================================================================
-// RENDER ORDERS LIST & QUICK STATUS SWITCHER (T-3.2)
-// ============================================================================
 function renderOrdersList() {
   if (!ordersListContainer) return;
 
-  const filtered = allOrders.filter((order) => {
-    // Daftar Order hanya menampilkan order aktif; order completed dikelola di menu Arsip.
-    if (order.status === 'completed') return false;
-
-    // Filter by selected calendar date
+  const activePool = allOrders.filter((order) => order.status !== 'completed');
+  const filtered = activePool.filter((order) => {
     if (workloadDateFilter && order.estimated_done_date !== workloadDateFilter) return false;
-
-    // Filter by workflow status
     if (orderStatusFilter !== 'all' && order.status !== orderStatusFilter) return false;
-
-    // Filter search query
     if (searchQuery) {
       const hay = `${order.ticket_code} ${order.customer_name} ${order.customer_phone}`.toLowerCase();
       if (!hay.includes(searchQuery)) return false;
     }
-
     return true;
   });
 
@@ -1530,12 +2255,25 @@ function renderOrdersList() {
   if (filterCount) filterCount.textContent = `${filtered.length} order ditampilkan`;
 
   if (filtered.length === 0) {
-    ordersListContainer.innerHTML = `
-      <div class="bg-white rounded-2xl border border-slate-200 p-10 text-center">
-        <p class="font-semibold text-slate-700 text-sm">Tidak ada order pada filter ini</p>
-        <p class="text-xs text-slate-400 mt-1">Klik tombol "+ Order Baru" di kanan atas untuk mencatat pesanan baru.</p>
-      </div>
-    `;
+    if (activePool.length === 0) {
+      ordersListContainer.innerHTML = `
+        <div class="mt-card p-8 text-center space-y-3">
+          <p class="font-bold mt-text text-sm">Belum ada order aktif</p>
+          <p class="text-xs mt-muted">Catat pesanan pertama workshop untuk mulai memantau antrean dan beban kerja.</p>
+          <button type="button" data-empty-new-order class="mt-btn mt-btn-primary text-xs">Tambah Order Pertama</button>
+        </div>
+      `;
+      ordersListContainer.querySelector('[data-empty-new-order]')?.addEventListener('click', () => openOrderModal(null));
+    } else {
+      ordersListContainer.innerHTML = `
+        <div class="mt-card p-8 text-center space-y-3">
+          <p class="font-bold mt-text text-sm">Tidak ada order yang cocok dengan filter</p>
+          <p class="text-xs mt-muted">Ubah kata kunci pencarian, status proses, atau bersihkan filter aktif.</p>
+          <button type="button" data-empty-reset-filter class="mt-btn mt-btn-secondary text-xs">Reset Filter</button>
+        </div>
+      `;
+      ordersListContainer.querySelector('[data-empty-reset-filter]')?.addEventListener('click', resetOrderFilters);
+    }
     return;
   }
 
@@ -1561,119 +2299,93 @@ function renderOrdersList() {
           ? items
               .map(
                 (it) =>
-                  `<span class="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs">${escapeHTML(
+                  `<span class="inline-flex items-center px-2 py-1 rounded text-xs mt-card-muted">${escapeHTML(
                     it.garment_name
-                  )} • <strong>${escapeHTML(it.service_type)}</strong></span>`
+                  )} · <strong class="ml-1">${escapeHTML(it.service_type)}</strong></span>`
               )
               .join(' ')
-          : '<span class="text-xs text-slate-400">Belum ada item</span>';
+          : '<span class="text-xs mt-muted">Belum ada item</span>';
 
       return `
-        <article class="bg-white rounded-2xl border border-slate-200 p-4 sm:p-5 shadow-sm hover:border-slate-300 transition space-y-3.5">
-          <!-- Baris Atas: Tiket, Pelanggan, Status & Biaya -->
+        <article class="mt-card p-4 sm:p-5 space-y-3.5">
           <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5">
-            <div>
+            <div class="min-w-0">
               <div class="flex items-center gap-2 flex-wrap">
-                <span class="font-mono-code font-bold text-sm sm:text-base text-[#0B1220]">${escapeHTML(
-                  order.ticket_code
-                )}</span>
-                <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
-                  statusMeta.badgeClass
-                }">
-                  <span class="w-1.5 h-1.5 rounded-full ${statusMeta.dotClass}"></span>
-                  ${escapeHTML(statusMeta.label)}
+                <span class="font-mono-code font-bold text-sm sm:text-base mt-text">${escapeHTML(order.ticket_code)}</span>
+                <span class="${statusMeta.badgeClass}">
+                  <span class="${statusMeta.dotClass}" aria-hidden="true"></span>
+                  <span>${escapeHTML(statusMeta.label)}</span>
                 </span>
-                ${deadline.isOverdue && !['ready','completed'].includes(order.status) ? `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700 border border-rose-200"><i data-lucide="alert-circle" class="w-3 h-3 mr-1"></i>${escapeHTML(deadline.label)}</span>` : ''}
-                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
-                  payMeta.badgeClass
-                }">
-                  ${escapeHTML(payMeta.label)}
-                </span>
+                ${
+                  deadline.isOverdue && !['ready', 'completed'].includes(order.status)
+                    ? `<span class="mt-badge mt-badge-overdue"><i data-lucide="alert-circle" class="w-3.5 h-3.5" aria-hidden="true"></i><span>${escapeHTML(deadline.label)}</span></span>`
+                    : ''
+                }
+                <span class="${payMeta.badgeClass}">${escapeHTML(payMeta.label)}</span>
               </div>
 
-              <div class="mt-1 flex items-center gap-2 text-xs sm:text-sm text-slate-600 flex-wrap">
-                <button type="button" data-edit-order="${escapeHTML(order.id)}" class="font-semibold text-slate-900 hover:text-[#4F6BFF] hover:underline text-left">${escapeHTML(order.customer_name)}</button>
-                <span>•</span>
+              <div class="mt-1.5 flex items-center gap-2 text-xs sm:text-sm mt-muted flex-wrap">
+                <button type="button" data-edit-order="${escapeHTML(order.id)}" class="font-semibold mt-text hover:underline text-left">${escapeHTML(order.customer_name)}</button>
+                <span aria-hidden="true">·</span>
                 <a href="${buildWhatsAppLink(
                   order.customer_phone,
                   `Halo ${order.customer_name}, update order ${order.ticket_code} dari ${workshopSettings.NAME}:`
-                )}" target="_blank" rel="noopener noreferrer" class="text-emerald-700 hover:underline font-mono-code text-xs">
+                )}" target="_blank" rel="noopener noreferrer" class="mt-success-text hover:underline font-mono-code text-xs">
                   +${escapeHTML(order.customer_phone)}
                 </a>
               </div>
             </div>
 
-            <div class="sm:text-right">
-              <p class="font-mono-code font-bold text-sm sm:text-base text-[#0B1220]">
-                ${formatCurrency(order.total_amount)}
-              </p>
+            <div class="sm:text-right shrink-0">
+              <p class="font-mono-code font-bold text-sm sm:text-base mt-text">${formatCurrency(order.total_amount)}</p>
               ${
                 remaining > 0
-                  ? `<p class="text-xs font-medium text-[#4F6BFF]">Sisa: ${formatCurrency(
-                      remaining
-                    )}</p>`
-                  : `<p class="text-xs font-medium text-emerald-600">Lunas</p>`
+                  ? `<p class="text-xs font-mono-code font-semibold mt-accent">Sisa: ${formatCurrency(remaining)}</p>`
+                  : '<p class="text-xs font-semibold mt-success-text">Lunas</p>'
               }
             </div>
           </div>
 
-          <!-- Ringkasan Item & Deadline -->
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-100">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2.5 mt-seam-t">
             <div class="flex flex-wrap gap-1.5">${itemSummary}</div>
-            <div class="text-xs shrink-0 ${
-              deadline.isUrgent && !['ready', 'completed'].includes(order.status)
-                ? 'text-rose-600 font-semibold'
-                : 'text-slate-500'
+            <div class="text-xs shrink-0 font-mono-code ${
+              deadline.isUrgent && !['ready', 'completed'].includes(order.status) ? 'mt-danger-text font-semibold' : 'mt-muted'
             }">
-              ${deadline.isOverdue && !['ready','completed'].includes(order.status) ? 'Terlambat: ' : 'Target: '}${formatDateID(order.estimated_done_date)}
+              ${deadline.isOverdue && !['ready', 'completed'].includes(order.status) ? 'Terlambat: ' : 'Target: '}${formatDateID(order.estimated_done_date)}
             </div>
           </div>
 
-          <!-- Action Toolbar: Quick Status Switcher, Kasir, Nota, Edit -->
-          <div class="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+          <div class="pt-3 mt-seam-t flex flex-wrap items-center justify-between gap-2">
             <div class="flex items-center gap-2 flex-wrap">
               ${
                 nextStep
-                  ? `<button type="button" data-quick-next="${order.id}" data-next-status="${
-                      nextStep.next
-                    }" class="h-9 px-3 rounded-xl bg-[#4F6BFF] hover:bg-[#3D55E0] text-white text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition">
-                      <i data-lucide="arrow-right-circle" class="w-3.5 h-3.5"></i>
+                  ? `<button type="button" data-quick-next="${order.id}" data-next-status="${nextStep.next}" class="mt-btn mt-btn-primary text-xs">
+                      <i data-lucide="arrow-right-circle" class="w-4 h-4" aria-hidden="true"></i>
                       <span>${escapeHTML(nextStep.label)}</span>
                     </button>`
                   : ''
               }
-
             </div>
 
-            <div class="flex items-center gap-1.5">
-              ${remaining > 0 ? `<button type="button" data-open-payment="${order.id}" class="h-9 px-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold inline-flex items-center gap-1"><i data-lucide="wallet" class="w-3.5 h-3.5"></i>Pelunasan</button>` : ''}
-              <button
-                type="button"
-                data-open-receipt="${order.id}"
-                title="Nota Digital"
-                class="h-9 px-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-              >
-                <i data-lucide="receipt-text" class="w-3.5 h-3.5"></i>
+            <div class="flex flex-wrap items-center gap-2">
+              ${
+                remaining > 0
+                  ? `<button type="button" data-open-payment="${order.id}" class="mt-btn mt-btn-success text-xs">
+                      <i data-lucide="wallet" class="w-4 h-4" aria-hidden="true"></i>
+                      <span>Pelunasan</span>
+                    </button>`
+                  : ''
+              }
+              <button type="button" data-open-receipt="${order.id}" title="Nota Digital" class="mt-btn mt-btn-secondary text-xs">
+                <i data-lucide="receipt-text" class="w-4 h-4" aria-hidden="true"></i>
                 <span>Nota</span>
               </button>
-
-              <button
-                type="button"
-                data-edit-order="${order.id}"
-                title="Edit Order & Foto"
-                class="h-9 px-2.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-700 text-xs font-semibold inline-flex items-center gap-1 cursor-pointer"
-              >
-                <i data-lucide="pencil" class="w-3.5 h-3.5"></i>
+              <button type="button" data-edit-order="${order.id}" title="Edit Order dan Foto" class="mt-btn mt-btn-secondary text-xs">
+                <i data-lucide="pencil" class="w-4 h-4" aria-hidden="true"></i>
                 <span>Edit</span>
               </button>
-
-              <button
-                type="button"
-                data-delete-order="${order.id}"
-                title="Hapus Order"
-                class="h-9 w-9 rounded-xl border border-slate-200 hover:bg-rose-50 hover:border-rose-200 text-slate-400 hover:text-rose-600 inline-flex items-center justify-center cursor-pointer"
-              >
-                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+              <button type="button" data-delete-order="${order.id}" title="Hapus Order" aria-label="Hapus order ${escapeHTML(order.ticket_code)}" class="mt-btn-icon mt-btn-danger-ghost">
+                <i data-lucide="trash-2" class="w-4 h-4" aria-hidden="true"></i>
               </button>
             </div>
           </div>
@@ -1687,16 +2399,12 @@ function renderOrdersList() {
 }
 
 function bindCardActionListeners() {
-  // Quick Next Status Button
   ordersListContainer.querySelectorAll('[data-quick-next]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const orderId = btn.getAttribute('data-quick-next');
-      const nextStatus = btn.getAttribute('data-next-status');
-      updateOrderStatus(orderId, nextStatus);
+      updateOrderStatus(btn.getAttribute('data-quick-next'), btn.getAttribute('data-next-status'));
     });
   });
 
-  // Open final-payment modal (no installments).
   ordersListContainer.querySelectorAll('[data-open-payment]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const order = allOrders.find((o) => o.id === btn.getAttribute('data-open-payment'));
@@ -1704,7 +2412,6 @@ function bindCardActionListeners() {
     });
   });
 
-  // Open Receipt Modal
   ordersListContainer.querySelectorAll('[data-open-receipt]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const order = allOrders.find((o) => o.id === btn.getAttribute('data-open-receipt'));
@@ -1712,7 +2419,6 @@ function bindCardActionListeners() {
     });
   });
 
-  // Edit Order
   ordersListContainer.querySelectorAll('[data-edit-order]').forEach((btn) => {
     btn.addEventListener('click', () => {
       const order = allOrders.find((o) => o.id === btn.getAttribute('data-edit-order'));
@@ -1720,43 +2426,106 @@ function bindCardActionListeners() {
     });
   });
 
-  // Delete Order
   ordersListContainer.querySelectorAll('[data-delete-order]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const orderId = btn.getAttribute('data-delete-order');
       const order = allOrders.find((o) => o.id === orderId);
       if (!order) return;
-      if (!confirm(`Hapus permanen order ${order.ticket_code} (${order.customer_name})?`)) return;
+      const confirmed = confirm(
+        `Batalkan dan hapus permanen order ${order.ticket_code} (${order.customer_name})?\n\nSemua data order ini (item, riwayat pembayaran, dan kas terkait) akan dihapus. Data pelanggan (nama, nomor HP, dan ukuran) tetap disimpan.`
+      );
+      if (!confirmed) return;
 
-      const { error } = await supabase.from('orders').delete().eq('id', orderId);
-      if (error) {
-        alert('Gagal menghapus order: ' + error.message);
-        return;
+      btn.disabled = true;
+      try {
+        const photoPaths = (order.order_items || [])
+          .flatMap((it) => [it.before_photo_url, it.after_photo_url])
+          .map(extractStoragePath)
+          .filter(Boolean);
+
+        await deleteOrderAndRelatedRecords(orderId);
+
+        if (photoPaths.length > 0) {
+          try {
+            await supabase.storage.from(SUPABASE_CONFIG.STORAGE_BUCKET).remove(photoPaths);
+          } catch (storageErr) {
+            console.warn('Foto order gagal dibersihkan dari storage:', storageErr);
+          }
+        }
+
+        await fetchOrders();
+      } catch (err) {
+        alert('Gagal menghapus order: ' + (err.message || 'Terjadi kesalahan.'));
+      } finally {
+        btn.disabled = false;
       }
-      await fetchOrders();
     });
   });
 }
 
-// ============================================================================
-// UPDATE STATUS & AUTO WHATSAPP TRIGGER (T-4.2)
-// ============================================================================
+async function deleteOrderAndRelatedRecords(orderId) {
+  const { error: rpcError } = await supabase.rpc('delete_order_cascade', {
+    p_order_id: orderId,
+  });
+  if (!rpcError) return;
+
+  const isMissingRpc =
+    rpcError.code === 'PGRST202' ||
+    rpcError.code === '42883' ||
+    /could not find the function/i.test(rpcError.message || '');
+  if (!isMissingRpc) throw rpcError;
+
+  const { data: payments, error: payReadErr } = await supabase
+    .from('order_payments')
+    .select('id, cash_transaction_id')
+    .eq('order_id', orderId);
+  if (payReadErr) throw payReadErr;
+
+  const cashIds = (payments || []).map((p) => p.cash_transaction_id).filter(Boolean);
+
+  const { error: payDelErr } = await supabase.from('order_payments').delete().eq('order_id', orderId);
+  if (payDelErr) throw payDelErr;
+
+  const { error: cashByOrderErr } = await supabase.from('cash_transactions').delete().eq('order_id', orderId);
+  if (cashByOrderErr) throw cashByOrderErr;
+
+  if (cashIds.length > 0) {
+    const { error: cashByIdErr } = await supabase.from('cash_transactions').delete().in('id', cashIds);
+    if (cashByIdErr) throw cashByIdErr;
+  }
+
+  const { error: itemsDelErr } = await supabase.from('order_items').delete().eq('order_id', orderId);
+  if (itemsDelErr) throw itemsDelErr;
+
+  const { error: orderDelErr } = await supabase.from('orders').delete().eq('id', orderId);
+  if (orderDelErr) throw orderDelErr;
+}
+
+function extractStoragePath(photoUrl) {
+  if (!photoUrl || typeof photoUrl !== 'string') return null;
+  const marker = `/storage/v1/object/public/${SUPABASE_CONFIG.STORAGE_BUCKET}/`;
+  const idx = photoUrl.indexOf(marker);
+  if (idx === -1) return null;
+  return decodeURIComponent(photoUrl.slice(idx + marker.length).split('?')[0]);
+}
+
 async function updateOrderStatus(orderId, newStatus) {
   try {
-    const orderToUpdate = allOrders.find((o) => o.id === orderId);
-    const statusUpdate = { status: newStatus };
+    const targetOrder = allOrders.find((o) => o.id === orderId);
+    if (newStatus === 'completed' && targetOrder) {
+      const remaining = Math.max(0, Number(targetOrder.total_amount || 0) - Number(targetOrder.paid_amount || 0));
+      if (remaining > 0) {
+        alert(
+          `Order ${targetOrder.ticket_code} belum lunas (sisa tagihan ${formatCurrency(remaining)}). Tekan tombol Pelunasan terlebih dahulu sebelum menandai Selesai / Diambil.`
+        );
+        return;
+      }
+    }
 
-    // Status selesai/diambil tidak pernah otomatis melunasi pembayaran.
-    const { error } = await supabase
-      .from('orders')
-      .update(statusUpdate)
-      .eq('id', orderId);
-
+    // Marking an order completed never auto-settles unpaid balance.
+    const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
     if (error) throw error;
-
     await fetchOrders();
-
-    // Jika status diubah menjadi 'ready' (Siap Diambil), munculkan Toast WA otomatis
     if (newStatus === 'ready') {
       const updatedOrder = allOrders.find((o) => o.id === orderId);
       if (updatedOrder) showWhatsAppReadyToast(updatedOrder);
@@ -1775,12 +2544,12 @@ function showWhatsAppReadyToast(order) {
   const billingLine =
     remaining > 0
       ? `Sisa tagihan: *${formatCurrency(remaining)}* (pembayaran saat pengambilan).`
-      : `Status pembayaran: *LUNAS*.`;
+      : 'Status pembayaran: *Lunas*.';
 
   const message =
-    `Halo Kak *${order.customer_name}*, pengerjaan order Anda di *${workshopSettings.NAME}* dengan kode tiket *${order.ticket_code}* telah *SELESAI & SIAP DIAMBIL*.\n\n` +
+    `Halo Kak *${order.customer_name}*, pengerjaan order Anda di *${workshopSettings.NAME}* dengan kode tiket *${order.ticket_code}* telah *Selesai dan Siap Diambil*.\n\n` +
     `${billingLine}\n` +
-    `Detail & foto hasil pengerjaan dapat dilihat di:\n${trackingUrl}\n\n` +
+    `Detail dan foto hasil pengerjaan dapat dilihat di:\n${trackingUrl}\n\n` +
     `Alamat Workshop: ${workshopSettings.ADDRESS}\nJam buka: ${workshopSettings.OPENING_HOURS}\nTerima kasih!\n\nby MendTrack`;
 
   waToastDesc.textContent = `Kirim info siap ambil ke ${order.customer_name} (${order.ticket_code})`;
@@ -1789,13 +2558,39 @@ function showWhatsAppReadyToast(order) {
   if (window.lucide) window.lucide.createIcons();
 }
 
-// ============================================================================
-// ORDER CRUD MODAL & MULTI-ITEM REPEATER (T-3.3)
-// ============================================================================
+let lockedOrderTicketCode = '';
+
+function showEstimatedDateError(message) {
+  const input = document.getElementById('form-estimated-date');
+  const errEl = document.getElementById('estimated-date-error');
+  if (input) {
+    input.classList.add('mt-input-error');
+    input.setAttribute('aria-invalid', 'true');
+  }
+  if (errEl) {
+    errEl.textContent = message;
+    errEl.classList.remove('hidden');
+  }
+}
+
+function clearEstimatedDateError() {
+  const input = document.getElementById('form-estimated-date');
+  const errEl = document.getElementById('estimated-date-error');
+  if (input) {
+    input.classList.remove('mt-input-error');
+    input.removeAttribute('aria-invalid');
+  }
+  if (errEl) {
+    errEl.textContent = '';
+    errEl.classList.add('hidden');
+  }
+}
+
 async function openOrderModal(existingOrder = null, draftOverride = null) {
   if (!orderFormModal) return;
+  rememberTrigger();
   try {
-    activeServiceCatalog = (await fetchServices()).filter(service => service.is_active);
+    activeServiceCatalog = (await fetchServices()).filter((service) => service.is_active);
   } catch (error) {
     console.warn('Katalog layanan gagal dimuat:', error);
     activeServiceCatalog = [];
@@ -1808,10 +2603,13 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
   document.getElementById('form-order-id').value = isEdit ? existingOrder.id : '';
 
   formItemsContainer.innerHTML = '';
+  clearEstimatedDateError();
 
+  const ticketInput = document.getElementById('form-ticket-code');
   if (draftOverride) {
-    document.getElementById('form-ticket-code').value =
+    lockedOrderTicketCode =
       draftOverride.ticket_code || generateTicketCode(allOrders.length + 1);
+    ticketInput.value = lockedOrderTicketCode;
     document.getElementById('form-customer-name').value = draftOverride.customer_name || '';
     document.getElementById('form-customer-phone').value = draftOverride.customer_phone || '';
     document.getElementById('form-estimated-date').value = draftOverride.estimated_done_date || '';
@@ -1819,13 +2617,11 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
     document.getElementById('form-paid-amount').value = draftOverride.paid_amount || 0;
 
     const items = draftOverride.items || [];
-    if (items.length > 0) {
-      items.forEach((it) => appendItemRow(it));
-    } else {
-      appendItemRow();
-    }
+    if (items.length > 0) items.forEach((it) => appendItemRow(it));
+    else appendItemRow();
   } else if (isEdit) {
-    document.getElementById('form-ticket-code').value = existingOrder.ticket_code;
+    lockedOrderTicketCode = existingOrder.ticket_code || '';
+    ticketInput.value = lockedOrderTicketCode;
     document.getElementById('form-customer-name').value = existingOrder.customer_name;
     document.getElementById('form-customer-phone').value = existingOrder.customer_phone;
     document.getElementById('form-estimated-date').value = existingOrder.estimated_done_date || '';
@@ -1833,14 +2629,11 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
     document.getElementById('form-paid-amount').value = Number(existingOrder.paid_amount || 0);
 
     const items = existingOrder.order_items || [];
-    if (items.length > 0) {
-      items.forEach((it) => appendItemRow(it));
-    } else {
-      appendItemRow();
-    }
+    if (items.length > 0) items.forEach((it) => appendItemRow(it));
+    else appendItemRow();
   } else {
-    // Order Baru
-    document.getElementById('form-ticket-code').value = generateTicketCode(allOrders.length + 1);
+    lockedOrderTicketCode = generateTicketCode(allOrders.length + 1);
+    ticketInput.value = lockedOrderTicketCode;
     document.getElementById('form-customer-name').value = '';
     document.getElementById('form-customer-phone').value = '';
     document.getElementById('form-estimated-date').value = '';
@@ -1848,133 +2641,110 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
     document.getElementById('form-paid-amount').value = 0;
     appendItemRow();
   }
+  ticketInput.readOnly = true;
+  ticketInput.disabled = true;
 
   recalculateFormTotals();
   const customerLookupStatus = document.getElementById('customer-lookup-status');
   if (customerLookupStatus) {
     customerLookupStatus.textContent = 'Masukkan nomor HP untuk memeriksa data pelanggan.';
-    customerLookupStatus.className = 'mt-1 text-xs text-slate-500';
+    customerLookupStatus.className = 'mt-1 text-xs mt-muted';
   }
   orderFormModal.classList.remove('hidden');
+  document.getElementById('form-customer-name')?.focus();
   if (window.lucide) window.lucide.createIcons();
 }
 
 function closeOrderModal() {
+  closeOrderDatePicker();
   orderFormModal?.classList.add('hidden');
+  restoreTriggerFocus();
 }
 
 function appendItemRow(itemData = {}) {
   const rowIndex = formItemsContainer.children.length;
+  const uid = ++itemRowCounter;
   const specsObj = itemData.measurement_specs || {};
   const specsString = Object.entries(specsObj)
     .map(([k, v]) => `${k}: ${v}`)
     .join(', ');
 
-  // Hanya layanan aktif dari katalog Supabase yang ditawarkan untuk order baru.
-  // Nilai lama tetap ditambahkan agar order historis dapat diedit tanpa kehilangan layanan.
-  const serviceNames = [...activeServiceCatalog.map(service => service.name)];
+  // Keep archived service names on historical edits while offering active catalog items for new orders.
+  const serviceNames = [...activeServiceCatalog.map((service) => service.name)];
   if (itemData.service_type && !serviceNames.includes(itemData.service_type)) {
     serviceNames.push(itemData.service_type);
   }
-  const presetOptions = serviceNames.map(
-    (serviceName) => `<option value="${escapeHTML(serviceName)}"></option>`
-  ).join('');
+  const presetOptions = serviceNames
+    .map((serviceName) => `<option value="${escapeHTML(serviceName)}"></option>`)
+    .join('');
 
   const card = document.createElement('div');
-  card.className = 'item-row p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3 relative';
+  card.className = 'item-row mt-card-muted p-4 space-y-3 relative';
   card.dataset.itemId = itemData.id || '';
   card.dataset.existingBeforeUrl = itemData.before_photo_url || '';
   card.dataset.existingAfterUrl = itemData.after_photo_url || '';
 
   card.innerHTML = `
-    <div class="flex items-center justify-between">
-      <span class="text-xs font-bold text-[#4F6BFF] uppercase tracking-wider item-row-label">Item #${
-        rowIndex + 1
-      }</span>
-      <button type="button" class="remove-item-btn text-xs text-rose-600 hover:underline font-medium cursor-pointer">
+    <div class="flex items-center justify-between gap-2">
+      <span class="text-xs font-mono-code font-bold mt-accent item-row-label">Item #${rowIndex + 1}</span>
+      <button type="button" class="remove-item-btn mt-btn mt-btn-danger-ghost text-xs">
         Hapus Item
       </button>
     </div>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
       <div>
-        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Nama Pakaian / Artikel *</label>
-        <input
-          type="text"
-          required
-          data-field="garment_name"
-          value="${escapeHTML(itemData.garment_name || '')}"
-          placeholder="Contoh: Raw Denim 15oz"
-          class="w-full h-10 px-3 rounded-lg bg-white border border-slate-300 text-sm focus:outline-none focus:border-[#4F6BFF]"
-        />
+        <label for="item-garment-${uid}" class="block text-xs font-semibold mt-text mb-1">Nama pakaian / artikel *</label>
+        <input id="item-garment-${uid}" type="text" required data-field="garment_name" value="${escapeHTML(itemData.garment_name || '')}" placeholder="Contoh: Raw Denim 15oz" class="mt-input" />
       </div>
 
       <div>
-        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Jenis Layanan *</label>
-        <input
-          type="text"
-          required
-          list="service-presets-${rowIndex}"
-          data-field="service_type"
-          value="${escapeHTML(itemData.service_type || '')}"
-          placeholder="Pilih atau ketik layanan..."
-          class="w-full h-10 px-3 rounded-lg bg-white border border-slate-300 text-sm focus:outline-none focus:border-[#4F6BFF]"
-        />
-        <datalist id="service-presets-${rowIndex}">${presetOptions}</datalist>
+        <label for="item-service-${uid}" class="block text-xs font-semibold mt-text mb-1">Jenis layanan *</label>
+        <input id="item-service-${uid}" type="text" required list="service-presets-${uid}" data-field="service_type" value="${escapeHTML(itemData.service_type || '')}" placeholder="Pilih atau ketik layanan..." class="mt-input" />
+        <datalist id="service-presets-${uid}">${presetOptions}</datalist>
       </div>
     </div>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
       <div>
-        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Spesifikasi Ukuran (opsional)</label>
-        <input
-          type="text"
-          data-field="measurement_specs"
-          value="${escapeHTML(specsString)}"
-          placeholder="Contoh: Inseam: 78cm, Leg Opening: 18cm"
-          class="w-full h-10 px-3 rounded-lg bg-white border border-slate-300 text-xs focus:outline-none focus:border-[#4F6BFF]"
-        />
+        <label for="item-specs-${uid}" class="block text-xs font-semibold mt-text mb-1">Spesifikasi ukuran (opsional)</label>
+        <input id="item-specs-${uid}" type="text" data-field="measurement_specs" value="${escapeHTML(specsString)}" placeholder="Contoh: Inseam: 78cm, Leg Opening: 18cm" class="mt-input text-xs" />
       </div>
 
       <div>
-        <label class="block text-[11px] font-semibold text-slate-600 mb-1">Biaya Item (Rp) *</label>
-        <input
-          type="number"
-          required
-          min="0"
-          step="1000"
-          data-field="price"
-          value="${Number(itemData.price || 0)}"
-          class="item-price-input w-full h-10 px-3 rounded-lg bg-white border border-slate-300 font-mono-code text-sm text-right font-semibold focus:outline-none focus:border-[#4F6BFF]"
-        />
+        <label for="item-price-${uid}" class="block text-xs font-semibold mt-text mb-1">Biaya item (Rp) *</label>
+        <input id="item-price-${uid}" type="number" required min="0" step="1000" data-field="price" value="${Number(itemData.price || 0)}" class="item-price-input mt-input font-mono-code text-right font-semibold" />
       </div>
     </div>
 
-    <!-- Upload Foto Before & After -->
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
       <div>
-        <label class="block text-[11px] font-semibold text-slate-600 mb-1">
-          Foto Before ${itemData.before_photo_url ? '<span class="text-emerald-600">(Sudah tersimpan)</span>' : ''}
+        <label for="item-before-${uid}" class="block text-xs font-semibold mt-text mb-1">
+          Foto sebelum ${itemData.before_photo_url ? '<span class="mt-success-text">(Tersimpan)</span>' : ''}
         </label>
-        ${itemData.before_photo_url ? `<a href="${escapeHTML(itemData.before_photo_url)}" target="_blank" rel="noopener noreferrer" class="existing-photo-preview block mb-2"><img src="${escapeHTML(itemData.before_photo_url)}" alt="Foto Before tersimpan" class="w-28 h-20 object-cover rounded-lg border border-slate-200" /><span class="text-[11px] text-slate-500">Foto tersimpan · pilih file baru jika ingin mengganti</span></a>` : ''}
-        <input
-          type="file"
-          accept="image/*"
-          data-file="before"
-          class="w-full text-xs text-slate-600 file:mr-2.5 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-200 file:text-slate-800 hover:file:bg-slate-300"
-        />
+        ${
+          itemData.before_photo_url
+            ? `<a href="${escapeHTML(itemData.before_photo_url)}" target="_blank" rel="noopener noreferrer" class="existing-photo-preview block mb-2">
+                <img src="${escapeHTML(itemData.before_photo_url)}" width="112" height="80" alt="Foto sebelum tersimpan" class="w-28 h-20 object-cover rounded-lg border" style="border-color: var(--mt-border);" />
+                <span class="text-xs mt-muted">Foto tersimpan · pilih file baru untuk mengganti</span>
+              </a>`
+            : ''
+        }
+        <input id="item-before-${uid}" type="file" accept="image/*" data-file="before" class="w-full text-xs mt-muted" />
       </div>
       <div>
-        <label class="block text-[11px] font-semibold text-slate-600 mb-1">
-          Foto After ${itemData.after_photo_url ? '<span class="text-emerald-600">(Sudah tersimpan)</span>' : ''}
+        <label for="item-after-${uid}" class="block text-xs font-semibold mt-text mb-1">
+          Foto sesudah ${itemData.after_photo_url ? '<span class="mt-success-text">(Tersimpan)</span>' : ''}
         </label>
-        ${itemData.after_photo_url ? `<a href="${escapeHTML(itemData.after_photo_url)}" target="_blank" rel="noopener noreferrer" class="existing-photo-preview block mb-2"><img src="${escapeHTML(itemData.after_photo_url)}" alt="Foto After tersimpan" class="w-28 h-20 object-cover rounded-lg border border-slate-200" /><span class="text-[11px] text-slate-500">Foto tersimpan · pilih file baru jika ingin mengganti</span></a>` : ''}
-        <input
-          type="file"
-          accept="image/*"
-          data-file="after"
-          class="w-full text-xs text-slate-600 file:mr-2.5 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-slate-200 file:text-slate-800 hover:file:bg-slate-300"
-        />
+        ${
+          itemData.after_photo_url
+            ? `<a href="${escapeHTML(itemData.after_photo_url)}" target="_blank" rel="noopener noreferrer" class="existing-photo-preview block mb-2">
+                <img src="${escapeHTML(itemData.after_photo_url)}" width="112" height="80" alt="Foto sesudah tersimpan" class="w-28 h-20 object-cover rounded-lg border" style="border-color: var(--mt-border);" />
+                <span class="text-xs mt-muted">Foto tersimpan · pilih file baru untuk mengganti</span>
+              </a>`
+            : ''
+        }
+        <input id="item-after-${uid}" type="file" accept="image/*" data-file="after" class="w-full text-xs mt-muted" />
       </div>
     </div>
   `;
@@ -2036,9 +2806,7 @@ function parseMeasurementSpecs(rawStr) {
 
 async function uploadGarmentPhoto(file, orderId, typeLabel) {
   const compressedBlob = await compressImage(file, 1080, 0.8);
-  const filePath = `${orderId}/${typeLabel}_${Date.now()}_${Math.random()
-    .toString(36)
-    .slice(2, 7)}.jpg`;
+  const filePath = `${orderId}/${typeLabel}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`;
 
   const { error: uploadError } = await supabase.storage
     .from(SUPABASE_CONFIG.STORAGE_BUCKET)
@@ -2049,10 +2817,7 @@ async function uploadGarmentPhoto(file, orderId, typeLabel) {
 
   if (uploadError) throw uploadError;
 
-  const { data } = supabase.storage
-    .from(SUPABASE_CONFIG.STORAGE_BUCKET)
-    .getPublicUrl(filePath);
-
+  const { data } = supabase.storage.from(SUPABASE_CONFIG.STORAGE_BUCKET).getPublicUrl(filePath);
   return data.publicUrl;
 }
 
@@ -2079,61 +2844,73 @@ async function checkCustomerPhoneInForm() {
   const requestId = ++customerLookupRequest;
   if (!normalized || normalized.length < 10) {
     status.textContent = 'Masukkan nomor HP minimal 10 digit.';
-    status.className = 'mt-1 text-xs text-slate-500';
+    status.className = 'mt-1 text-xs mt-muted';
     return;
   }
 
   status.textContent = 'Memeriksa nomor pelanggan...';
-  status.className = 'mt-1 text-xs text-slate-500';
+  status.className = 'mt-1 text-xs mt-muted';
   try {
     const customer = await findCustomerByPhone(normalized);
     if (requestId !== customerLookupRequest) return;
     if (customer) {
-      status.textContent = `Nomor ini sudah terdaftar dengan nama ${customer.name}.`;
-      status.className = 'mt-1 text-xs text-amber-700';
+      status.textContent = `Nomor ini sudah terdaftar atas nama ${customer.name}.`;
+      status.className = 'mt-1 text-xs mt-accent font-medium';
     } else {
-      status.textContent = 'Nomor belum terdaftar. Pelanggan baru akan otomatis ditambahkan saat order disimpan.';
-      status.className = 'mt-1 text-xs text-emerald-700';
+      status.textContent = 'Nomor belum terdaftar. Pelanggan baru akan otomatis dibuat saat order disimpan.';
+      status.className = 'mt-1 text-xs mt-success-text font-medium';
     }
   } catch (error) {
     if (requestId !== customerLookupRequest) return;
     status.textContent = `Pemeriksaan pelanggan gagal: ${error.message || 'Coba lagi.'}`;
-    status.className = 'mt-1 text-xs text-rose-600';
+    status.className = 'mt-1 text-xs mt-danger-text';
   }
 }
 
 async function handleSaveOrderSubmit(e) {
   e.preventDefault();
+  const estimatedDateInput = document.getElementById('form-estimated-date');
+  const estimatedDate = estimatedDateInput?.value.trim() || '';
+  if (!estimatedDate || !parseLocalDateKey(estimatedDate)) {
+    showEstimatedDateError('Target selesai (deadline) wajib diisi.');
+    estimatedDateInput?.scrollIntoView({ block: 'center' });
+    estimatedDateInput?.focus();
+    return;
+  }
+  clearEstimatedDateError();
+
   const submitBtn = document.getElementById('save-order-submit-btn');
   submitBtn.disabled = true;
   submitBtn.innerHTML = '<span>Menyimpan...</span>';
   try {
     const existingOrderId = document.getElementById('form-order-id').value.trim();
-    const ticketCode = document.getElementById('form-ticket-code').value.trim().toUpperCase();
+    const existingOrderRecord = existingOrderId ? allOrders.find((o) => o.id === existingOrderId) : null;
+    const ticketCode = (
+      existingOrderRecord?.ticket_code ||
+      lockedOrderTicketCode ||
+      document.getElementById('form-ticket-code').value
+    )
+      .trim()
+      .toUpperCase();
     const customerName = document.getElementById('form-customer-name').value.trim();
     const customerPhone = normalizePhone(document.getElementById('form-customer-phone').value);
-    const estimatedDate = document.getElementById('form-estimated-date').value || null;
     const notes = document.getElementById('form-notes').value.trim();
     const paidAmount = Number(document.getElementById('form-paid-amount').value || 0);
 
     if (!ticketCode) throw new Error('Kode tiket wajib diisi.');
+    if (!estimatedDate || !parseLocalDateKey(estimatedDate)) throw new Error('Target selesai (deadline) wajib diisi.');
     if (!customerName) throw new Error('Nama pelanggan wajib diisi.');
     if (!customerPhone || customerPhone.length < 10) throw new Error('Nomor WhatsApp tidak valid (minimal 10 digit).');
     if (!Number.isFinite(paidAmount) || paidAmount < 0) throw new Error('Nominal pembayaran tidak valid.');
 
-    // Identifikasi pelanggan berdasarkan nomor HP.
-    // Jika sudah terdaftar, RPC order akan mengaitkan order ke pelanggan tersebut.
-    // Jika belum, RPC order akan membuat record pelanggan baru saat order disimpan.
-    const matchedCustomer = await findCustomerByPhone(customerPhone);
+    await findCustomerByPhone(customerPhone);
 
     const itemRows = Array.from(formItemsContainer.querySelectorAll('.item-row'));
     if (!itemRows.length) throw new Error('Minimal harus terdapat 1 item pakaian dalam satu order.');
 
     const orderId = existingOrderId || crypto.randomUUID();
 
-    // Upload foto dilakukan sebelum transaksi DB. URL foto lama dipertahankan bila tidak diganti.
-    // Jika transaksi DB gagal, file yang baru diunggah mungkin menjadi file yatim di Storage,
-    // tetapi data order dan item lama tidak akan terhapus/berubah sebagian.
+    // Photos upload before the DB RPC so existing order rows stay intact if storage fails.
     const itemsPayload = [];
     for (const row of itemRows) {
       const garmentName = row.querySelector('[data-field="garment_name"]').value.trim();
@@ -2188,7 +2965,7 @@ async function handleSaveOrderSubmit(e) {
         .join('\n');
       const trackingUrl = `${window.location.origin}/`;
       const receiptMessage =
-        `*STRUK DIGITAL — ${workshopSettings.NAME}*\n` +
+        `*Struk Digital - ${workshopSettings.NAME}*\n` +
         `No. Tiket: *${ticketCode}*\n` +
         `Pelanggan: ${customerName}\n` +
         `Target Selesai: ${formatDateID(estimatedDate)}\n\n` +
@@ -2196,42 +2973,34 @@ async function handleSaveOrderSubmit(e) {
         `Total: *${formatCurrency(totalAmount)}*\n` +
         `Dibayar: ${formatCurrency(paidAmount)}\n` +
         `Sisa Tagihan: *${formatCurrency(remaining)}*\n\n` +
-        `Pantau progres dengan nomor WhatsApp yang terdaftar: ${trackingUrl}\n\n` +
+        `Pantau progres dengan nomor WhatsApp terdaftar: ${trackingUrl}\n\n` +
         `Jam Operasional: ${workshopSettings.OPENING_HOURS}\n` +
         `Terima kasih telah mempercayakan perawatan pakaian Anda kepada ${workshopSettings.NAME}.\n\nby MendTrack`;
-      const waUrl = buildWhatsAppLink(customerPhone, receiptMessage);
-      // Gunakan navigasi langsung yang sama seperti tombol Kirim Nota.
-      // Data order sudah tersimpan sebelum browser dialihkan ke WhatsApp.
-      window.location.href = waUrl;
+      window.location.href = buildWhatsAppLink(customerPhone, receiptMessage);
     }
   } catch (err) {
     alert('Gagal menyimpan order: ' + err.message);
   } finally {
     submitBtn.disabled = false;
-    submitBtn.innerHTML = '<i data-lucide="check" class="w-4 h-4"></i><span>Simpan Order</span>';
+    submitBtn.innerHTML = '<i data-lucide="check" class="w-4 h-4" aria-hidden="true"></i><span>Simpan Order</span>';
     if (window.lucide) window.lucide.createIcons();
   }
 }
 
-// ============================================================================
-// AUTO-SAVE DRAFT HANDLER (OFFLINE RESILIENCE)
-// ============================================================================
 const triggerAutoSaveDraft = debounce(() => {
-  // Jangan timpa draf jika sedang mode edit order yang sudah ada di DB
+  // Never overwrite the new-order draft while editing an existing order.
   const existingId = document.getElementById('form-order-id')?.value;
   if (existingId) return;
 
   const items = Array.from(formItemsContainer.querySelectorAll('.item-row')).map((row) => ({
     garment_name: row.querySelector('[data-field="garment_name"]')?.value || '',
     service_type: row.querySelector('[data-field="service_type"]')?.value || '',
-    measurement_specs: parseMeasurementSpecs(
-      row.querySelector('[data-field="measurement_specs"]')?.value || ''
-    ),
+    measurement_specs: parseMeasurementSpecs(row.querySelector('[data-field="measurement_specs"]')?.value || ''),
     price: Number(row.querySelector('[data-field="price"]')?.value || 0),
   }));
 
   saveOrderDraft({
-    ticket_code: document.getElementById('form-ticket-code')?.value || '',
+    ticket_code: lockedOrderTicketCode || document.getElementById('form-ticket-code')?.value || '',
     customer_name: document.getElementById('form-customer-name')?.value || '',
     customer_phone: document.getElementById('form-customer-phone')?.value || '',
     estimated_done_date: document.getElementById('form-estimated-date')?.value || '',
@@ -2245,25 +3014,21 @@ function checkSavedDraftBanner() {
   const draft = loadOrderDraft();
   if (draft && draft.data && (draft.data.customer_name || draft.data.items?.length)) {
     if (draftSavedTime) {
-      draftSavedTime.textContent = `Draf untuk "${
-        draft.data.customer_name || draft.data.ticket_code
-      }" disimpan pada ${formatDateID(draft.savedAt, true)}`;
+      draftSavedTime.textContent = `Draf untuk "${draft.data.customer_name || draft.data.ticket_code}" disimpan pada ${formatDateID(draft.savedAt, true)}`;
     }
     draftBanner?.classList.remove('hidden');
   }
 }
 
-// ============================================================================
-// KASIR & PELUNASAN PEMBAYARAN (T-4.1)
-// ============================================================================
 function openPaymentModal(order) {
   if (!paymentModal) return;
+  rememberTrigger();
   const total = Number(order.total_amount || 0);
   const currentPaid = Number(order.paid_amount || 0);
   const remaining = Math.max(0, total - currentPaid);
 
   document.getElementById('pay-order-id').value = order.id;
-  document.getElementById('pay-modal-ticket').textContent = `${order.ticket_code} — ${order.customer_name}`;
+  document.getElementById('pay-modal-ticket').textContent = `${order.ticket_code} | ${order.customer_name}`;
   document.getElementById('pay-total-display').textContent = formatCurrency(total);
   document.getElementById('pay-current-display').textContent = formatCurrency(currentPaid);
   document.getElementById('pay-remaining-display').textContent = formatCurrency(remaining);
@@ -2273,6 +3038,7 @@ function openPaymentModal(order) {
   payFullQuickBtn.dataset.totalAmount = String(remaining);
 
   paymentModal.classList.remove('hidden');
+  paidInput.focus();
   if (window.lucide) window.lucide.createIcons();
 }
 
@@ -2302,7 +3068,7 @@ async function handlePaymentSubmit(e) {
       p_idempotency_key: idempotencyKey,
     });
     if (error) throw error;
-    paymentModal.classList.add('hidden');
+    closePaymentModal();
     await fetchOrders();
   } catch (err) {
     alert('Gagal menyimpan pembayaran: ' + err.message);
@@ -2311,63 +3077,129 @@ async function handlePaymentSubmit(e) {
   }
 }
 
-// ============================================================================
-// CASH MANAGEMENT — manual entries only; order payments are posted by RPC.
-// ============================================================================
+// Manual cash entries only; order payments post through record_order_payment_v3 RPC.
 const cashCategories = {
-  income: [['custom','Custom'],['reparasi','Reparasi'],['lain_lain','Lain-lain']],
-  expense: [['alat_bahan','Alat dan Bahan'],['operasional','Operasional'],['makan_minum','Makan dan Minum'],['gaji','Gaji'],['lain_lain','Lain-lain']],
+  income: [
+    ['custom', 'Custom'],
+    ['reparasi', 'Reparasi'],
+    ['lain_lain', 'Lain-lain'],
+  ],
+  expense: [
+    ['alat_bahan', 'Alat dan Bahan'],
+    ['operasional', 'Operasional'],
+    ['makan_minum', 'Makan dan Minum'],
+    ['gaji', 'Gaji'],
+    ['lain_lain', 'Lain-lain'],
+  ],
 };
+
 function updateCashCategoryOptions() {
   const type = document.getElementById('cash-type')?.value || 'income';
   const select = document.getElementById('cash-category');
-  if (select) select.innerHTML = cashCategories[type].map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
+  if (select) {
+    select.innerHTML = cashCategories[type].map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+  }
 }
+
 function cashPeriodStart(period) {
-  const now = new Date(); const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   if (period === 'week') start.setDate(start.getDate() - 6);
   if (period === 'month') start.setDate(1);
   return period === 'all' ? null : start;
 }
+
 async function renderCash() {
-  const target = document.getElementById('cash-transactions'); if (!target) return;
-  target.innerHTML = '<p class="text-sm text-slate-500">Memuat transaksi kas...</p>';
+  const target = document.getElementById('cash-transactions');
+  if (!target) return;
+  target.innerHTML = '<p class="text-sm mt-muted" role="status">Memuat transaksi kas...</p>';
   try {
     const period = document.getElementById('cash-period')?.value || 'week';
-    let query = supabase.from('cash_transactions').select('*').order('occurred_at', {ascending:false});
+    let query = supabase.from('cash_transactions').select('*').order('occurred_at', { ascending: false });
     const start = cashPeriodStart(period);
     if (start) query = query.gte('occurred_at', start.toISOString());
-    const {data, error} = await query;
+    const { data, error } = await query;
     if (error) throw error;
     const rows = data || [];
-    const [{data: allRows, error: allError}] = await Promise.all([supabase.from('cash_transactions').select('transaction_type,amount')]);
+    const { data: allRows, error: allError } = await supabase
+      .from('cash_transactions')
+      .select('transaction_type,amount');
     if (allError) throw allError;
-    const periodIncome = rows.filter(x=>x.transaction_type==='income').reduce((a,x)=>a+Number(x.amount||0),0);
-    const periodExpense = rows.filter(x=>x.transaction_type==='expense').reduce((a,x)=>a+Number(x.amount||0),0);
-    const balance = (allRows||[]).reduce((a,x)=>a+(x.transaction_type==='income'?1:-1)*Number(x.amount||0),0);
+
+    const periodIncome = rows
+      .filter((x) => x.transaction_type === 'income')
+      .reduce((a, x) => a + Number(x.amount || 0), 0);
+    const periodExpense = rows
+      .filter((x) => x.transaction_type === 'expense')
+      .reduce((a, x) => a + Number(x.amount || 0), 0);
+    const balance = (allRows || []).reduce(
+      (a, x) => a + (x.transaction_type === 'income' ? 1 : -1) * Number(x.amount || 0),
+      0
+    );
+
     document.getElementById('cash-income').textContent = formatCurrency(periodIncome);
     document.getElementById('cash-expense').textContent = formatCurrency(periodExpense);
     document.getElementById('cash-balance').textContent = formatCurrency(balance);
-    const labels = Object.fromEntries([...cashCategories.income,...cashCategories.expense]);
-    target.innerHTML = rows.length ? rows.map(x=>`<div class="flex items-center justify-between gap-3 py-3 border-b border-slate-100"><div class="min-w-0"><p class="text-sm font-semibold text-slate-800">${escapeHTML(x.description || labels[x.category] || x.category)}</p><p class="text-xs text-slate-500">${formatDateID(x.occurred_at,true)} · ${labels[x.category] || x.category} · ${escapeHTML(x.payment_method || 'Tunai')}${x.order_id ? ' · Order' : ' · Manual'}</p></div><b class="text-sm whitespace-nowrap ${x.transaction_type==='income'?'text-emerald-600':'text-rose-600'}">${x.transaction_type==='income'?'+':'−'}${formatCurrency(x.amount)}</b></div>`).join('') : '<p class="text-sm text-slate-500 py-5 text-center">Belum ada transaksi pada periode ini.</p>';
-  } catch(err) { target.innerHTML = `<p class="text-sm text-rose-600">Gagal memuat kas: ${escapeHTML(err.message||'')}</p>`; }
-}
-function openCashModal() { updateCashCategoryOptions(); document.getElementById('cash-form')?.reset(); updateCashCategoryOptions(); document.getElementById('cash-modal')?.classList.remove('hidden'); }
-async function submitCashForm(e) {
-  e.preventDefault(); const btn=e.submitter; if(btn) btn.disabled=true;
-  try {
-    const args = {p_transaction_type:document.getElementById('cash-type').value,p_category:document.getElementById('cash-category').value,p_amount:Number(document.getElementById('cash-amount').value),p_payment_method:document.getElementById('cash-method').value,p_description:document.getElementById('cash-description').value.trim()||null,p_occurred_at:new Date().toISOString()};
-    const {error}=await supabase.rpc('add_manual_cash_transaction',args); if(error) throw error;
-    document.getElementById('cash-modal').classList.add('hidden'); await renderCash();
-  } catch(err) { alert('Gagal menyimpan transaksi kas: '+err.message); }
-  finally { if(btn) btn.disabled=false; }
+
+    const labels = Object.fromEntries([...cashCategories.income, ...cashCategories.expense]);
+    target.innerHTML = rows.length
+      ? rows
+          .map(
+            (x) => `<div class="flex items-center justify-between gap-3 py-3 border-b last:border-0" style="border-color: var(--mt-border);">
+              <div class="min-w-0">
+                <p class="text-sm font-semibold mt-text">${escapeHTML(x.description || labels[x.category] || x.category)}</p>
+                <p class="text-xs mt-muted">${formatDateID(x.occurred_at, true)} · ${labels[x.category] || x.category} · ${escapeHTML(x.payment_method || 'Tunai')}${x.order_id ? ' · Order' : ' · Manual'}</p>
+              </div>
+              <b class="text-sm font-mono-code whitespace-nowrap ${x.transaction_type === 'income' ? 'mt-success-text' : 'mt-danger-text'}">${x.transaction_type === 'income' ? '+' : '-'}${formatCurrency(x.amount)}</b>
+            </div>`
+          )
+          .join('')
+      : '<p class="text-sm mt-muted py-5 text-center">Belum ada transaksi pada periode ini.</p>';
+  } catch (err) {
+    target.innerHTML = `<div role="alert" class="text-sm mt-danger-text flex items-center justify-between gap-2">
+      <span>Gagal memuat kas: ${escapeHTML(err.message || '')}</span>
+      <button type="button" data-retry-cash class="mt-btn mt-btn-secondary text-xs">Muat ulang</button>
+    </div>`;
+    target.querySelector('[data-retry-cash]')?.addEventListener('click', renderCash);
+  }
 }
 
-// ============================================================================
-// DIGITAL RECEIPT / NOTA DIGITAL & KIRIM WA (T-4.3)
-// ============================================================================
+function openCashModal() {
+  rememberTrigger();
+  updateCashCategoryOptions();
+  document.getElementById('cash-form')?.reset();
+  updateCashCategoryOptions();
+  document.getElementById('cash-modal')?.classList.remove('hidden');
+  document.getElementById('cash-amount')?.focus();
+}
+
+async function submitCashForm(e) {
+  e.preventDefault();
+  const btn = e.submitter;
+  if (btn) btn.disabled = true;
+  try {
+    const args = {
+      p_transaction_type: document.getElementById('cash-type').value,
+      p_category: document.getElementById('cash-category').value,
+      p_amount: Number(document.getElementById('cash-amount').value),
+      p_payment_method: document.getElementById('cash-method').value,
+      p_description: document.getElementById('cash-description').value.trim() || null,
+      p_occurred_at: new Date().toISOString(),
+    };
+    const { error } = await supabase.rpc('add_manual_cash_transaction', args);
+    if (error) throw error;
+    closeCashModal();
+    await renderCash();
+  } catch (err) {
+    alert('Gagal menyimpan transaksi kas: ' + err.message);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 function openReceiptModal(order) {
   if (!receiptModal || !receiptContent) return;
+  rememberTrigger();
   currentReceiptOrder = order;
 
   const items = order.order_items || [];
@@ -2379,77 +3211,72 @@ function openReceiptModal(order) {
   const itemsRowsHTML = items
     .map(
       (it, idx) => `
-      <div class="flex justify-between items-start gap-2 py-2 border-b border-dashed border-slate-200">
+      <div class="flex justify-between items-start gap-2 py-2 mt-seam-b">
         <div>
-          <p class="font-semibold text-slate-900">${idx + 1}. ${escapeHTML(it.garment_name)}</p>
-          <p class="text-xs text-slate-500">${escapeHTML(it.service_type)}</p>
+          <p class="font-semibold mt-text">${idx + 1}. ${escapeHTML(it.garment_name)}</p>
+          <p class="text-xs mt-muted">${escapeHTML(it.service_type)}</p>
         </div>
-        <span class="font-mono-code text-xs font-semibold text-slate-800 shrink-0">${formatCurrency(
-          it.price
-        )}</span>
+        <span class="font-mono-code text-xs font-semibold mt-text shrink-0">${formatCurrency(it.price)}</span>
       </div>
     `
     )
     .join('');
 
   receiptContent.innerHTML = `
-    <div class="text-center border-b border-slate-200 pb-3">
-      ${workshopSettings.LOGO ? `<img src="${workshopSettings.LOGO}" alt="Logo toko" class="w-14 h-14 object-contain mx-auto mb-2">` : ''}
-      <h4 class="font-bold text-base tracking-wide text-[#0B1220]">${escapeHTML(workshopSettings.NAME)}</h4>
-      <p class="text-[11px] text-slate-500">${escapeHTML(workshopSettings.TAGLINE)}</p>
-      <p class="text-[11px] text-slate-500">${escapeHTML(workshopSettings.ADDRESS)}</p>
-      <p class="text-[11px] text-slate-500">${escapeHTML(workshopSettings.OPENING_HOURS)}</p>
+    <div class="text-center pb-3 mt-seam-b">
+      ${workshopSettings.LOGO ? `<img src="${workshopSettings.LOGO}" width="56" height="56" alt="Logo ${escapeHTML(workshopSettings.NAME)}" class="w-14 h-14 object-contain mx-auto mb-2">` : ''}
+      <h3 class="font-bold text-base mt-text">${escapeHTML(workshopSettings.NAME)}</h3>
+      <p class="text-xs mt-muted">${escapeHTML(workshopSettings.TAGLINE)}</p>
+      <p class="text-xs mt-muted">${escapeHTML(workshopSettings.ADDRESS)}</p>
+      <p class="text-xs mt-muted">${escapeHTML(workshopSettings.OPENING_HOURS)}</p>
     </div>
 
-    <div class="grid grid-cols-2 gap-y-1 text-xs">
-      <span class="text-slate-500">No. Tiket:</span>
-      <span class="font-mono-code font-bold text-right">${escapeHTML(order.ticket_code)}</span>
+    <div class="grid grid-cols-2 gap-y-1.5 text-xs">
+      <span class="mt-muted">No. Tiket:</span>
+      <span class="font-mono-code font-bold text-right mt-text">${escapeHTML(order.ticket_code)}</span>
 
-      <span class="text-slate-500">Pelanggan:</span>
-      <span class="font-semibold text-right">${escapeHTML(order.customer_name)}</span>
+      <span class="mt-muted">Pelanggan:</span>
+      <span class="font-semibold text-right mt-text">${escapeHTML(order.customer_name)}</span>
 
-      <span class="text-slate-500">Tanggal Masuk:</span>
-      <span class="text-right">${formatDateID(order.created_at)}</span>
+      <span class="mt-muted">Tanggal masuk:</span>
+      <span class="text-right mt-text">${formatDateID(order.created_at)}</span>
 
-      <span class="text-slate-500">Target Selesai:</span>
-      <span class="font-semibold text-right">${formatDateID(order.estimated_done_date)}</span>
+      <span class="mt-muted">Target selesai:</span>
+      <span class="font-semibold text-right mt-text">${formatDateID(order.estimated_done_date)}</span>
     </div>
 
-    <div class="pt-2 border-t border-slate-200">
-      <p class="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1">Rincian Layanan</p>
+    <div class="pt-3 mt-seam-t">
+      <p class="text-xs font-bold mt-text mb-1">Rincian layanan</p>
       ${itemsRowsHTML}
     </div>
 
-    <div class="space-y-1 text-xs pt-1">
+    <div class="space-y-1.5 text-xs pt-1">
       <div class="flex justify-between">
-        <span class="text-slate-600">Total Tagihan</span>
-        <span class="font-mono-code font-bold">${formatCurrency(total)}</span>
+        <span class="mt-muted">Total tagihan</span>
+        <span class="font-mono-code font-bold mt-text">${formatCurrency(total)}</span>
       </div>
       <div class="flex justify-between">
-        <span class="text-slate-600">Sudah Dibayar</span>
-        <span class="font-mono-code text-emerald-700 font-semibold">${formatCurrency(paid)}</span>
+        <span class="mt-muted">Sudah dibayar</span>
+        <span class="font-mono-code mt-success-text font-semibold">${formatCurrency(paid)}</span>
       </div>
-      <div class="flex justify-between text-sm pt-1.5 border-t border-slate-200">
-        <span class="font-bold">Sisa Tagihan</span>
-        <span class="font-mono-code font-bold text-[#4F6BFF]">${formatCurrency(remaining)}</span>
+      <div class="flex justify-between text-sm pt-2 mt-seam-t">
+        <span class="font-bold mt-text">Sisa tagihan</span>
+        <span class="font-mono-code font-bold mt-accent">${formatCurrency(remaining)}</span>
       </div>
       <div class="pt-2 text-center">
-        <span class="inline-block px-3 py-0.5 rounded-full text-[11px] font-bold border ${
-          payMeta.badgeClass
-        }">
-          STATUS: ${payMeta.label.toUpperCase()}
-        </span>
+        <span class="${payMeta.badgeClass}">Status: ${escapeHTML(payMeta.label)}</span>
       </div>
     </div>
 
-    <p class="text-[11px] text-center text-slate-400 pt-2 border-t border-dashed border-slate-200">
-      Lacak progres dengan nomor WhatsApp terdaftar di:<br/>
-      <span class="font-mono-code text-slate-600">${window.location.origin}/</span>
+    <p class="text-xs text-center mt-muted pt-3 mt-seam-t">
+      Lacak progres dengan nomor WhatsApp terdaftar di:<br />
+      <span class="font-mono-code mt-text">${window.location.origin}/</span>
     </p>
-  <p class="mt-5 pt-2 border-t border-dashed border-slate-300 text-center text-[10px] text-slate-500">by MendTrack</p>
+    <p class="mt-4 pt-2 mt-seam-t text-center text-xs mt-muted">by MendTrack</p>
   `;
 
   receiptModal.classList.remove('hidden');
+  closeReceiptModalBtn?.focus();
   if (window.lucide) window.lucide.createIcons();
 }
 
@@ -2463,14 +3290,11 @@ function handleSendReceiptViaWA() {
   const trackingUrl = `${window.location.origin}/`;
 
   const itemLines = items
-    .map(
-      (it, idx) =>
-        `${idx + 1}. ${it.garment_name} (${it.service_type}) - ${formatCurrency(it.price)}`
-    )
+    .map((it, idx) => `${idx + 1}. ${it.garment_name} (${it.service_type}) - ${formatCurrency(it.price)}`)
     .join('\n');
 
   const receiptText =
-    `*NOTA DIGITAL — ${workshopSettings.NAME}*\n` +
+    `*Nota Digital - ${workshopSettings.NAME}*\n` +
     `No. Tiket: *${o.ticket_code}*\n` +
     `Pelanggan: ${o.customer_name}\n` +
     `Target Selesai: ${formatDateID(o.estimated_done_date)}\n\n` +
@@ -2478,12 +3302,10 @@ function handleSendReceiptViaWA() {
     `Total: *${formatCurrency(total)}*\n` +
     `Dibayar: ${formatCurrency(paid)}\n` +
     `Sisa Tagihan: *${formatCurrency(remaining)}*\n\n` +
-    `Pantau status pengerjaan Anda secara live di:\n${trackingUrl}\n\n` +
+    `Pantau status pengerjaan Anda di:\n${trackingUrl}\n\n` +
     `Alamat: ${workshopSettings.ADDRESS}\nJam buka: ${workshopSettings.OPENING_HOURS}\n\n` +
     `Terima kasih telah mempercayakan perawatan denim Anda di ${workshopSettings.NAME}.\n\nby MendTrack`;
 
-  const waUrl = buildWhatsAppLink(o.customer_phone, receiptText);
-  // Navigasi pada tab yang sama agar Android/Chrome dapat menyerahkan tautan wa.me
-  // langsung ke aplikasi WhatsApp, tanpa membuka halaman perantara di tab baru.
-  window.location.href = waUrl;
+  // Same-tab navigation lets Android Chrome hand wa.me links directly to the WhatsApp app.
+  window.location.href = buildWhatsAppLink(o.customer_phone, receiptText);
 }

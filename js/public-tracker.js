@@ -1,6 +1,4 @@
-// js/public-tracker.js
 import {
-  WORKSHOP_INFO,
   ORDER_STEPS,
   STATUS_META,
   PAYMENT_STATUS_META,
@@ -16,22 +14,25 @@ import {
 } from './utils.js';
 import { initConnectionMonitor } from './storage-draft.js';
 import { DEFAULT_STORE_SETTINGS, fetchStoreSettings, applyStoreIdentity } from './store-settings.js';
-let publicStoreSettings = { ...DEFAULT_STORE_SETTINGS };
 
-// Data simulasi jika Supabase belum dihubungkan (untuk preview UI)
+let publicStoreSettings = { ...DEFAULT_STORE_SETTINGS };
+let lastPhotoTrigger = null;
+
+// Preview payload used only when Supabase credentials are not configured.
 const MOCK_TRACKING_DATA = {
   found: true,
+  isDemo: true,
   mode: 'detail',
   order: {
-    ticket_code: 'MND-2611-001',
-    customer_name: 'Raka Pratama',
+    ticket_code: 'MND-DEMO-001',
+    customer_name: 'Pelanggan Contoh',
     customer_phone: '6281234567890',
     status: 'in_progress',
     total_amount: 165000,
     paid_amount: 50000,
     payment_status: 'partial',
     estimated_done_date: new Date(Date.now() + 2 * 86400000).toISOString().split('T')[0],
-    notes: 'Benang jahit rantai warna gold/tobacco sesuai jahitan original.',
+    notes: 'Contoh catatan: benang jahit rantai warna copper sesuai jahitan awal.',
     created_at: new Date(Date.now() - 86400000).toISOString(),
     updated_at: new Date().toISOString(),
   },
@@ -65,22 +66,22 @@ const MOCK_TRACKING_DATA = {
     {
       id: 'log-2',
       status: 'queued',
-      log_note: 'Masuk antrean meja reparasi & mesin Union Special',
+      log_note: 'Masuk antrean meja reparasi',
       created_at: new Date(Date.now() - 43200000).toISOString(),
     },
     {
       id: 'log-3',
       status: 'in_progress',
-      log_note: 'Sedang proses reinforcement & darning bagian crotch',
+      log_note: 'Sedang proses darning bagian crotch',
       created_at: new Date(Date.now() - 7200000).toISOString(),
     },
   ],
 };
 
-// DOM Elements
 const trackForm = document.getElementById('track-form');
 const trackInput = document.getElementById('track-input');
 const clearInputBtn = document.getElementById('clear-input-btn');
+const trackerExitBtn = document.getElementById('tracker-exit-btn');
 const configWarning = document.getElementById('config-warning');
 const demoTicketBtn = document.getElementById('demo-ticket-btn');
 
@@ -88,6 +89,7 @@ const loadingEl = document.getElementById('tracking-loading');
 const emptyEl = document.getElementById('tracking-empty');
 const emptyTitleEl = document.getElementById('empty-title');
 const emptyMessageEl = document.getElementById('empty-message');
+const emptyResetBtn = document.getElementById('empty-reset-btn');
 const ticketListEl = document.getElementById('ticket-list-container');
 const resultEl = document.getElementById('tracking-result');
 const initialGuideEl = document.getElementById('initial-guide');
@@ -97,26 +99,23 @@ const photoModalImg = document.getElementById('photo-modal-img');
 const photoModalCaption = document.getElementById('photo-modal-caption');
 const closePhotoModalBtn = document.getElementById('close-photo-modal');
 
-// ============================================================================
-// INITIALIZATION
-// ============================================================================
 document.addEventListener('DOMContentLoaded', () => {
   if (window.lucide) window.lucide.createIcons();
   initConnectionMonitor('connection-badge');
   applyStoreIdentity(document, publicStoreSettings);
-  fetchStoreSettings().then(settings => { publicStoreSettings = settings; applyStoreIdentity(document, settings); }).catch(console.warn);
+  fetchStoreSettings()
+    .then((settings) => {
+      publicStoreSettings = settings;
+      applyStoreIdentity(document, settings);
+    })
+    .catch(console.warn);
 
   if (!isSupabaseConfigured && configWarning) {
     configWarning.classList.remove('hidden');
   }
 
-  // Event listeners form & input
   trackInput?.addEventListener('input', () => {
-    if (trackInput.value.trim().length > 0) {
-      clearInputBtn?.classList.remove('hidden');
-    } else {
-      clearInputBtn?.classList.add('hidden');
-    }
+    clearInputBtn?.classList.toggle('hidden', trackInput.value.trim().length === 0);
   });
 
   clearInputBtn?.addEventListener('click', () => {
@@ -125,12 +124,10 @@ document.addEventListener('DOMContentLoaded', () => {
     trackInput.focus();
   });
 
-  document.getElementById('tracker-exit-btn')?.addEventListener('click', () => {
+  const resetToGuide = () => {
     trackInput.value = '';
     clearInputBtn?.classList.add('hidden');
-    resultEl?.classList.add('hidden');
-    ticketListEl?.classList.add('hidden');
-    emptyEl?.classList.add('hidden');
+    setViewState('guide');
     const nextUrl = new URL(window.location.href);
     nextUrl.searchParams.delete('phone');
     nextUrl.searchParams.delete('ticket');
@@ -138,7 +135,10 @@ document.addEventListener('DOMContentLoaded', () => {
     window.history.replaceState({}, '', nextUrl);
     window.scrollTo({ top: 0, behavior: 'smooth' });
     trackInput.focus();
-  });
+  };
+
+  trackerExitBtn?.addEventListener('click', resetToGuide);
+  emptyResetBtn?.addEventListener('click', resetToGuide);
 
   demoTicketBtn?.addEventListener('click', () => {
     trackInput.value = '0812-3456-7890';
@@ -153,13 +153,17 @@ document.addEventListener('DOMContentLoaded', () => {
     executeTrackingSearch(query);
   });
 
-  // Lightbox Modal Listeners
   closePhotoModalBtn?.addEventListener('click', closeLightbox);
   photoModal?.addEventListener('click', (e) => {
     if (e.target === photoModal) closeLightbox();
   });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && photoModal && !photoModal.classList.contains('hidden')) {
+      closeLightbox();
+    }
+  });
 
-  // Auto-load hanya dari parameter nomor WhatsApp (bukan kode tiket).
+  // Auto-load only from the phone query parameter (ticket code links are not exposed).
   const params = new URLSearchParams(window.location.search);
   const initialPhone = params.get('phone');
   if (initialPhone) {
@@ -169,17 +173,13 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-// ============================================================================
-// SEARCH & RPC EXECUTION
-// ============================================================================
 async function executeTrackingSearch(rawQuery) {
   const query = normalizePhone(rawQuery);
   if (!query || query.length < 10) {
-    showEmptyState('Nomor WhatsApp Tidak Valid', 'Masukkan nomor HP yang terdaftar, minimal 10 digit.');
+    showEmptyState('Nomor WhatsApp tidak valid', 'Masukkan nomor HP yang terdaftar, minimal 10 digit.');
     return;
   }
 
-  // Simpan nomor WhatsApp di URL agar dapat dibuka kembali.
   const nextUrl = new URL(window.location.href);
   nextUrl.searchParams.delete('ticket');
   nextUrl.searchParams.delete('q');
@@ -188,18 +188,17 @@ async function executeTrackingSearch(rawQuery) {
 
   setViewState('loading');
 
-  // Fallback simulasi jika Supabase belum diset
   if (!isSupabaseConfigured) {
     setTimeout(() => {
       if (query === '6281234567890') {
         renderOrderDetail(MOCK_TRACKING_DATA);
       } else {
         showEmptyState(
-          'Mode Pratinjau Aktif',
-          'Supabase belum dikonfigurasi di js/config.js. Masukkan nomor WhatsApp yang terdaftar.'
+          'Mode pratinjau aktif',
+          'Supabase belum dikonfigurasi di js/config.js. Gunakan nomor contoh 0812-3456-7890 untuk melihat simulasi.'
         );
       }
-    }, 350);
+    }, 250);
     return;
   }
 
@@ -212,9 +211,8 @@ async function executeTrackingSearch(rawQuery) {
 
     if (!data || !data.found) {
       showEmptyState(
-        'Order Tidak Ditemukan',
-        data?.message ||
-          'Pastikan nomor WhatsApp yang dimasukkan sama dengan nomor saat order diterima.'
+        'Order tidak ditemukan',
+        data?.message || 'Pastikan nomor WhatsApp yang dimasukkan sama dengan nomor saat order diterima.'
       );
       return;
     }
@@ -230,15 +228,13 @@ async function executeTrackingSearch(rawQuery) {
   } catch (err) {
     console.error('Tracking RPC error:', err);
     showEmptyState(
-      'Gagal Memuat Data',
+      'Gagal memuat data',
       'Terjadi gangguan koneksi ke server. Pastikan internet aktif lalu coba kembali.'
     );
   }
 }
 
-
-// Ambil detail satu order setelah pelanggan memilih tiket dari hasil pencarian HP.
-// Fungsi ini sengaja tidak melewati validasi nomor HP.
+// Fetches detail for one selected ticket after phone lookup; bypasses phone length check intentionally.
 async function executeSelectedTicket(ticketCode) {
   const code = String(ticketCode || '').trim();
   if (!code) return;
@@ -254,7 +250,7 @@ async function executeSelectedTicket(ticketCode) {
 
     if (!data || !data.found) {
       showEmptyState(
-        'Order Tidak Ditemukan',
+        'Order tidak ditemukan',
         data?.message || 'Detail order tidak dapat ditemukan. Silakan cari kembali menggunakan nomor WhatsApp.'
       );
       return;
@@ -270,30 +266,23 @@ async function executeSelectedTicket(ticketCode) {
       return;
     }
 
-    showEmptyState('Data Tidak Tersedia', 'Detail order belum dapat ditampilkan. Silakan coba lagi.');
+    showEmptyState('Data tidak tersedia', 'Detail order belum dapat ditampilkan. Silakan coba lagi.');
   } catch (err) {
     console.error('Selected ticket tracking error:', err);
     showEmptyState(
-      'Gagal Memuat Detail',
+      'Gagal memuat detail',
       'Terjadi gangguan saat mengambil detail order. Silakan kembali dan pilih order lagi.'
     );
   }
 }
 
-// ============================================================================
-// VIEW STATE CONTROLLER
-// ============================================================================
 function setViewState(state) {
-  initialGuideEl?.classList.add('hidden');
-  loadingEl?.classList.add('hidden');
-  emptyEl?.classList.add('hidden');
-  ticketListEl?.classList.add('hidden');
-  resultEl?.classList.add('hidden');
-
-  if (state === 'loading') loadingEl?.classList.remove('hidden');
-  if (state === 'empty') emptyEl?.classList.remove('hidden');
-  if (state === 'list') ticketListEl?.classList.remove('hidden');
-  if (state === 'detail') resultEl?.classList.remove('hidden');
+  initialGuideEl?.classList.toggle('hidden', state !== 'guide');
+  loadingEl?.classList.toggle('hidden', state !== 'loading');
+  emptyEl?.classList.toggle('hidden', state !== 'empty');
+  ticketListEl?.classList.toggle('hidden', state !== 'list');
+  resultEl?.classList.toggle('hidden', state !== 'detail');
+  trackerExitBtn?.classList.toggle('hidden', state === 'guide');
 }
 
 function showEmptyState(title, message) {
@@ -303,9 +292,6 @@ function showEmptyState(title, message) {
   if (window.lucide) window.lucide.createIcons();
 }
 
-// ============================================================================
-// RENDER MULTI-TICKET LIST (Pencarian via Nomor WhatsApp)
-// ============================================================================
 function renderTicketSelectionList(tickets) {
   if (!ticketListEl) return;
 
@@ -316,44 +302,40 @@ function renderTicketSelectionList(tickets) {
         <button
           type="button"
           data-select-ticket="${escapeHTML(t.ticket_code)}"
-          class="w-full text-left bg-white hover:bg-slate-50 border border-slate-200 hover:border-[#4F6BFF] rounded-2xl p-4 shadow-sm transition flex items-center justify-between gap-3 cursor-pointer"
+          class="w-full text-left mt-card p-4 transition flex items-center justify-between gap-3 hover:border-[var(--mt-accent)]"
         >
-          <div>
+          <div class="min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
-              <span class="font-mono-code font-bold text-sm text-[#0B1220]">${escapeHTML(t.ticket_code)}</span>
-              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border ${statusInfo.badgeClass}">
-                ${escapeHTML(statusInfo.label)}
+              <span class="font-mono-code font-bold text-sm mt-text">${escapeHTML(t.ticket_code)}</span>
+              <span class="${statusInfo.badgeClass}">
+                <span class="${statusInfo.dotClass}" aria-hidden="true"></span>
+                <span>${escapeHTML(statusInfo.label)}</span>
               </span>
             </div>
-            <p class="text-xs text-slate-500 mt-1.5">
-              ${t.item_count || 0} Item • Masuk: ${formatDateID(t.created_at)}
-              ${t.estimated_done_date ? ` • Estimasi: <strong>${formatDateID(t.estimated_done_date)}</strong>` : ''}
+            <p class="text-xs mt-muted mt-1.5">
+              ${t.item_count || 0} item · Masuk: ${formatDateID(t.created_at)}
+              ${t.estimated_done_date ? ` · Estimasi: <strong class="mt-text">${formatDateID(t.estimated_done_date)}</strong>` : ''}
             </p>
           </div>
-          <div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 shrink-0">
-            <i data-lucide="chevron-right" class="w-4 h-4"></i>
-          </div>
+          <span class="w-9 h-9 rounded-lg mt-card-muted flex items-center justify-center shrink-0" aria-hidden="true">
+            <i data-lucide="chevron-right" class="w-4 h-4 mt-text"></i>
+          </span>
         </button>
       `;
     })
     .join('');
 
   ticketListEl.innerHTML = `
-    <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-      <p class="text-xs font-semibold uppercase tracking-wider text-slate-500">
-        Ditemukan ${tickets.length} Order Terdaftar
-      </p>
-      <p class="text-sm text-slate-700 mt-0.5">Pilih kode tiket di bawah untuk melihat detail progres:</p>
+    <div class="mt-card p-4">
+      <h2 class="text-sm font-bold mt-text">Ditemukan ${tickets.length} order terdaftar</h2>
+      <p class="text-xs mt-muted mt-0.5">Pilih kode tiket di bawah untuk melihat detail progres.</p>
     </div>
     <div class="space-y-2.5">${cardsHTML}</div>
   `;
 
   ticketListEl.querySelectorAll('[data-select-ticket]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const code = btn.getAttribute('data-select-ticket');
-      // Nomor HP tetap menjadi identitas pencarian; kode tiket dipakai
-      // hanya untuk mengambil detail order yang dipilih.
-      executeSelectedTicket(code);
+      executeSelectedTicket(btn.getAttribute('data-select-ticket'));
     });
   });
 
@@ -361,75 +343,62 @@ function renderTicketSelectionList(tickets) {
   if (window.lucide) window.lucide.createIcons();
 }
 
-// ============================================================================
-// RENDER DETAIL ORDER & VISUAL TIMELINE STEPPER
-// ============================================================================
 function renderOrderDetail(payload) {
   if (!resultEl) return;
-  const { order, items = [], logs = [] } = payload;
+  const { order, items = [], logs = [], isDemo = false } = payload;
 
   const statusInfo = STATUS_META[order.status] || STATUS_META.received;
   const payInfo = PAYMENT_STATUS_META[order.payment_status] || PAYMENT_STATUS_META.unpaid;
   const remainingAmount = Math.max(0, Number(order.total_amount) - Number(order.paid_amount));
   const deadlineInfo = getDeadlineStatus(order.estimated_done_date);
 
-  // Tentukan indeks step aktif (jika 'completed', anggap seluruh 5 tahap terlewati)
+  // Completed orders have already passed all 5 tracking stages.
   const effectiveStatus = order.status === 'completed' ? 'ready' : order.status;
   const currentStepIdx = Math.max(
     0,
     ORDER_STEPS.findIndex((s) => s.key === effectiveStatus)
   );
 
-  // Buat peta waktu penyelesaian per status dari logs
   const statusTimestamps = {};
   logs.forEach((log) => {
     statusTimestamps[log.status] = log.created_at;
   });
 
-  // Render Stepper HTML
   const stepperHTML = ORDER_STEPS.map((step, idx) => {
     const isCompleted = order.status === 'completed' || idx < currentStepIdx;
     const isCurrent = order.status !== 'completed' && idx === currentStepIdx;
     const stepTime = statusTimestamps[step.key];
 
-    let circleClass = 'bg-slate-100 text-slate-400 border-slate-300';
-    let titleClass = 'text-slate-400';
-    if (isCompleted) {
-      circleClass = 'bg-emerald-600 text-white border-emerald-600';
-      titleClass = 'text-slate-800 font-semibold';
-    } else if (isCurrent) {
-      circleClass = 'bg-[#4F6BFF] text-white border-[#4F6BFF] step-active-pulse';
-      titleClass = 'text-[#0B1220] font-bold';
-    }
+    const dotState = isCompleted ? 'is-done' : isCurrent ? 'is-current' : '';
+    const titleClass = isCurrent ? 'mt-text font-bold' : isCompleted ? 'mt-text font-semibold' : 'mt-muted';
 
     return `
       <div class="relative flex gap-3.5 pb-6 last:pb-0">
         ${
           idx < ORDER_STEPS.length - 1
-            ? `<div class="absolute left-4 top-8 bottom-0 w-0.5 ${
-                isCompleted ? 'bg-emerald-500' : 'bg-slate-200'
-              }"></div>`
+            ? `<div class="absolute left-4 top-8 bottom-0 w-0.5 mt-step-line ${isCompleted ? 'is-done' : ''}" aria-hidden="true"></div>`
             : ''
         }
-        <div class="relative z-10 w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 transition ${circleClass}">
+        <div class="relative z-10 mt-step-dot ${dotState}" aria-hidden="true">
           <i data-lucide="${isCompleted ? 'check' : step.icon}" class="w-4 h-4"></i>
         </div>
-        <div class="flex-1 pt-0.5">
+        <div class="flex-1 pt-0.5 min-w-0">
           <div class="flex items-center justify-between gap-2 flex-wrap">
-            <p class="text-sm ${titleClass}">${escapeHTML(step.label)}</p>
+            <p class="text-sm ${titleClass}">
+              ${escapeHTML(step.label)}${isCurrent ? ' (Tahap saat ini)' : ''}
+            </p>
             ${
               stepTime
-                ? `<span class="text-[11px] font-mono-code text-slate-400">${formatDateID(stepTime, true)}</span>`
+                ? `<span class="text-xs font-mono-code mt-muted">${formatDateID(stepTime, true)}</span>`
                 : ''
             }
           </div>
-          <p class="text-xs text-slate-500 mt-0.5">${escapeHTML(step.description)}</p>
+          <p class="text-xs mt-muted mt-0.5">${escapeHTML(step.description)}</p>
         </div>
       </div>
     `;
   }).join('');
 
-  // Render Riwayat Log Catatan Artisan
   const logsHTML =
     logs.length > 0
       ? logs
@@ -438,19 +407,18 @@ function renderOrderDetail(payload) {
           .map((log) => {
             const meta = STATUS_META[log.status] || STATUS_META.received;
             return `
-              <div class="flex items-start gap-2.5 text-xs py-2 border-b border-slate-100 last:border-none">
-                <span class="w-2 h-2 rounded-full mt-1.5 shrink-0 ${meta.dotClass}"></span>
-                <div class="flex-1">
-                  <p class="text-slate-700 font-medium">${escapeHTML(log.log_note || meta.label)}</p>
-                  <p class="text-[11px] text-slate-400 mt-0.5">${formatDateID(log.created_at, true)}</p>
+              <div class="flex items-start gap-2.5 text-xs py-2.5 border-b last:border-none" style="border-color: var(--mt-border);">
+                <span class="${meta.badgeClass} shrink-0">${escapeHTML(meta.label)}</span>
+                <div class="flex-1 min-w-0">
+                  <p class="mt-text font-medium">${escapeHTML(log.log_note || meta.label)}</p>
+                  <p class="text-xs mt-muted mt-0.5 font-mono-code">${formatDateID(log.created_at, true)}</p>
                 </div>
               </div>
             `;
           })
           .join('')
-      : '<p class="text-xs text-slate-400">Belum ada catatan aktivitas.</p>';
+      : '<p class="text-xs mt-muted">Belum ada catatan aktivitas.</p>';
 
-  // Render Kartu Item Layanan
   const itemsHTML = items
     .map((item, index) => {
       const specs = item.measurement_specs || {};
@@ -462,7 +430,7 @@ function renderOrderDetail(payload) {
               ${specEntries
                 .map(
                   ([k, v]) => `
-                  <span class="inline-flex items-center px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-[11px] font-medium border border-slate-200">
+                  <span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium mt-card">
                     ${escapeHTML(k)}: <strong class="ml-1">${escapeHTML(v)}</strong>
                   </span>`
                 )
@@ -474,20 +442,20 @@ function renderOrderDetail(payload) {
       const hasAfter = Boolean(item.after_photo_url);
       const photosHTML =
         hasBefore || hasAfter
-          ? `<div class="grid grid-cols-2 gap-2.5 mt-3 pt-3 border-t border-slate-100">
+          ? `<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-3 pt-3 mt-seam-t">
               ${
                 hasBefore
-                  ? `<button type="button" data-photo-url="${escapeHTML(item.before_photo_url)}" data-photo-title="Before — ${escapeHTML(item.garment_name)}" class="group relative rounded-xl overflow-hidden border border-slate-200 bg-slate-900 aspect-4/3 cursor-pointer">
-                      <img src="${escapeHTML(item.before_photo_url)}" onerror="this.src='./assets/placeholder-garment.svg'" alt="Before" class="w-full h-full object-cover group-hover:scale-105 transition" />
-                      <span class="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/70 text-white text-[10px] font-semibold uppercase">Before</span>
+                  ? `<button type="button" data-photo-url="${escapeHTML(item.before_photo_url)}" data-photo-title="Sebelum: ${escapeHTML(item.garment_name)}" class="group relative rounded-lg overflow-hidden border bg-black aspect-[4/3] w-full text-left" style="border-color: var(--mt-border);">
+                      <img src="${escapeHTML(item.before_photo_url)}" width="640" height="480" onerror="this.src='./assets/placeholder-garment.svg'" alt="Foto sebelum pengerjaan ${escapeHTML(item.garment_name)}" class="w-full h-full object-cover" />
+                      <span class="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/80 text-white text-xs font-semibold">Sebelum</span>
                     </button>`
                   : ''
               }
               ${
                 hasAfter
-                  ? `<button type="button" data-photo-url="${escapeHTML(item.after_photo_url)}" data-photo-title="After — ${escapeHTML(item.garment_name)}" class="group relative rounded-xl overflow-hidden border border-slate-200 bg-slate-900 aspect-4/3 cursor-pointer">
-                      <img src="${escapeHTML(item.after_photo_url)}" onerror="this.src='./assets/placeholder-garment.svg'" alt="After" class="w-full h-full object-cover group-hover:scale-105 transition" />
-                      <span class="absolute top-2 left-2 px-2 py-0.5 rounded bg-emerald-600/90 text-white text-[10px] font-semibold uppercase">After</span>
+                  ? `<button type="button" data-photo-url="${escapeHTML(item.after_photo_url)}" data-photo-title="Sesudah: ${escapeHTML(item.garment_name)}" class="group relative rounded-lg overflow-hidden border bg-black aspect-[4/3] w-full text-left" style="border-color: var(--mt-border);">
+                      <img src="${escapeHTML(item.after_photo_url)}" width="640" height="480" onerror="this.src='./assets/placeholder-garment.svg'" alt="Foto sesudah pengerjaan ${escapeHTML(item.garment_name)}" class="w-full h-full object-cover" />
+                      <span class="absolute top-2 left-2 px-2 py-0.5 rounded mt-badge-ready text-xs font-semibold">Sesudah</span>
                     </button>`
                   : ''
               }
@@ -495,157 +463,156 @@ function renderOrderDetail(payload) {
           : '';
 
       return `
-        <div class="tracker-item-card p-4 rounded-xl bg-slate-50/80 border border-slate-200/90">
+        <article class="mt-card-muted p-4">
           <div class="flex items-start justify-between gap-2">
-            <div>
-              <span class="text-[11px] font-semibold uppercase tracking-wider text-[#4F6BFF]">Item #${index + 1}</span>
-              <h4 class="font-bold text-slate-900 text-sm sm:text-base">${escapeHTML(item.garment_name)}</h4>
-              <p class="text-xs sm:text-sm text-slate-600 font-medium mt-0.5">${escapeHTML(item.service_type)}</p>
+            <div class="min-w-0">
+              <span class="text-xs font-mono-code font-semibold mt-accent">Item #${index + 1}</span>
+              <h4 class="font-bold mt-text text-sm sm:text-base">${escapeHTML(item.garment_name)}</h4>
+              <p class="text-xs sm:text-sm mt-muted font-medium mt-0.5">${escapeHTML(item.service_type)}</p>
             </div>
-            <span class="font-mono-code font-bold text-sm text-slate-800 shrink-0">
+            <span class="font-mono-code font-bold text-sm mt-text shrink-0">
               ${formatCurrency(item.price)}
             </span>
           </div>
           ${specsBadges}
           ${photosHTML}
-        </div>
+        </article>
       `;
     })
     .join('');
 
-  // Susun pesan otomatis WhatsApp ke Admin
-  const waMessage = `Halo Admin ${publicStoreSettings.NAME}, saya *${order.customer_name}* ingin menanyakan progres order dengan Kode Tiket *${order.ticket_code}*. Terima kasih.`;
+  const waMessage = `Halo Admin ${publicStoreSettings.NAME}, saya *${order.customer_name}* ingin menanyakan progres order dengan kode tiket *${order.ticket_code}*. Terima kasih.`;
   const waAdminLink = buildWhatsAppLink(publicStoreSettings.ADMIN_PHONE, waMessage);
 
   resultEl.innerHTML = `
-    <!-- KARTU HEADER TIKET -->
-    <div class="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm">
-      <div class="flex items-start justify-between gap-3 flex-wrap border-b border-slate-100 pb-4">
+    ${
+      isDemo
+        ? `<div class="mt-notice-warn px-4 py-3 text-xs font-semibold">[DATA SIMULASI] Tampilan ini menggunakan contoh order karena koneksi Supabase belum aktif.</div>`
+        : ''
+    }
+
+    <section class="mt-card p-5 sm:p-6">
+      <div class="flex items-start justify-between gap-3 flex-wrap pb-4 mt-seam-b">
         <div>
-          <span class="text-xs text-slate-400 uppercase tracking-wider font-semibold">Kode Tiket Order</span>
+          <span class="text-xs mt-muted font-semibold">Kode tiket order</span>
           <div class="flex items-center gap-2 mt-0.5">
-            <h2 class="font-mono-code text-xl sm:text-2xl font-bold text-[#0B1220]">${escapeHTML(order.ticket_code)}</h2>
-            <button type="button" id="copy-ticket-btn" title="Salin Kode Tiket" class="p-1.5 rounded-lg text-slate-400 hover:text-[#0B1220] hover:bg-slate-100 transition cursor-pointer">
-              <i data-lucide="copy" class="w-4 h-4"></i>
+            <h2 class="font-mono-code text-xl sm:text-2xl font-bold mt-text">${escapeHTML(order.ticket_code)}</h2>
+            <button type="button" id="copy-ticket-btn" aria-label="Salin kode tiket ${escapeHTML(order.ticket_code)}" title="Salin kode tiket" class="mt-btn-icon mt-btn-secondary">
+              <i data-lucide="copy" class="w-4 h-4" aria-hidden="true"></i>
             </button>
           </div>
-          <p class="text-sm text-slate-600 mt-1">Pelanggan: <strong class="text-slate-900">${escapeHTML(order.customer_name)}</strong></p>
+          <p class="text-sm mt-muted mt-1">Pelanggan: <strong class="mt-text">${escapeHTML(order.customer_name)}</strong></p>
         </div>
 
         <div class="flex flex-col items-start sm:items-end gap-1.5">
-          <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${statusInfo.badgeClass}">
-            <span class="w-2 h-2 rounded-full ${statusInfo.dotClass}"></span>
-            ${escapeHTML(statusInfo.label)}
+          <span class="${statusInfo.badgeClass}">
+            <span class="${statusInfo.dotClass}" aria-hidden="true"></span>
+            <span>${escapeHTML(statusInfo.label)}</span>
           </span>
-          <span class="text-xs text-slate-500">
-            Target Selesai: <strong class="${deadlineInfo.isOverdue ? 'text-rose-600' : 'text-slate-800'}">${formatDateID(order.estimated_done_date)}</strong>
+          <span class="text-xs mt-muted">
+            Target selesai: <strong class="${deadlineInfo.isOverdue ? 'mt-danger-text' : 'mt-text'}">${formatDateID(order.estimated_done_date)}</strong>
           </span>
         </div>
       </div>
 
       ${
         order.notes
-          ? `<div class="tracker-workshop-note mt-4 p-3 rounded-xl bg-amber-50/80 border border-amber-200/80 text-xs text-amber-950 flex items-start gap-2">
-              <i data-lucide="sticky-note" class="w-4 h-4 text-amber-600 shrink-0 mt-0.5"></i>
-              <div><span class="font-semibold">Catatan Workshop:</span> ${escapeHTML(order.notes)}</div>
+          ? `<div class="mt-notice-warn mt-4 p-3 text-xs flex items-start gap-2">
+              <i data-lucide="sticky-note" class="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true"></i>
+              <div><span class="font-semibold">Catatan workshop:</span> ${escapeHTML(order.notes)}</div>
             </div>`
           : ''
       }
-    </div>
+    </section>
 
-    <!-- KARTU VISUAL STEPPER & TIMELINE -->
-    <div class="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm">
-      <h3 class="text-sm font-bold uppercase tracking-wider text-slate-500 mb-5 flex items-center gap-2">
-        <i data-lucide="git-commit-horizontal" class="w-4 h-4 text-[#4F6BFF]"></i>
-        <span>Tahapan Pengerjaan</span>
+    <section class="mt-card p-5 sm:p-6">
+      <h3 class="text-sm font-bold mt-text mb-5 flex items-center gap-2">
+        <i data-lucide="git-commit-horizontal" class="w-4 h-4 mt-accent" aria-hidden="true"></i>
+        <span>Tahapan pengerjaan</span>
       </h3>
 
       <div>${stepperHTML}</div>
 
-      <details class="mt-5 pt-4 border-t border-slate-100 group">
-        <summary class="text-xs font-semibold text-slate-600 hover:text-[#0B1220] cursor-pointer flex items-center justify-between list-none">
-          <span>Lihat Riwayat Aktivitas Lengkap (${logs.length})</span>
-          <i data-lucide="chevron-down" class="w-4 h-4 group-open:rotate-180 transition"></i>
+      <details class="mt-5 pt-4 mt-seam-t group">
+        <summary class="text-xs font-semibold mt-text min-h-11 flex items-center justify-between list-none">
+          <span>Lihat riwayat aktivitas lengkap (${logs.length})</span>
+          <i data-lucide="chevron-down" class="w-4 h-4 group-open:rotate-180 transition" aria-hidden="true"></i>
         </summary>
-        <div class="mt-3 pl-1">${logsHTML}</div>
+        <div class="mt-2">${logsHTML}</div>
       </details>
-    </div>
+    </section>
 
-    <!-- KARTU RINCIAN ITEM & LAYANAN -->
-    <div class="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm">
-      <h3 class="text-sm font-bold uppercase tracking-wider text-slate-500 mb-4 flex items-center gap-2">
-        <i data-lucide="layers" class="w-4 h-4 text-[#4F6BFF]"></i>
-        <span>Daftar Item & Layanan (${items.length})</span>
+    <section class="mt-card p-5 sm:p-6">
+      <h3 class="text-sm font-bold mt-text mb-4 flex items-center gap-2">
+        <i data-lucide="layers" class="w-4 h-4 mt-accent" aria-hidden="true"></i>
+        <span>Daftar item &amp; layanan (${items.length})</span>
       </h3>
       <div class="space-y-3">${itemsHTML}</div>
-    </div>
+    </section>
 
-    <!-- KARTU RINCIAN BIAYA & PEMBAYARAN -->
-    <div class="bg-white rounded-2xl border border-slate-200 p-5 sm:p-6 shadow-sm">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2">
-          <i data-lucide="receipt-text" class="w-4 h-4 text-[#4F6BFF]"></i>
-          <span>Rincian Biaya</span>
+    <section class="mt-card p-5 sm:p-6">
+      <div class="flex items-center justify-between gap-2 mb-4">
+        <h3 class="text-sm font-bold mt-text flex items-center gap-2">
+          <i data-lucide="receipt-text" class="w-4 h-4 mt-accent" aria-hidden="true"></i>
+          <span>Rincian biaya</span>
         </h3>
-        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${payInfo.badgeClass}">
+        <span class="${payInfo.badgeClass}">
           ${escapeHTML(payInfo.label)}
         </span>
       </div>
 
       <div class="space-y-2 text-sm">
-        <div class="flex justify-between text-slate-600">
-          <span>Total Biaya Layanan</span>
-          <span class="font-mono-code font-semibold text-slate-900">${formatCurrency(order.total_amount)}</span>
+        <div class="flex justify-between mt-muted">
+          <span>Total biaya layanan</span>
+          <span class="font-mono-code font-semibold mt-text">${formatCurrency(order.total_amount)}</span>
         </div>
-        <div class="flex justify-between text-slate-600">
-          <span>Sudah Dibayar (DP / Cicilan)</span>
-          <span class="font-mono-code font-medium text-emerald-700">- ${formatCurrency(order.paid_amount)}</span>
+        <div class="flex justify-between mt-muted">
+          <span>Sudah dibayar (DP / cicilan)</span>
+          <span class="font-mono-code font-medium mt-success-text">- ${formatCurrency(order.paid_amount)}</span>
         </div>
-        <div class="pt-2.5 border-t border-slate-200 flex justify-between items-center">
-          <span class="font-bold text-slate-900">Sisa Tagihan</span>
-          <span class="font-mono-code text-lg font-bold ${remainingAmount > 0 ? 'text-[#4F6BFF]' : 'text-emerald-600'}">
+        <div class="pt-3 mt-seam-t flex justify-between items-center">
+          <span class="font-bold mt-text">Sisa tagihan</span>
+          <span class="font-mono-code text-lg font-bold ${remainingAmount > 0 ? 'mt-accent' : 'mt-success-text'}">
             ${formatCurrency(remainingAmount)}
           </span>
         </div>
       </div>
 
-      <!-- Tombol Hubungi Admin via WhatsApp -->
-      <div class="mt-6 pt-4 border-t border-slate-100">
+      <div class="mt-6 pt-4 mt-seam-t">
         <a
           href="${waAdminLink}"
           target="_blank"
           rel="noopener noreferrer"
-          class="w-full h-12 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-sm transition"
+          class="mt-btn mt-btn-success w-full"
         >
-          <i data-lucide="message-circle" class="w-5 h-5"></i>
+          <i data-lucide="message-circle" class="w-5 h-5" aria-hidden="true"></i>
           <span>Hubungi Admin via WhatsApp</span>
         </a>
       </div>
-    </div>
+    </section>
   `;
 
-  // Bind Copy Ticket Button
   const copyBtn = document.getElementById('copy-ticket-btn');
   copyBtn?.addEventListener('click', async () => {
     try {
       await navigator.clipboard.writeText(order.ticket_code);
-      copyBtn.innerHTML = '<i data-lucide="check" class="w-4 h-4 text-emerald-600"></i>';
+      copyBtn.innerHTML = '<i data-lucide="check" class="w-4 h-4 mt-success-text" aria-hidden="true"></i>';
+      copyBtn.setAttribute('aria-label', 'Kode tiket disalin');
       if (window.lucide) window.lucide.createIcons();
       setTimeout(() => {
-        copyBtn.innerHTML = '<i data-lucide="copy" class="w-4 h-4"></i>';
+        copyBtn.innerHTML = '<i data-lucide="copy" class="w-4 h-4" aria-hidden="true"></i>';
+        copyBtn.setAttribute('aria-label', `Salin kode tiket ${order.ticket_code}`);
         if (window.lucide) window.lucide.createIcons();
       }, 1500);
     } catch (_) {
-      // Abaikan jika clipboard ditolak browser
+      // Clipboard access may be denied in insecure contexts.
     }
   });
 
-  // Bind Photo Lightbox Buttons
   resultEl.querySelectorAll('[data-photo-url]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const url = btn.getAttribute('data-photo-url');
-      const title = btn.getAttribute('data-photo-title');
-      openLightbox(url, title);
+      lastPhotoTrigger = btn;
+      openLightbox(btn.getAttribute('data-photo-url'), btn.getAttribute('data-photo-title'));
     });
   });
 
@@ -653,18 +620,18 @@ function renderOrderDetail(payload) {
   if (window.lucide) window.lucide.createIcons();
 }
 
-// ============================================================================
-// LIGHTBOX HELPER
-// ============================================================================
 function openLightbox(url, caption) {
   if (!photoModal || !photoModalImg) return;
   photoModalImg.src = url;
-  if (photoModalCaption) photoModalCaption.textContent = caption || 'Dokumentasi Item';
+  if (photoModalCaption) photoModalCaption.textContent = caption || 'Dokumentasi item';
   photoModal.classList.remove('hidden');
+  closePhotoModalBtn?.focus();
 }
 
 function closeLightbox() {
   if (!photoModal) return;
   photoModal.classList.add('hidden');
   if (photoModalImg) photoModalImg.src = '';
+  lastPhotoTrigger?.focus();
+  lastPhotoTrigger = null;
 }
