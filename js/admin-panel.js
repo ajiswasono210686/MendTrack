@@ -23,6 +23,7 @@ import {
 } from './storage-draft.js';
 import {
   DEFAULT_STORE_SETTINGS,
+  mapTenantToSettings,
   fetchStoreSettings,
   persistStoreSettings,
   applyStoreIdentity,
@@ -32,6 +33,11 @@ import {
   deactivateService,
   activateService,
 } from './store-settings.js';
+
+let activeTenant = null;
+let pendingVerifyEmail = '';
+let authResolutionSeq = 0;
+let onboardingSlugTouched = false;
 
 let allOrders = [];
 let workloadDateFilter = null;
@@ -47,6 +53,36 @@ let workshopSettings = { ...DEFAULT_STORE_SETTINGS };
 let activeServiceCatalog = [];
 let lastModalTrigger = null;
 let itemRowCounter = 0;
+
+function getActiveTenantId() {
+  return activeTenant?.id || null;
+}
+
+function getPublicTrackingUrl() {
+  const slug = activeTenant?.slug || workshopSettings.SLUG || '';
+  return slug ? `${window.location.origin}/t/${encodeURIComponent(slug)}` : `${window.location.origin}/`;
+}
+
+function getAdminRedirectUrl() {
+  const path = window.location.pathname.endsWith('.html') ? '/admin.html' : '/admin';
+  return `${window.location.origin}${path}`;
+}
+
+function slugifyWorkshopName(raw) {
+  return String(raw || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-')
+    .slice(0, 48)
+    .replace(/-+$/g, '');
+}
+
+function isValidWorkshopSlug(slug) {
+  return /^[a-z0-9](?:[a-z0-9-]{1,46}[a-z0-9])$/.test(String(slug || ''));
+}
 
 const PAGE_HEADINGS = {
   orders: {
@@ -114,6 +150,8 @@ function openStoreSettings() {
   if (!modal) return;
   rememberTrigger();
   delete modal.dataset.pendingLogo;
+  const trackUrlInput = document.getElementById('store-tracking-url-display');
+  if (trackUrlInput) trackUrlInput.value = getPublicTrackingUrl();
   document.getElementById('store-logo-input').value = '';
   document.getElementById('store-name-input').value = workshopSettings.NAME;
   document.getElementById('store-address-input').value = workshopSettings.ADDRESS;
@@ -131,11 +169,16 @@ function openStoreSettings() {
 
 // Browsers may restore this page from bfcache after returning from WhatsApp Web without rerunning startup.
 async function refreshVisibleStoreServices() {
+  const tenantId = getActiveTenantId();
+  if (!tenantId) return;
   const modal = document.getElementById('store-settings-modal');
-  if (!modal || modal.classList.contains('hidden')) return;
+  const servicesPage = document.getElementById('services-page');
+  const isModalVisible = modal && !modal.classList.contains('hidden');
+  const isServicesPageVisible = servicesPage && !servicesPage.classList.contains('hidden');
+  if (!isModalVisible && !isServicesPageVisible) return;
   await renderServicesList();
   try {
-    activeServiceCatalog = (await fetchServices()).filter((service) => service.is_active);
+    activeServiceCatalog = (await fetchServices(tenantId)).filter((service) => service.is_active);
   } catch (error) {
     console.warn('Katalog layanan gagal diperbarui saat halaman aktif:', error);
   }
@@ -150,9 +193,10 @@ document.addEventListener('visibilitychange', () => {
 
 async function renderServicesList() {
   const container = document.getElementById('services-list');
-  if (!container) return;
+  const tenantId = getActiveTenantId();
+  if (!container || !tenantId) return;
   try {
-    const services = await fetchServices();
+    const services = await fetchServices(tenantId);
     if (!services.length) {
       container.innerHTML = '<p class="text-xs mt-muted">Belum ada layanan. Tambahkan layanan pertama pada formulir di bawah.</p>';
       return;
@@ -234,7 +278,9 @@ async function handleServiceEditSubmit(event) {
     submitBtn.textContent = 'Menyimpan...';
   }
   try {
-    await updateService(id, name, totalMinutes, category);
+    const tenantId = getActiveTenantId();
+    if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+    await updateService(tenantId, id, name, totalMinutes, category);
     closeServiceEditModal();
     await renderServicesList();
     await loadWorkloadServices();
@@ -274,9 +320,18 @@ async function imageFileToDataUrl(file) {
 }
 
 const authScreen = document.getElementById('auth-screen');
+const onboardingScreen = document.getElementById('onboarding-screen');
 const adminWorkspace = document.getElementById('admin-workspace');
 const loginForm = document.getElementById('login-form');
+const signupForm = document.getElementById('signup-form');
+const verifyEmailPanel = document.getElementById('verify-email-panel');
+const authModeTabs = document.getElementById('auth-mode-tabs');
+const authTabLogin = document.getElementById('auth-tab-login');
+const authTabSignup = document.getElementById('auth-tab-signup');
 const authErrorBox = document.getElementById('auth-error-box');
+const authInfoBox = document.getElementById('auth-info-box');
+const onboardingErrorBox = document.getElementById('onboarding-error-box');
+const onboardingForm = document.getElementById('onboarding-form');
 const logoutBtn = document.getElementById('logout-btn');
 const openStoreSettingsBtn = document.getElementById('open-store-settings-btn');
 
@@ -445,7 +500,12 @@ async function renderReports() {
   let cashRows = [];
   let cashFetchError = null;
   try {
-    let q = supabase.from('cash_transactions').select('transaction_type,category,amount,occurred_at');
+    const tenantId = getActiveTenantId();
+    if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+    let q = supabase
+      .from('cash_transactions')
+      .select('transaction_type,category,amount,occurred_at')
+      .eq('tenant_id', tenantId);
     if (period !== 'all') q = q.gte('occurred_at', start.toISOString()).lte('occurred_at', now.toISOString());
     const { data, error } = await q;
     if (error) throw error;
@@ -775,8 +835,14 @@ function renderWorkloadCalendar() {
 }
 
 async function loadWorkloadServices() {
+  const tenantId = getActiveTenantId();
+  if (!tenantId) {
+    workloadServices = [];
+    activeServiceCatalog = [];
+    return;
+  }
   try {
-    workloadServices = await fetchServices();
+    workloadServices = await fetchServices(tenantId);
     activeServiceCatalog = workloadServices.filter((service) => service.is_active);
   } catch (error) {
     console.warn('Katalog estimasi beban kerja gagal dimuat:', error);
@@ -815,17 +881,12 @@ function bindWorkloadCalendarEvents() {
 document.addEventListener('DOMContentLoaded', async () => {
   mountSeparatedManagementPages();
   applyStoreSettings();
-  fetchStoreSettings()
-    .then((settings) => {
-      workshopSettings = settings;
-      applyStoreSettings();
-    })
-    .catch(console.warn);
   if (window.lucide) window.lucide.createIcons();
   initConnectionMonitor('connection-badge');
   bindGlobalEvents();
 
   if (!isSupabaseConfigured) {
+    showAuthScreen('login');
     showAuthError('Kredensial Supabase belum diisi di js/config.js. Lengkapi URL dan Anon Key terlebih dahulu.');
     return;
   }
@@ -834,23 +895,197 @@ document.addEventListener('DOMContentLoaded', async () => {
     data: { session },
   } = await supabase.auth.getSession();
 
-  if (session) enterWorkspace();
-  else showAuthScreen();
+  await resolveAuthSession(session);
 
-  supabase.auth.onAuthStateChange((_event, newSession) => {
-    if (newSession) enterWorkspace();
-    else showAuthScreen();
+  supabase.auth.onAuthStateChange((event, newSession) => {
+    if (event === 'SIGNED_OUT') {
+      resetTenantState();
+      showAuthScreen('login');
+      return;
+    }
+    resolveAuthSession(newSession);
   });
 });
 
-function showAuthScreen() {
-  authScreen?.classList.remove('hidden');
-  adminWorkspace?.classList.add('hidden');
+function clearAuthNotices() {
+  authErrorBox?.classList.add('hidden');
+  authInfoBox?.classList.add('hidden');
+  if (authErrorBox) authErrorBox.textContent = '';
+  if (authInfoBox) authInfoBox.textContent = '';
 }
 
-async function enterWorkspace() {
+function setAuthMode(mode = 'login') {
+  clearAuthNotices();
+  const isLogin = mode === 'login';
+  const isSignup = mode === 'signup';
+  const isVerify = mode === 'verify';
+
+  authModeTabs?.classList.toggle('hidden', isVerify);
+  loginForm?.classList.toggle('hidden', !isLogin);
+  signupForm?.classList.toggle('hidden', !isSignup);
+  verifyEmailPanel?.classList.toggle('hidden', !isVerify);
+
+  if (authTabLogin) {
+    authTabLogin.setAttribute('aria-selected', String(isLogin));
+    authTabLogin.className = `mt-btn text-xs ${isLogin ? 'mt-btn-primary' : 'mt-btn-secondary'}`;
+  }
+  if (authTabSignup) {
+    authTabSignup.setAttribute('aria-selected', String(isSignup));
+    authTabSignup.className = `mt-btn text-xs ${isSignup ? 'mt-btn-primary' : 'mt-btn-secondary'}`;
+  }
+
+  const subheading = document.getElementById('auth-subheading');
+  if (subheading) {
+    subheading.textContent = isVerify
+      ? 'Konfirmasi alamat email untuk mengaktifkan akun'
+      : isSignup
+        ? 'Daftarkan akun pemilik workshop baru'
+        : 'Masuk ke ruang kerja admin workshop';
+  }
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function showAuthScreen(mode = 'login') {
+  authScreen?.classList.remove('hidden');
+  onboardingScreen?.classList.add('hidden');
+  adminWorkspace?.classList.add('hidden');
+  setAuthMode(mode);
+}
+
+function showVerifyEmailPanel(email = '') {
+  pendingVerifyEmail = email || pendingVerifyEmail;
+  const emailEl = document.getElementById('verify-email-address');
+  if (emailEl) emailEl.textContent = pendingVerifyEmail || '-';
+  showAuthScreen('verify');
+}
+
+function updateOnboardingSlugPreview() {
+  const slugInput = document.getElementById('onboard-slug');
+  const previewEl = document.getElementById('onboard-slug-preview');
+  if (!slugInput || !previewEl) return;
+  const slug = slugInput.value.trim().toLowerCase();
+  previewEl.textContent = `${window.location.origin}/t/${slug || 'nama-workshop'}`;
+}
+
+function showOnboardingScreen(userEmail = '') {
   authScreen?.classList.add('hidden');
+  adminWorkspace?.classList.add('hidden');
+  onboardingScreen?.classList.remove('hidden');
+  onboardingErrorBox?.classList.add('hidden');
+  onboardingSlugTouched = false;
+  const emailEl = document.getElementById('onboarding-user-email');
+  if (emailEl) emailEl.textContent = userEmail || '-';
+  updateOnboardingSlugPreview();
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function showOnboardingError(msg) {
+  if (!onboardingErrorBox) return;
+  onboardingErrorBox.textContent = msg;
+  onboardingErrorBox.classList.remove('hidden');
+}
+
+function resetTenantState() {
+  activeTenant = null;
+  allOrders = [];
+  customerRecords = [];
+  workloadServices = [];
+  activeServiceCatalog = [];
+  activeCustomerDetail = null;
+  activeMeasurementTemplates = [];
+  activeMeasurementTemplateFields = [];
+  customerMeasurementRecords = [];
+  currentReceiptOrder = null;
+  workloadDateFilter = null;
+  searchQuery = '';
+  orderStatusFilter = 'all';
+  workshopSettings = { ...DEFAULT_STORE_SETTINGS };
+  applyStoreSettings();
+
+  draftBanner?.classList.add('hidden');
+  waReadyToast?.classList.add('hidden');
+  orderFormModal?.classList.add('hidden');
+  paymentModal?.classList.add('hidden');
+  receiptModal?.classList.add('hidden');
+  document.getElementById('store-settings-modal')?.classList.add('hidden');
+  document.getElementById('service-edit-modal')?.classList.add('hidden');
+  document.getElementById('cash-modal')?.classList.add('hidden');
+  document.getElementById('customer-form-modal')?.classList.add('hidden');
+  document.getElementById('customer-detail-modal')?.classList.add('hidden');
+
+  if (ordersListContainer) ordersListContainer.innerHTML = '';
+  if (customersList) customersList.innerHTML = '';
+  const archiveEl = document.getElementById('archive-orders-list');
+  if (archiveEl) archiveEl.innerHTML = '';
+  const cashEl = document.getElementById('cash-transactions');
+  if (cashEl) cashEl.innerHTML = '';
+  const reportsEl = document.getElementById('reports-content');
+  if (reportsEl) reportsEl.innerHTML = '';
+}
+
+async function resolveAuthSession(session) {
+  const seq = ++authResolutionSeq;
+  if (!session?.user) {
+    resetTenantState();
+    showAuthScreen('login');
+    return;
+  }
+
+  if (!session.user.email_confirmed_at) {
+    resetTenantState();
+    showVerifyEmailPanel(session.user.email || '');
+    return;
+  }
+
+  try {
+    const { data: memberships, error } = await supabase
+      .from('tenant_members')
+      .select('tenant_id, role, is_active, tenants(*)')
+      .eq('user_id', session.user.id)
+      .eq('is_active', true)
+      .limit(1);
+
+    if (seq !== authResolutionSeq) return;
+    if (error) throw error;
+
+    const membership = (memberships || [])[0];
+    const tenant = membership?.tenants || null;
+
+    if (!tenant || !tenant.is_active) {
+      resetTenantState();
+      showOnboardingScreen(session.user.email || '');
+      return;
+    }
+
+    await enterWorkspace(tenant);
+  } catch (err) {
+    if (seq !== authResolutionSeq) return;
+    console.error('Gagal memeriksa keanggotaan workshop:', err);
+    resetTenantState();
+    showAuthScreen('login');
+    showAuthError('Gagal memuat data workshop: ' + (err.message || 'Coba masuk kembali.'));
+  }
+}
+
+async function enterWorkspace(tenant) {
+  if (!tenant?.id) return;
+  const switchedTenant = activeTenant?.id !== tenant.id;
+  activeTenant = tenant;
+  workshopSettings = mapTenantToSettings(tenant);
+  applyStoreSettings();
+
+  authScreen?.classList.add('hidden');
+  onboardingScreen?.classList.add('hidden');
   adminWorkspace?.classList.remove('hidden');
+
+  if (switchedTenant) {
+    allOrders = [];
+    customerRecords = [];
+    workloadServices = [];
+    activeServiceCatalog = [];
+    showAppPage('orders');
+  }
+
   checkSavedDraftBanner();
   await loadWorkloadServices();
   await fetchOrders();
@@ -859,8 +1094,16 @@ async function enterWorkspace() {
 
 function showAuthError(msg) {
   if (!authErrorBox) return;
+  authInfoBox?.classList.add('hidden');
   authErrorBox.textContent = msg;
   authErrorBox.classList.remove('hidden');
+}
+
+function showAuthInfo(msg) {
+  if (!authInfoBox) return;
+  authErrorBox?.classList.add('hidden');
+  authInfoBox.textContent = msg;
+  authInfoBox.classList.remove('hidden');
 }
 
 let orderDatePickerMonth = new Date();
@@ -1089,9 +1332,29 @@ function bindGlobalEvents() {
     if (order) openOrderModal(order);
   });
 
+  authTabLogin?.addEventListener('click', () => setAuthMode('login'));
+  authTabSignup?.addEventListener('click', () => setAuthMode('signup'));
+  document.getElementById('back-to-login-btn')?.addEventListener('click', () => setAuthMode('login'));
+
+  document.getElementById('copy-store-track-url-btn')?.addEventListener('click', async () => {
+    const url = getPublicTrackingUrl();
+    try {
+      await navigator.clipboard.writeText(url);
+      const btn = document.getElementById('copy-store-track-url-btn');
+      if (btn) {
+        btn.textContent = 'Tersalin';
+        setTimeout(() => {
+          btn.textContent = 'Salin';
+        }, 1500);
+      }
+    } catch (_) {
+      alert(`Salin tautan pelacakan:\n${url}`);
+    }
+  });
+
   loginForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
-    authErrorBox?.classList.add('hidden');
+    clearAuthNotices();
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
     const submitBtn = document.getElementById('login-submit-btn');
@@ -1101,12 +1364,145 @@ function bindGlobalEvents() {
 
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+      if (error) {
+        if (/email not confirmed/i.test(error.message || '')) {
+          showVerifyEmailPanel(email);
+          return;
+        }
+        throw error;
+      }
     } catch (err) {
       showAuthError(err.message || 'Gagal masuk. Periksa email dan kata sandi.');
     } finally {
       submitBtn.disabled = false;
       submitBtn.innerHTML = '<i data-lucide="log-in" class="w-4 h-4" aria-hidden="true"></i><span>Masuk ke Workshop</span>';
+      if (window.lucide) window.lucide.createIcons();
+    }
+  });
+
+  signupForm?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    clearAuthNotices();
+    const email = document.getElementById('signup-email')?.value.trim() || '';
+    const password = document.getElementById('signup-password')?.value || '';
+    const confirmPassword = document.getElementById('signup-password-confirm')?.value || '';
+    const submitBtn = document.getElementById('signup-submit-btn');
+
+    if (!email) return showAuthError('Email wajib diisi.');
+    if (password.length < 8) return showAuthError('Kata sandi minimal 8 karakter.');
+    if (password !== confirmPassword) return showAuthError('Konfirmasi kata sandi tidak cocok.');
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span>Mendaftarkan...</span>';
+
+    try {
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: getAdminRedirectUrl(),
+        },
+      });
+      if (error) throw error;
+      if (data?.session && data?.user?.email_confirmed_at) {
+        await resolveAuthSession(data.session);
+        return;
+      }
+      signupForm.reset();
+      showVerifyEmailPanel(email);
+    } catch (err) {
+      showAuthError(err.message || 'Gagal mendaftar. Coba beberapa saat lagi.');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<i data-lucide="user-plus" class="w-4 h-4" aria-hidden="true"></i><span>Daftar &amp; Kirim Verifikasi Email</span>';
+      if (window.lucide) window.lucide.createIcons();
+    }
+  });
+
+  document.getElementById('resend-verify-email-btn')?.addEventListener('click', async (event) => {
+    const btn = event.currentTarget;
+    const targetEmail = pendingVerifyEmail || document.getElementById('login-email')?.value.trim() || '';
+    if (!targetEmail) {
+      showAuthError('Alamat email tidak tersedia. Kembali ke form Masuk untuk mengisi email.');
+      return;
+    }
+    btn.disabled = true;
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: targetEmail,
+        options: {
+          emailRedirectTo: getAdminRedirectUrl(),
+        },
+      });
+      if (error) throw error;
+      showAuthInfo(`Email verifikasi telah dikirim ulang ke ${targetEmail}.`);
+    } catch (err) {
+      showAuthError(err.message || 'Gagal mengirim ulang email verifikasi.');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('onboard-name')?.addEventListener('input', (event) => {
+    if (onboardingSlugTouched) return;
+    const slugInput = document.getElementById('onboard-slug');
+    if (slugInput) {
+      slugInput.value = slugifyWorkshopName(event.target.value);
+      updateOnboardingSlugPreview();
+    }
+  });
+
+  document.getElementById('onboard-slug')?.addEventListener('input', (event) => {
+    onboardingSlugTouched = true;
+    event.target.value = event.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '');
+    updateOnboardingSlugPreview();
+  });
+
+  document.getElementById('onboarding-logout-btn')?.addEventListener('click', async () => {
+    await supabase.auth.signOut();
+    resetTenantState();
+    showAuthScreen('login');
+  });
+
+  onboardingForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    onboardingErrorBox?.classList.add('hidden');
+    const name = document.getElementById('onboard-name')?.value.trim() || '';
+    const slug = (document.getElementById('onboard-slug')?.value || '').trim().toLowerCase();
+    const phone = normalizePhone(document.getElementById('onboard-phone')?.value || '');
+    const address = document.getElementById('onboard-address')?.value.trim() || '';
+    const openingHours = document.getElementById('onboard-hours')?.value.trim() || '';
+    const tagline = document.getElementById('onboard-tagline')?.value.trim() || '';
+    const submitBtn = document.getElementById('onboard-submit-btn');
+
+    if (!name) return showOnboardingError('Nama workshop wajib diisi.');
+    if (!isValidWorkshopSlug(slug)) {
+      return showOnboardingError('Slug harus 3-48 karakter huruf kecil, angka, atau tanda hubung (-) tanpa tanda hubung di awal/akhir.');
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span>Membuat workshop...</span>';
+
+    try {
+      const { data: createdTenant, error } = await supabase.rpc('create_tenant_workspace', {
+        p_name: name,
+        p_slug: slug,
+        p_admin_phone: phone,
+        p_address: address,
+        p_opening_hours: openingHours,
+        p_tagline: tagline,
+        p_daily_capacity_minutes: 480,
+      });
+      if (error) throw error;
+      if (!createdTenant?.id) throw new Error('Data workshop gagal dikembalikan oleh server.');
+      onboardingForm.reset();
+      await enterWorkspace(createdTenant);
+    } catch (err) {
+      showOnboardingError(err.message || 'Gagal membuat workshop.');
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<i data-lucide="store" class="w-4 h-4" aria-hidden="true"></i><span>Buat Workshop &amp; Masuk Ruang Kerja</span>';
       if (window.lucide) window.lucide.createIcons();
     }
   });
@@ -1161,8 +1557,22 @@ function bindGlobalEvents() {
       return;
     }
     try {
-      await persistStoreSettings(settings);
-      workshopSettings = await fetchStoreSettings();
+      const tenantId = getActiveTenantId();
+      if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+      await persistStoreSettings(tenantId, settings);
+      workshopSettings = await fetchStoreSettings(tenantId);
+      if (activeTenant) {
+        activeTenant = {
+          ...activeTenant,
+          name: workshopSettings.NAME,
+          address: workshopSettings.ADDRESS,
+          admin_phone: workshopSettings.ADMIN_PHONE,
+          tagline: workshopSettings.TAGLINE,
+          opening_hours: workshopSettings.OPENING_HOURS,
+          logo_data_url: workshopSettings.LOGO || null,
+          daily_capacity_minutes: workshopSettings.DAILY_CAPACITY_MINUTES,
+        };
+      }
       applyStoreSettings();
       renderWorkloadCalendar();
       delete modal.dataset.pendingLogo;
@@ -1196,7 +1606,9 @@ function bindGlobalEvents() {
     button.disabled = true;
     button.textContent = 'Menyimpan...';
     try {
-      await createService(name, total, category);
+      const tenantId = getActiveTenantId();
+      if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+      await createService(tenantId, name, total, category);
       nameInput.value = '';
       if (categoryInput) categoryInput.value = 'reparasi';
       hoursInput.value = '1';
@@ -1221,17 +1633,19 @@ function bindGlobalEvents() {
   document.getElementById('service-edit-form')?.addEventListener('submit', handleServiceEditSubmit);
 
   document.getElementById('services-list')?.addEventListener('click', async (event) => {
+    const tenantId = getActiveTenantId();
+    if (!tenantId) return;
     const editButton = event.target.closest('[data-edit-service]');
     const disableButton = event.target.closest('[data-disable-service]');
     const activateButton = event.target.closest('[data-activate-service]');
     if (editButton) {
       const id = editButton.dataset.editService;
-      const current = (await fetchServices()).find((item) => item.id === id);
+      const current = (await fetchServices(tenantId)).find((item) => item.id === id);
       if (current) openServiceEditModal(current);
     }
     if (disableButton && confirm('Nonaktifkan layanan ini? Riwayat order tidak akan dihapus.')) {
       try {
-        await deactivateService(disableButton.dataset.disableService);
+        await deactivateService(tenantId, disableButton.dataset.disableService);
         await renderServicesList();
         await loadWorkloadServices();
         renderWorkloadCalendar();
@@ -1241,7 +1655,7 @@ function bindGlobalEvents() {
     }
     if (activateButton) {
       try {
-        await activateService(activateButton.dataset.activateService);
+        await activateService(tenantId, activateButton.dataset.activateService);
         await renderServicesList();
         await loadWorkloadServices();
         renderWorkloadCalendar();
@@ -1253,6 +1667,8 @@ function bindGlobalEvents() {
 
   logoutBtn?.addEventListener('click', async () => {
     await supabase.auth.signOut();
+    resetTenantState();
+    showAuthScreen('login');
   });
 
   bindWorkloadCalendarEvents();
@@ -1294,14 +1710,14 @@ function bindGlobalEvents() {
   document.getElementById('add-measurement-template-btn')?.addEventListener('click', addMeasurementTemplate);
 
   restoreDraftBtn?.addEventListener('click', () => {
-    const draft = loadOrderDraft();
+    const draft = loadOrderDraft(getActiveTenantId());
     if (draft && draft.data) {
       openOrderModal(null, draft.data);
       draftBanner?.classList.add('hidden');
     }
   });
   discardDraftBtn?.addEventListener('click', () => {
-    clearOrderDraft();
+    clearOrderDraft(getActiveTenantId());
     draftBanner?.classList.add('hidden');
   });
 
@@ -1360,11 +1776,13 @@ function bindGlobalEvents() {
 }
 
 async function fetchCustomers() {
-  if (!customersList) return;
+  const tenantId = getActiveTenantId();
+  if (!customersList || !tenantId) return;
   customersList.innerHTML = '<p class="py-5 text-center text-sm mt-muted" role="status">Memuat pelanggan...</p>';
   const { data, error } = await supabase
     .from('customers')
     .select('id, name, phone, created_at, updated_at')
+    .eq('tenant_id', tenantId)
     .order('name', { ascending: true });
   if (error) {
     customersList.innerHTML = `<div role="alert" class="py-4 text-sm mt-danger-text flex items-center justify-between gap-2">
@@ -1461,9 +1879,12 @@ async function handleCustomerCreateSubmit(event) {
       throw new Error(`Nomor HP sudah terdaftar atas nama ${existing.name}. Gunakan data pelanggan yang sudah ada.`);
     }
 
+    const tenantId = getActiveTenantId();
+    if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+
     const { data, error } = await supabase
       .from('customers')
-      .insert({ name, phone })
+      .insert({ tenant_id: tenantId, name, phone })
       .select('id, name, phone, created_at, updated_at')
       .single();
     if (error) throw error;
@@ -1490,14 +1911,18 @@ let activeMeasurementTemplateFields = [];
 let customerMeasurementRecords = [];
 
 async function fetchMeasurementTemplates() {
+  const tenantId = getActiveTenantId();
+  if (!tenantId) return [];
   const { data: templates, error: templateError } = await supabase
     .from('measurement_templates')
     .select('id, garment_type, description, is_active, created_at')
+    .eq('tenant_id', tenantId)
     .order('garment_type', { ascending: true });
   if (templateError) throw templateError;
   const { data: fields, error: fieldError } = await supabase
     .from('measurement_template_fields')
     .select('id, template_id, field_key, field_label, unit, is_required, sort_order, is_active')
+    .eq('tenant_id', tenantId)
     .order('sort_order', { ascending: true });
   if (fieldError) throw fieldError;
   activeMeasurementTemplates = templates || [];
@@ -1506,9 +1931,12 @@ async function fetchMeasurementTemplates() {
 }
 
 async function fetchCustomerMeasurements(customerId) {
+  const tenantId = getActiveTenantId();
+  if (!tenantId) return [];
   const { data, error } = await supabase
     .from('customer_measurements')
     .select('*')
+    .eq('tenant_id', tenantId)
     .eq('customer_id', customerId)
     .order('created_at', { ascending: false });
   if (error) throw error;
@@ -1580,10 +2008,13 @@ async function handleCustomerEditSubmit(event) {
     submit.disabled = true;
     submit.textContent = 'Menyimpan...';
   }
+  const tenantId = getActiveTenantId();
+  if (!tenantId) return alert('Workshop aktif tidak ditemukan.');
   const { data, error } = await supabase
     .from('customers')
     .update({ name, phone, updated_at: new Date().toISOString() })
     .eq('id', activeCustomerDetail.id)
+    .eq('tenant_id', tenantId)
     .select('id, name, phone, created_at, updated_at')
     .single();
   if (error) {
@@ -1616,13 +2047,16 @@ async function handleCustomerDetailAction(event) {
     if (record) return openCustomerMeasurementForm(record);
   }
   if (deleteButton) {
+    const tenantId = getActiveTenantId();
+    if (!tenantId) return;
     const id = deleteButton.dataset.deleteCustomerMeasurement;
     if (!confirm('Hapus catatan ukuran ini?')) return;
     const { error } = await supabase
       .from('customer_measurements')
       .delete()
       .eq('id', id)
-      .eq('customer_id', activeCustomerDetail.id);
+      .eq('customer_id', activeCustomerDetail.id)
+      .eq('tenant_id', tenantId);
     if (error) return alert(`Gagal menghapus ukuran: ${error.message}`);
     await renderCustomerMeasurements();
   }
@@ -1884,7 +2318,10 @@ async function saveCustomerMeasurement(event) {
     is_required: false,
     sort_order: field.sort_order,
   }));
+  const tenantId = getActiveTenantId();
+  if (!tenantId) return alert('Workshop aktif tidak ditemukan.');
   const payload = {
+    tenant_id: tenantId,
     customer_id: activeCustomerDetail.id,
     template_id: template.id,
     garment_type: template.garment_type,
@@ -1901,6 +2338,7 @@ async function saveCustomerMeasurement(event) {
         .update(payload)
         .eq('id', editId)
         .eq('customer_id', activeCustomerDetail.id)
+        .eq('tenant_id', tenantId)
     : await supabase.from('customer_measurements').insert(payload);
   if (result.error) return alert(`Gagal menyimpan ukuran: ${result.error.message}`);
   await renderCustomerMeasurements();
@@ -2035,8 +2473,14 @@ function bindMeasurementTemplateReorder(container) {
       const rows = [...list.querySelectorAll('[data-field-row]')];
       activeRow.classList.remove('is-reordering');
       activeRow.style.opacity = '';
+      const tenantId = getActiveTenantId();
+      if (!tenantId) return;
       const updates = rows.map((row, index) =>
-        supabase.from('measurement_template_fields').update({ sort_order: index + 1 }).eq('id', row.dataset.fieldRow)
+        supabase
+          .from('measurement_template_fields')
+          .update({ sort_order: index + 1 })
+          .eq('id', row.dataset.fieldRow)
+          .eq('tenant_id', tenantId)
       );
       const results = await Promise.all(updates);
       const failed = results.find((result) => result.error);
@@ -2052,12 +2496,15 @@ function bindMeasurementTemplateReorder(container) {
   container.addEventListener('change', async (event) => {
     const input = event.target.closest('[data-field-label-input]');
     if (!input) return;
+    const tenantId = getActiveTenantId();
+    if (!tenantId) return;
     const label = input.value.trim();
     if (!label) return alert('Nama komponen wajib diisi.');
     const { error } = await supabase
       .from('measurement_template_fields')
       .update({ field_label: label })
-      .eq('id', input.dataset.fieldLabelInput);
+      .eq('id', input.dataset.fieldLabelInput)
+      .eq('tenant_id', tenantId);
     if (error) return alert(`Gagal mengubah komponen: ${error.message}`);
     await renderMeasurementTemplateSettings();
   });
@@ -2074,17 +2521,21 @@ function makeMeasurementFieldKey(label) {
 }
 
 async function addMeasurementTemplate() {
+  const tenantId = getActiveTenantId();
+  if (!tenantId) return alert('Workshop aktif tidak ditemukan.');
   const name = prompt('Nama jenis pakaian baru:');
   if (name === null) return;
   if (!name.trim()) return alert('Nama jenis pakaian wajib diisi.');
   const { error } = await supabase
     .from('measurement_templates')
-    .insert({ garment_type: name.trim(), description: `Template ukuran ${name.trim()}` });
+    .insert({ tenant_id: tenantId, garment_type: name.trim(), description: `Template ukuran ${name.trim()}` });
   if (error) return alert(`Gagal menambahkan jenis pakaian: ${error.message}`);
   await renderMeasurementTemplateSettings();
 }
 
 async function moveMeasurementField(templateId, fieldId, direction) {
+  const tenantId = getActiveTenantId();
+  if (!tenantId) return;
   const fields = getActiveTemplateFields(templateId);
   const idx = fields.findIndex((f) => f.id === fieldId);
   const swapIdx = idx + direction;
@@ -2093,7 +2544,11 @@ async function moveMeasurementField(templateId, fieldId, direction) {
   [reordered[idx], reordered[swapIdx]] = [reordered[swapIdx], reordered[idx]];
   const results = await Promise.all(
     reordered.map((field, orderIdx) =>
-      supabase.from('measurement_template_fields').update({ sort_order: orderIdx + 1 }).eq('id', field.id)
+      supabase
+        .from('measurement_template_fields')
+        .update({ sort_order: orderIdx + 1 })
+        .eq('id', field.id)
+        .eq('tenant_id', tenantId)
     )
   );
   const failed = results.find((r) => r.error);
@@ -2102,6 +2557,7 @@ async function moveMeasurementField(templateId, fieldId, direction) {
 }
 
 async function handleMeasurementTemplateAction(event) {
+  const tenantId = getActiveTenantId();
   const unitButton = event.target.closest('[data-measurement-unit]');
   const editButton = event.target.closest('[data-template-edit]');
   const addField = event.target.closest('[data-field-add]');
@@ -2128,17 +2584,23 @@ async function handleMeasurementTemplateAction(event) {
     return;
   }
   if (deleteField) {
+    if (!tenantId) return;
     const field = activeMeasurementTemplateFields.find((item) => item.id === deleteField.dataset.fieldDelete);
     if (!field) return;
     if (!confirm(`Yakin ingin menghapus komponen "${field.field_label}"? Data ukuran pelanggan yang sudah tersimpan tidak akan diubah.`)) {
       return;
     }
-    const { error } = await supabase.from('measurement_template_fields').delete().eq('id', field.id);
+    const { error } = await supabase
+      .from('measurement_template_fields')
+      .delete()
+      .eq('id', field.id)
+      .eq('tenant_id', tenantId);
     if (error) return alert(`Gagal menghapus komponen: ${error.message}`);
     await renderMeasurementTemplateSettings();
     return;
   }
   if (addField) {
+    if (!tenantId) return;
     const template = activeMeasurementTemplates.find((item) => item.id === addField.dataset.fieldAdd);
     if (!template) return;
     const label = prompt(`Nama komponen ukuran untuk ${template.garment_type}:`);
@@ -2153,6 +2615,7 @@ async function handleMeasurementTemplateAction(event) {
         .map((field) => field.sort_order)
     );
     const { error } = await supabase.from('measurement_template_fields').insert({
+      tenant_id: tenantId,
       template_id: template.id,
       field_key: key,
       field_label: label.trim(),
@@ -2167,7 +2630,8 @@ async function handleMeasurementTemplateAction(event) {
 }
 
 async function fetchOrders() {
-  if (!ordersListContainer) return;
+  const tenantId = getActiveTenantId();
+  if (!ordersListContainer || !tenantId) return;
   ordersListContainer.innerHTML = `
     <div class="mt-card p-8 text-center text-sm mt-muted" role="status">
       Memuat daftar order workshop...
@@ -2178,6 +2642,7 @@ async function fetchOrders() {
     const { data, error } = await supabase
       .from('orders')
       .select('*, order_items(*)')
+      .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
@@ -2439,8 +2904,7 @@ function bindCardActionListeners() {
       btn.disabled = true;
       try {
         const photoPaths = (order.order_items || [])
-          .flatMap((it) => [it.before_photo_url, it.after_photo_url])
-          .map(extractStoragePath)
+          .flatMap((it) => [it.before_photo_path, it.after_photo_path, extractStoragePath(it.before_photo_url), extractStoragePath(it.after_photo_url)])
           .filter(Boolean);
 
         await deleteOrderAndRelatedRecords(orderId);
@@ -2464,41 +2928,14 @@ function bindCardActionListeners() {
 }
 
 async function deleteOrderAndRelatedRecords(orderId) {
+  const tenantId = getActiveTenantId();
+  if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
   const { error: rpcError } = await supabase.rpc('delete_order_cascade', {
+    p_tenant_id: tenantId,
     p_order_id: orderId,
   });
   if (!rpcError) return;
-
-  const isMissingRpc =
-    rpcError.code === 'PGRST202' ||
-    rpcError.code === '42883' ||
-    /could not find the function/i.test(rpcError.message || '');
-  if (!isMissingRpc) throw rpcError;
-
-  const { data: payments, error: payReadErr } = await supabase
-    .from('order_payments')
-    .select('id, cash_transaction_id')
-    .eq('order_id', orderId);
-  if (payReadErr) throw payReadErr;
-
-  const cashIds = (payments || []).map((p) => p.cash_transaction_id).filter(Boolean);
-
-  const { error: payDelErr } = await supabase.from('order_payments').delete().eq('order_id', orderId);
-  if (payDelErr) throw payDelErr;
-
-  const { error: cashByOrderErr } = await supabase.from('cash_transactions').delete().eq('order_id', orderId);
-  if (cashByOrderErr) throw cashByOrderErr;
-
-  if (cashIds.length > 0) {
-    const { error: cashByIdErr } = await supabase.from('cash_transactions').delete().in('id', cashIds);
-    if (cashByIdErr) throw cashByIdErr;
-  }
-
-  const { error: itemsDelErr } = await supabase.from('order_items').delete().eq('order_id', orderId);
-  if (itemsDelErr) throw itemsDelErr;
-
-  const { error: orderDelErr } = await supabase.from('orders').delete().eq('id', orderId);
-  if (orderDelErr) throw orderDelErr;
+  throw rpcError;
 }
 
 function extractStoragePath(photoUrl) {
@@ -2523,7 +2960,13 @@ async function updateOrderStatus(orderId, newStatus) {
     }
 
     // Marking an order completed never auto-settles unpaid balance.
-    const { error } = await supabase.from('orders').update({ status: newStatus }).eq('id', orderId);
+    const tenantId = getActiveTenantId();
+    if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+    const { error } = await supabase
+      .from('orders')
+      .update({ status: newStatus })
+      .eq('id', orderId)
+      .eq('tenant_id', tenantId);
     if (error) throw error;
     await fetchOrders();
     if (newStatus === 'ready') {
@@ -2539,7 +2982,7 @@ function showWhatsAppReadyToast(order) {
   if (!waReadyToast || !waToastSendLink) return;
 
   const remaining = Math.max(0, Number(order.total_amount) - Number(order.paid_amount));
-  const trackingUrl = `${window.location.origin}/`;
+  const trackingUrl = getPublicTrackingUrl();
 
   const billingLine =
     remaining > 0
@@ -2588,9 +3031,11 @@ function clearEstimatedDateError() {
 
 async function openOrderModal(existingOrder = null, draftOverride = null) {
   if (!orderFormModal) return;
+  const tenantId = getActiveTenantId();
+  if (!tenantId) return;
   rememberTrigger();
   try {
-    activeServiceCatalog = (await fetchServices()).filter((service) => service.is_active);
+    activeServiceCatalog = (await fetchServices(tenantId)).filter((service) => service.is_active);
   } catch (error) {
     console.warn('Katalog layanan gagal dimuat:', error);
     activeServiceCatalog = [];
@@ -2605,10 +3050,11 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
   formItemsContainer.innerHTML = '';
   clearEstimatedDateError();
 
+  const ticketPrefix = activeTenant?.ticket_prefix || workshopSettings.TICKET_PREFIX;
   const ticketInput = document.getElementById('form-ticket-code');
   if (draftOverride) {
     lockedOrderTicketCode =
-      draftOverride.ticket_code || generateTicketCode(allOrders.length + 1);
+      draftOverride.ticket_code || generateTicketCode(allOrders.length + 1, ticketPrefix);
     ticketInput.value = lockedOrderTicketCode;
     document.getElementById('form-customer-name').value = draftOverride.customer_name || '';
     document.getElementById('form-customer-phone').value = draftOverride.customer_phone || '';
@@ -2629,10 +3075,13 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
     document.getElementById('form-paid-amount').value = Number(existingOrder.paid_amount || 0);
 
     const items = existingOrder.order_items || [];
-    if (items.length > 0) items.forEach((it) => appendItemRow(it));
+    const signedUrlMap = await signGarmentPhotoPaths(
+      items.flatMap((it) => [it.before_photo_path, it.after_photo_path]).filter(Boolean)
+    );
+    if (items.length > 0) items.forEach((it) => appendItemRow(it, signedUrlMap));
     else appendItemRow();
   } else {
-    lockedOrderTicketCode = generateTicketCode(allOrders.length + 1);
+    lockedOrderTicketCode = generateTicketCode(allOrders.length + 1, ticketPrefix);
     ticketInput.value = lockedOrderTicketCode;
     document.getElementById('form-customer-name').value = '';
     document.getElementById('form-customer-phone').value = '';
@@ -2655,13 +3104,32 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
   if (window.lucide) window.lucide.createIcons();
 }
 
+async function signGarmentPhotoPaths(paths) {
+  const uniquePaths = Array.from(new Set((paths || []).filter((p) => typeof p === 'string' && p.length > 0)));
+  if (!uniquePaths.length) return {};
+  try {
+    const { data, error } = await supabase.storage
+      .from(SUPABASE_CONFIG.STORAGE_BUCKET)
+      .createSignedUrls(uniquePaths, 1800);
+    if (error || !Array.isArray(data)) return {};
+    const map = {};
+    data.forEach((entry) => {
+      if (entry.path && entry.signedUrl) map[entry.path] = entry.signedUrl;
+    });
+    return map;
+  } catch (err) {
+    console.warn('Gagal membuat tautan pratinjau foto:', err);
+    return {};
+  }
+}
+
 function closeOrderModal() {
   closeOrderDatePicker();
   orderFormModal?.classList.add('hidden');
   restoreTriggerFocus();
 }
 
-function appendItemRow(itemData = {}) {
+function appendItemRow(itemData = {}, signedUrlMap = {}) {
   const rowIndex = formItemsContainer.children.length;
   const uid = ++itemRowCounter;
   const specsObj = itemData.measurement_specs || {};
@@ -2678,11 +3146,16 @@ function appendItemRow(itemData = {}) {
     .map((serviceName) => `<option value="${escapeHTML(serviceName)}"></option>`)
     .join('');
 
+  const beforePath = itemData.before_photo_path || '';
+  const afterPath = itemData.after_photo_path || '';
+  const beforePreviewUrl = beforePath ? signedUrlMap[beforePath] || '' : '';
+  const afterPreviewUrl = afterPath ? signedUrlMap[afterPath] || '' : '';
+
   const card = document.createElement('div');
   card.className = 'item-row mt-card-muted p-4 space-y-3 relative';
   card.dataset.itemId = itemData.id || '';
-  card.dataset.existingBeforeUrl = itemData.before_photo_url || '';
-  card.dataset.existingAfterUrl = itemData.after_photo_url || '';
+  card.dataset.existingBeforePath = beforePath;
+  card.dataset.existingAfterPath = afterPath;
 
   card.innerHTML = `
     <div class="flex items-center justify-between gap-2">
@@ -2720,29 +3193,33 @@ function appendItemRow(itemData = {}) {
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
       <div>
         <label for="item-before-${uid}" class="block text-xs font-semibold mt-text mb-1">
-          Foto sebelum ${itemData.before_photo_url ? '<span class="mt-success-text">(Tersimpan)</span>' : ''}
+          Foto sebelum ${beforePath ? '<span class="mt-success-text">(Tersimpan)</span>' : ''}
         </label>
         ${
-          itemData.before_photo_url
-            ? `<a href="${escapeHTML(itemData.before_photo_url)}" target="_blank" rel="noopener noreferrer" class="existing-photo-preview block mb-2">
-                <img src="${escapeHTML(itemData.before_photo_url)}" width="112" height="80" alt="Foto sebelum tersimpan" class="w-28 h-20 object-cover rounded-lg border" style="border-color: var(--mt-border);" />
+          beforePreviewUrl
+            ? `<a href="${escapeHTML(beforePreviewUrl)}" target="_blank" rel="noopener noreferrer" class="existing-photo-preview block mb-2">
+                <img src="${escapeHTML(beforePreviewUrl)}" width="112" height="80" onerror="this.src='/assets/placeholder-garment.svg'" alt="Foto sebelum tersimpan" class="w-28 h-20 object-cover rounded-lg border" style="border-color: var(--mt-border);" />
                 <span class="text-xs mt-muted">Foto tersimpan · pilih file baru untuk mengganti</span>
               </a>`
-            : ''
+            : beforePath
+              ? '<p class="text-xs mt-muted mb-2">Foto tersimpan · pilih file baru untuk mengganti</p>'
+              : ''
         }
         <input id="item-before-${uid}" type="file" accept="image/*" data-file="before" class="w-full text-xs mt-muted" />
       </div>
       <div>
         <label for="item-after-${uid}" class="block text-xs font-semibold mt-text mb-1">
-          Foto sesudah ${itemData.after_photo_url ? '<span class="mt-success-text">(Tersimpan)</span>' : ''}
+          Foto sesudah ${afterPath ? '<span class="mt-success-text">(Tersimpan)</span>' : ''}
         </label>
         ${
-          itemData.after_photo_url
-            ? `<a href="${escapeHTML(itemData.after_photo_url)}" target="_blank" rel="noopener noreferrer" class="existing-photo-preview block mb-2">
-                <img src="${escapeHTML(itemData.after_photo_url)}" width="112" height="80" alt="Foto sesudah tersimpan" class="w-28 h-20 object-cover rounded-lg border" style="border-color: var(--mt-border);" />
+          afterPreviewUrl
+            ? `<a href="${escapeHTML(afterPreviewUrl)}" target="_blank" rel="noopener noreferrer" class="existing-photo-preview block mb-2">
+                <img src="${escapeHTML(afterPreviewUrl)}" width="112" height="80" onerror="this.src='/assets/placeholder-garment.svg'" alt="Foto sesudah tersimpan" class="w-28 h-20 object-cover rounded-lg border" style="border-color: var(--mt-border);" />
                 <span class="text-xs mt-muted">Foto tersimpan · pilih file baru untuk mengganti</span>
               </a>`
-            : ''
+            : afterPath
+              ? '<p class="text-xs mt-muted mb-2">Foto tersimpan · pilih file baru untuk mengganti</p>'
+              : ''
         }
         <input id="item-after-${uid}" type="file" accept="image/*" data-file="after" class="w-full text-xs mt-muted" />
       </div>
@@ -2805,8 +3282,10 @@ function parseMeasurementSpecs(rawStr) {
 }
 
 async function uploadGarmentPhoto(file, orderId, typeLabel) {
+  const tenantId = getActiveTenantId();
+  if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
   const compressedBlob = await compressImage(file, 1080, 0.8);
-  const filePath = `${orderId}/${typeLabel}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`;
+  const filePath = `${tenantId}/${orderId}/${typeLabel}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`;
 
   const { error: uploadError } = await supabase.storage
     .from(SUPABASE_CONFIG.STORAGE_BUCKET)
@@ -2817,18 +3296,19 @@ async function uploadGarmentPhoto(file, orderId, typeLabel) {
 
   if (uploadError) throw uploadError;
 
-  const { data } = supabase.storage.from(SUPABASE_CONFIG.STORAGE_BUCKET).getPublicUrl(filePath);
-  return data.publicUrl;
+  return filePath;
 }
 
 let customerLookupRequest = 0;
 
 async function findCustomerByPhone(phone) {
+  const tenantId = getActiveTenantId();
   const normalized = normalizePhone(phone);
-  if (!normalized) return null;
+  if (!normalized || !tenantId) return null;
   const { data, error } = await supabase
     .from('customers')
     .select('id, name, phone')
+    .eq('tenant_id', tenantId)
     .eq('phone', normalized)
     .maybeSingle();
   if (error) throw error;
@@ -2921,12 +3401,12 @@ async function handleSaveOrderSubmit(e) {
       if (!serviceType) throw new Error('Jenis layanan pada setiap item wajib diisi.');
       if (!Number.isFinite(price) || price < 0) throw new Error('Biaya item tidak valid.');
 
-      let beforeUrl = row.dataset.existingBeforeUrl || null;
-      let afterUrl = row.dataset.existingAfterUrl || null;
+      let beforePath = row.dataset.existingBeforePath || null;
+      let afterPath = row.dataset.existingAfterPath || null;
       const beforeFile = row.querySelector('[data-file="before"]').files[0];
       const afterFile = row.querySelector('[data-file="after"]').files[0];
-      if (beforeFile) beforeUrl = await uploadGarmentPhoto(beforeFile, orderId, 'before');
-      if (afterFile) afterUrl = await uploadGarmentPhoto(afterFile, orderId, 'after');
+      if (beforeFile) beforePath = await uploadGarmentPhoto(beforeFile, orderId, 'before');
+      if (afterFile) afterPath = await uploadGarmentPhoto(afterFile, orderId, 'after');
 
       itemsPayload.push({
         item_id: row.dataset.itemId || null,
@@ -2934,12 +3414,16 @@ async function handleSaveOrderSubmit(e) {
         service_type: serviceType,
         measurement_specs: parseMeasurementSpecs(specsRaw),
         price,
-        before_photo_url: beforeUrl,
-        after_photo_url: afterUrl,
+        before_photo_path: beforePath,
+        after_photo_path: afterPath,
       });
     }
 
+    const tenantId = getActiveTenantId();
+    if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+
     const { data: savedOrderId, error: saveError } = await supabase.rpc('save_order_with_items', {
+      p_tenant_id: tenantId,
       p_order_id: orderId,
       p_ticket_code: ticketCode,
       p_customer_name: customerName,
@@ -2952,7 +3436,7 @@ async function handleSaveOrderSubmit(e) {
     if (saveError) throw saveError;
     if (!savedOrderId) throw new Error('Database tidak mengembalikan ID order yang tersimpan.');
 
-    clearOrderDraft();
+    clearOrderDraft(tenantId);
     draftBanner?.classList.add('hidden');
     closeOrderModal();
     await fetchOrders();
@@ -2963,7 +3447,7 @@ async function handleSaveOrderSubmit(e) {
       const itemLines = itemsPayload
         .map((item, index) => `${index + 1}. ${item.garment_name} (${item.service_type}) - ${formatCurrency(item.price)}`)
         .join('\n');
-      const trackingUrl = `${window.location.origin}/`;
+      const trackingUrl = getPublicTrackingUrl();
       const receiptMessage =
         `*Struk Digital - ${workshopSettings.NAME}*\n` +
         `No. Tiket: *${ticketCode}*\n` +
@@ -2999,24 +3483,33 @@ const triggerAutoSaveDraft = debounce(() => {
     price: Number(row.querySelector('[data-field="price"]')?.value || 0),
   }));
 
-  saveOrderDraft({
-    ticket_code: lockedOrderTicketCode || document.getElementById('form-ticket-code')?.value || '',
-    customer_name: document.getElementById('form-customer-name')?.value || '',
-    customer_phone: document.getElementById('form-customer-phone')?.value || '',
-    estimated_done_date: document.getElementById('form-estimated-date')?.value || '',
-    notes: document.getElementById('form-notes')?.value || '',
-    paid_amount: Number(document.getElementById('form-paid-amount')?.value || 0),
-    items,
-  });
+  const tenantId = getActiveTenantId();
+  if (!tenantId) return;
+
+  saveOrderDraft(
+    {
+      ticket_code: lockedOrderTicketCode || document.getElementById('form-ticket-code')?.value || '',
+      customer_name: document.getElementById('form-customer-name')?.value || '',
+      customer_phone: document.getElementById('form-customer-phone')?.value || '',
+      estimated_done_date: document.getElementById('form-estimated-date')?.value || '',
+      notes: document.getElementById('form-notes')?.value || '',
+      paid_amount: Number(document.getElementById('form-paid-amount')?.value || 0),
+      items,
+    },
+    tenantId
+  );
 }, 500);
 
 function checkSavedDraftBanner() {
-  const draft = loadOrderDraft();
+  const tenantId = getActiveTenantId();
+  const draft = loadOrderDraft(tenantId);
   if (draft && draft.data && (draft.data.customer_name || draft.data.items?.length)) {
     if (draftSavedTime) {
       draftSavedTime.textContent = `Draf untuk "${draft.data.customer_name || draft.data.ticket_code}" disimpan pada ${formatDateID(draft.savedAt, true)}`;
     }
     draftBanner?.classList.remove('hidden');
+  } else {
+    draftBanner?.classList.add('hidden');
   }
 }
 
@@ -3058,8 +3551,11 @@ async function handlePaymentSubmit(e) {
   const submitBtn = paymentForm.querySelector('[type="submit"]');
   if (submitBtn) submitBtn.disabled = true;
   try {
+    const tenantId = getActiveTenantId();
+    if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
     const idempotencyKey = `settlement:${orderId}:${crypto.randomUUID()}`;
     const { error } = await supabase.rpc('record_order_payment_v3', {
+      p_tenant_id: tenantId,
       p_order_id: orderId,
       p_amount: newPaidAmount,
       p_payment_type: 'pelunasan',
@@ -3111,11 +3607,16 @@ function cashPeriodStart(period) {
 
 async function renderCash() {
   const target = document.getElementById('cash-transactions');
-  if (!target) return;
+  const tenantId = getActiveTenantId();
+  if (!target || !tenantId) return;
   target.innerHTML = '<p class="text-sm mt-muted" role="status">Memuat transaksi kas...</p>';
   try {
     const period = document.getElementById('cash-period')?.value || 'week';
-    let query = supabase.from('cash_transactions').select('*').order('occurred_at', { ascending: false });
+    let query = supabase
+      .from('cash_transactions')
+      .select('*')
+      .eq('tenant_id', tenantId)
+      .order('occurred_at', { ascending: false });
     const start = cashPeriodStart(period);
     if (start) query = query.gte('occurred_at', start.toISOString());
     const { data, error } = await query;
@@ -3123,7 +3624,8 @@ async function renderCash() {
     const rows = data || [];
     const { data: allRows, error: allError } = await supabase
       .from('cash_transactions')
-      .select('transaction_type,amount');
+      .select('transaction_type,amount')
+      .eq('tenant_id', tenantId);
     if (allError) throw allError;
 
     const periodIncome = rows
@@ -3178,7 +3680,10 @@ async function submitCashForm(e) {
   const btn = e.submitter;
   if (btn) btn.disabled = true;
   try {
+    const tenantId = getActiveTenantId();
+    if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
     const args = {
+      p_tenant_id: tenantId,
       p_transaction_type: document.getElementById('cash-type').value,
       p_category: document.getElementById('cash-category').value,
       p_amount: Number(document.getElementById('cash-amount').value),
@@ -3270,7 +3775,7 @@ function openReceiptModal(order) {
 
     <p class="text-xs text-center mt-muted pt-3 mt-seam-t">
       Lacak progres dengan nomor WhatsApp terdaftar di:<br />
-      <span class="font-mono-code mt-text">${window.location.origin}/</span>
+      <span class="font-mono-code mt-text">${escapeHTML(getPublicTrackingUrl())}</span>
     </p>
     <p class="mt-4 pt-2 mt-seam-t text-center text-xs mt-muted">by MendTrack</p>
   `;
@@ -3287,7 +3792,7 @@ function handleSendReceiptViaWA() {
   const total = Number(o.total_amount || 0);
   const paid = Number(o.paid_amount || 0);
   const remaining = Math.max(0, total - paid);
-  const trackingUrl = `${window.location.origin}/`;
+  const trackingUrl = getPublicTrackingUrl();
 
   const itemLines = items
     .map((it, idx) => `${idx + 1}. ${it.garment_name} (${it.service_type}) - ${formatCurrency(it.price)}`)

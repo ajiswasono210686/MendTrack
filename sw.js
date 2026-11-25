@@ -1,7 +1,8 @@
-const CACHE_NAME = 'mendtrack-shell-v8-denim-ledger';
+const CACHE_NAME = 'mendtrack-shell-v9-multitenant';
 const APP_SHELL = [
   '/admin.html',
   '/index.html',
+  '/track.html',
   '/css/tailwind.css',
   '/css/theme.css',
   '/js/theme-toggle.js',
@@ -39,7 +40,14 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   const url = new URL(request.url);
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
-  if (url.pathname.startsWith('/rest/') || url.pathname.startsWith('/auth/') || url.pathname.includes('/functions/')) return;
+  if (
+    url.pathname.startsWith('/rest/') ||
+    url.pathname.startsWith('/auth/') ||
+    url.pathname.includes('/functions/') ||
+    url.pathname.includes('/storage/')
+  ) {
+    return;
+  }
 
   // Network-first for HTML/JS/CSS so normal reloads pick up fixes; cache fallback covers offline use.
   const isAppCode = request.mode === 'navigate' || /\.(?:html|js|css|webmanifest)$/.test(url.pathname);
@@ -56,7 +64,11 @@ self.addEventListener('fetch', (event) => {
         .catch(() =>
           caches.match(request).then((cached) => {
             if (cached) return cached;
-            if (request.mode === 'navigate') return caches.match('/admin.html');
+            if (request.mode === 'navigate') {
+              if (url.pathname.startsWith('/t/')) return caches.match('/track.html');
+              if (url.pathname.startsWith('/admin')) return caches.match('/admin.html');
+              return caches.match('/index.html');
+            }
             return Response.error();
           })
         )
