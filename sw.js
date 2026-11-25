@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mendtrack-shell-v9-multitenant';
+const CACHE_NAME = 'mendtrack-shell-v11-layout-fix';
 const APP_SHELL = [
   '/admin.html',
   '/index.html',
