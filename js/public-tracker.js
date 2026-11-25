@@ -1,9 +1,10 @@
 import {
+  SUPABASE_CONFIG,
   ORDER_STEPS,
   STATUS_META,
   PAYMENT_STATUS_META,
 } from './config.js';
-import { supabase, isSupabaseConfigured } from './supabase-client.js';
+import { isSupabaseConfigured } from './supabase-client.js';
 import {
   formatCurrency,
   formatDateID,
@@ -13,8 +14,14 @@ import {
   normalizePhone,
 } from './utils.js';
 import { initConnectionMonitor } from './storage-draft.js';
-import { DEFAULT_STORE_SETTINGS, fetchStoreSettings, applyStoreIdentity } from './store-settings.js';
+import { DEFAULT_STORE_SETTINGS, mapTenantToSettings, applyStoreIdentity } from './store-settings.js';
 
+const SLUG_REGEX = /^[a-z0-9](?:[a-z0-9-]{1,46}[a-z0-9])$/;
+
+let activeSlug = '';
+let isWorkshopValid = false;
+let currentSearchedPhone = '';
+let lastTicketList = [];
 let publicStoreSettings = { ...DEFAULT_STORE_SETTINGS };
 let lastPhotoTrigger = null;
 
@@ -43,7 +50,7 @@ const MOCK_TRACKING_DATA = {
       service_type: 'Sashiko Crotch Repair',
       measurement_specs: { area: 'Selangkangan kiri', benang: 'Indigo Sashiko' },
       price: 115000,
-      before_photo_url: './assets/placeholder-garment.svg',
+      before_photo_url: '/assets/placeholder-garment.svg',
       after_photo_url: null,
     },
     {
@@ -60,7 +67,7 @@ const MOCK_TRACKING_DATA = {
     {
       id: 'log-1',
       status: 'received',
-      log_note: 'Order diterima oleh workshop BRKH DENIM',
+      log_note: 'Order diterima oleh workshop',
       created_at: new Date(Date.now() - 86400000).toISOString(),
     },
     {
@@ -77,6 +84,12 @@ const MOCK_TRACKING_DATA = {
     },
   ],
 };
+
+const trackerHeroEl = document.getElementById('tracker-hero');
+const trackerBrandLink = document.getElementById('tracker-brand-link');
+const workshopNotFoundEl = document.getElementById('workshop-not-found');
+const workshopNotFoundMsgEl = document.getElementById('workshop-not-found-message');
+const footerTaglineWrap = document.getElementById('footer-tagline-wrap');
 
 const trackForm = document.getElementById('track-form');
 const trackInput = document.getElementById('track-input');
@@ -99,19 +112,70 @@ const photoModalImg = document.getElementById('photo-modal-img');
 const photoModalCaption = document.getElementById('photo-modal-caption');
 const closePhotoModalBtn = document.getElementById('close-photo-modal');
 
-document.addEventListener('DOMContentLoaded', () => {
+function resolveWorkshopSlug() {
+  const pathMatch = window.location.pathname.match(/^\/t\/([^/]+)\/?$/i);
+  if (pathMatch && pathMatch[1]) {
+    try {
+      const decoded = decodeURIComponent(pathMatch[1]).trim().toLowerCase();
+      return SLUG_REGEX.test(decoded) ? decoded : '';
+    } catch {
+      return '';
+    }
+  }
+  const params = new URLSearchParams(window.location.search);
+  const querySlug = String(params.get('store') || '').trim().toLowerCase();
+  return SLUG_REGEX.test(querySlug) ? querySlug : '';
+}
+
+async function callPublicTracker(payload) {
+  const endpoint = `${SUPABASE_CONFIG.URL.replace(/\/+$/, '')}/functions/v1/public-tracker`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: SUPABASE_CONFIG.ANON_KEY,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok) {
+    throw new Error(data?.error || data?.message || `Server merespons status ${response.status}.`);
+  }
+  return data;
+}
+
+function showWorkshopNotFound(message) {
+  isWorkshopValid = false;
+  trackerHeroEl?.classList.add('hidden');
+  initialGuideEl?.classList.add('hidden');
+  loadingEl?.classList.add('hidden');
+  emptyEl?.classList.add('hidden');
+  ticketListEl?.classList.add('hidden');
+  resultEl?.classList.add('hidden');
+  trackerExitBtn?.classList.add('hidden');
+  if (workshopNotFoundMsgEl && message) {
+    workshopNotFoundMsgEl.textContent = message;
+  }
+  workshopNotFoundEl?.classList.remove('hidden');
+  document.title = 'Workshop Tidak Ditemukan | MendTrack';
+  if (window.lucide) window.lucide.createIcons();
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
   if (window.lucide) window.lucide.createIcons();
   initConnectionMonitor('connection-badge');
   applyStoreIdentity(document, publicStoreSettings);
-  fetchStoreSettings()
-    .then((settings) => {
-      publicStoreSettings = settings;
-      applyStoreIdentity(document, settings);
-    })
-    .catch(console.warn);
 
-  if (!isSupabaseConfigured && configWarning) {
-    configWarning.classList.remove('hidden');
+  activeSlug = resolveWorkshopSlug();
+  if (activeSlug && trackerBrandLink) {
+    trackerBrandLink.href = `/t/${encodeURIComponent(activeSlug)}`;
   }
 
   trackInput?.addEventListener('input', () => {
@@ -126,6 +190,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const resetToGuide = () => {
     trackInput.value = '';
+    currentSearchedPhone = '';
+    lastTicketList = [];
     clearInputBtn?.classList.add('hidden');
     setViewState('guide');
     const nextUrl = new URL(window.location.href);
@@ -148,6 +214,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   trackForm?.addEventListener('submit', (e) => {
     e.preventDefault();
+    if (!isWorkshopValid) return;
     const query = trackInput.value.trim();
     if (!query) return;
     executeTrackingSearch(query);
@@ -163,13 +230,50 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Auto-load only from the phone query parameter (ticket code links are not exposed).
-  const params = new URLSearchParams(window.location.search);
-  const initialPhone = params.get('phone');
-  if (initialPhone) {
-    trackInput.value = initialPhone;
-    clearInputBtn?.classList.remove('hidden');
-    executeTrackingSearch(initialPhone);
+  if (!isSupabaseConfigured) {
+    isWorkshopValid = true;
+    configWarning?.classList.remove('hidden');
+    return;
+  }
+
+  if (!activeSlug) {
+    showWorkshopNotFound('Alamat tautan workshop tidak menyertakan slug yang valid.');
+    return;
+  }
+
+  setViewState('loading');
+  try {
+    const profileRes = await callPublicTracker({
+      action: 'profile',
+      slug: activeSlug,
+    });
+
+    if (!profileRes || !profileRes.found || !profileRes.store) {
+      showWorkshopNotFound(
+        profileRes?.message || `Workshop "${activeSlug}" tidak ditemukan atau sedang tidak aktif.`
+      );
+      return;
+    }
+
+    isWorkshopValid = true;
+    publicStoreSettings = mapTenantToSettings(profileRes.store);
+    applyStoreIdentity(document, publicStoreSettings);
+    if (footerTaglineWrap) {
+      footerTaglineWrap.classList.toggle('hidden', !publicStoreSettings.TAGLINE);
+    }
+    setViewState('guide');
+
+    // Auto-load only from the phone query parameter (ticket code links are not exposed).
+    const params = new URLSearchParams(window.location.search);
+    const initialPhone = params.get('phone');
+    if (initialPhone) {
+      trackInput.value = initialPhone;
+      clearInputBtn?.classList.remove('hidden');
+      executeTrackingSearch(initialPhone);
+    }
+  } catch (err) {
+    console.error('Gagal memuat profil workshop:', err);
+    showWorkshopNotFound('Terjadi gangguan saat memuat data workshop. Silakan muat ulang halaman.');
   }
 });
 
@@ -179,6 +283,9 @@ async function executeTrackingSearch(rawQuery) {
     showEmptyState('Nomor WhatsApp tidak valid', 'Masukkan nomor HP yang terdaftar, minimal 10 digit.');
     return;
   }
+
+  currentSearchedPhone = query;
+  lastTicketList = [];
 
   const nextUrl = new URL(window.location.href);
   nextUrl.searchParams.delete('ticket');
@@ -203,13 +310,17 @@ async function executeTrackingSearch(rawQuery) {
   }
 
   try {
-    const { data, error } = await supabase.rpc('get_public_order_tracking', {
-      p_query: query,
+    const data = await callPublicTracker({
+      action: 'lookup',
+      slug: activeSlug,
+      phone: query,
     });
 
-    if (error) throw error;
-
     if (!data || !data.found) {
+      if (data?.mode === 'tenant_not_found') {
+        showWorkshopNotFound(data.message);
+        return;
+      }
       showEmptyState(
         'Order tidak ditemukan',
         data?.message || 'Pastikan nomor WhatsApp yang dimasukkan sama dengan nomor saat order diterima.'
@@ -218,7 +329,8 @@ async function executeTrackingSearch(rawQuery) {
     }
 
     if (data.mode === 'list') {
-      renderTicketSelectionList(data.tickets || []);
+      lastTicketList = data.tickets || [];
+      renderTicketSelectionList(lastTicketList);
       return;
     }
 
@@ -226,7 +338,7 @@ async function executeTrackingSearch(rawQuery) {
       renderOrderDetail(data);
     }
   } catch (err) {
-    console.error('Tracking RPC error:', err);
+    console.error('Tracking lookup error:', err);
     showEmptyState(
       'Gagal memuat data',
       'Terjadi gangguan koneksi ke server. Pastikan internet aktif lalu coba kembali.'
@@ -234,19 +346,19 @@ async function executeTrackingSearch(rawQuery) {
   }
 }
 
-// Fetches detail for one selected ticket after phone lookup; bypasses phone length check intentionally.
 async function executeSelectedTicket(ticketCode) {
-  const code = String(ticketCode || '').trim();
-  if (!code) return;
+  const code = String(ticketCode || '').trim().toUpperCase();
+  if (!code || !currentSearchedPhone) return;
 
   setViewState('loading');
 
   try {
-    const { data, error } = await supabase.rpc('get_public_order_tracking', {
-      p_query: code,
+    const data = await callPublicTracker({
+      action: 'detail',
+      slug: activeSlug,
+      phone: currentSearchedPhone,
+      ticket_code: code,
     });
-
-    if (error) throw error;
 
     if (!data || !data.found) {
       showEmptyState(
@@ -261,11 +373,6 @@ async function executeSelectedTicket(ticketCode) {
       return;
     }
 
-    if (data.mode === 'list') {
-      renderTicketSelectionList(data.tickets || []);
-      return;
-    }
-
     showEmptyState('Data tidak tersedia', 'Detail order belum dapat ditampilkan. Silakan coba lagi.');
   } catch (err) {
     console.error('Selected ticket tracking error:', err);
@@ -277,6 +384,7 @@ async function executeSelectedTicket(ticketCode) {
 }
 
 function setViewState(state) {
+  workshopNotFoundEl?.classList.add('hidden');
   initialGuideEl?.classList.toggle('hidden', state !== 'guide');
   loadingEl?.classList.toggle('hidden', state !== 'loading');
   emptyEl?.classList.toggle('hidden', state !== 'empty');
@@ -352,7 +460,6 @@ function renderOrderDetail(payload) {
   const remainingAmount = Math.max(0, Number(order.total_amount) - Number(order.paid_amount));
   const deadlineInfo = getDeadlineStatus(order.estimated_done_date);
 
-  // Completed orders have already passed all 5 tracking stages.
   const effectiveStatus = order.status === 'completed' ? 'ready' : order.status;
   const currentStepIdx = Math.max(
     0,
@@ -446,7 +553,7 @@ function renderOrderDetail(payload) {
               ${
                 hasBefore
                   ? `<button type="button" data-photo-url="${escapeHTML(item.before_photo_url)}" data-photo-title="Sebelum: ${escapeHTML(item.garment_name)}" class="group relative rounded-lg overflow-hidden border bg-black aspect-[4/3] w-full text-left" style="border-color: var(--mt-border);">
-                      <img src="${escapeHTML(item.before_photo_url)}" width="640" height="480" onerror="this.src='./assets/placeholder-garment.svg'" alt="Foto sebelum pengerjaan ${escapeHTML(item.garment_name)}" class="w-full h-full object-cover" />
+                      <img src="${escapeHTML(item.before_photo_url)}" width="640" height="480" onerror="this.src='/assets/placeholder-garment.svg'" alt="Foto sebelum pengerjaan ${escapeHTML(item.garment_name)}" class="w-full h-full object-cover" />
                       <span class="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/80 text-white text-xs font-semibold">Sebelum</span>
                     </button>`
                   : ''
@@ -454,7 +561,7 @@ function renderOrderDetail(payload) {
               ${
                 hasAfter
                   ? `<button type="button" data-photo-url="${escapeHTML(item.after_photo_url)}" data-photo-title="Sesudah: ${escapeHTML(item.garment_name)}" class="group relative rounded-lg overflow-hidden border bg-black aspect-[4/3] w-full text-left" style="border-color: var(--mt-border);">
-                      <img src="${escapeHTML(item.after_photo_url)}" width="640" height="480" onerror="this.src='./assets/placeholder-garment.svg'" alt="Foto sesudah pengerjaan ${escapeHTML(item.garment_name)}" class="w-full h-full object-cover" />
+                      <img src="${escapeHTML(item.after_photo_url)}" width="640" height="480" onerror="this.src='/assets/placeholder-garment.svg'" alt="Foto sesudah pengerjaan ${escapeHTML(item.garment_name)}" class="w-full h-full object-cover" />
                       <span class="absolute top-2 left-2 px-2 py-0.5 rounded mt-badge-ready text-xs font-semibold">Sesudah</span>
                     </button>`
                   : ''
@@ -482,9 +589,22 @@ function renderOrderDetail(payload) {
     .join('');
 
   const waMessage = `Halo Admin ${publicStoreSettings.NAME}, saya *${order.customer_name}* ingin menanyakan progres order dengan kode tiket *${order.ticket_code}*. Terima kasih.`;
-  const waAdminLink = buildWhatsAppLink(publicStoreSettings.ADMIN_PHONE, waMessage);
+  const waAdminLink = publicStoreSettings.ADMIN_PHONE
+    ? buildWhatsAppLink(publicStoreSettings.ADMIN_PHONE, waMessage)
+    : '';
+
+  const backToListHTML =
+    lastTicketList.length > 1
+      ? `<div>
+          <button type="button" id="back-to-ticket-list-btn" class="mt-btn mt-btn-secondary text-xs">
+            <i data-lucide="arrow-left" class="w-4 h-4" aria-hidden="true"></i>
+            <span>Kembali ke daftar tiket (${lastTicketList.length})</span>
+          </button>
+        </div>`
+      : '';
 
   resultEl.innerHTML = `
+    ${backToListHTML}
     ${
       isDemo
         ? `<div class="mt-notice-warn px-4 py-3 text-xs font-semibold">[DATA SIMULASI] Tampilan ini menggunakan contoh order karena koneksi Supabase belum aktif.</div>`
@@ -578,19 +698,27 @@ function renderOrderDetail(payload) {
         </div>
       </div>
 
-      <div class="mt-6 pt-4 mt-seam-t">
-        <a
-          href="${waAdminLink}"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="mt-btn mt-btn-success w-full"
-        >
-          <i data-lucide="message-circle" class="w-5 h-5" aria-hidden="true"></i>
-          <span>Hubungi Admin via WhatsApp</span>
-        </a>
-      </div>
+      ${
+        waAdminLink
+          ? `<div class="mt-6 pt-4 mt-seam-t">
+              <a
+                href="${waAdminLink}"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="mt-btn mt-btn-success w-full"
+              >
+                <i data-lucide="message-circle" class="w-5 h-5" aria-hidden="true"></i>
+                <span>Hubungi Admin via WhatsApp</span>
+              </a>
+            </div>`
+          : ''
+      }
     </section>
   `;
+
+  document.getElementById('back-to-ticket-list-btn')?.addEventListener('click', () => {
+    renderTicketSelectionList(lastTicketList);
+  });
 
   const copyBtn = document.getElementById('copy-ticket-btn');
   copyBtn?.addEventListener('click', async () => {

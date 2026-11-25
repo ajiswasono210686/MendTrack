@@ -15,8 +15,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet" />
 
-  <link rel="stylesheet" href="./css/tailwind.css" />
-  <link rel="stylesheet" href="./css/theme.css" />
+  <link rel="stylesheet" href="/css/tailwind.css" />
+  <link rel="stylesheet" href="/css/theme.css" />
 
   <script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js" defer></script>
 </head>
@@ -28,17 +28,41 @@
 
   <section id="auth-screen" aria-labelledby="auth-heading" class="mt-auth min-h-screen flex items-center justify-center p-4">
     <div class="w-full max-w-md mt-modal-panel p-6 sm:p-8">
-      <div class="flex items-center gap-3 mb-6 pb-4 mt-seam-b">
+      <div class="flex items-center gap-3 mb-5 pb-4 mt-seam-b">
         <div data-store-logo class="mt-store-logo w-11 h-11">
           <i data-lucide="scissors" class="w-6 h-6" aria-hidden="true"></i>
         </div>
-        <div>
-          <h2 id="auth-heading" class="text-xl font-extrabold tracking-tight mt-text" data-store-name>BRKH DENIM</h2>
-          <p class="text-xs mt-muted">Masuk ke ruang kerja admin workshop</p>
+        <div class="min-w-0">
+          <h2 id="auth-heading" class="text-xl font-extrabold tracking-tight mt-text">MendTrack Admin</h2>
+          <p id="auth-subheading" class="text-xs mt-muted">Masuk atau daftarkan workshop Anda</p>
         </div>
       </div>
 
+      <div id="auth-mode-tabs" role="tablist" aria-label="Mode autentikasi" class="grid grid-cols-2 gap-2 mb-5">
+        <button
+          type="button"
+          id="auth-tab-login"
+          role="tab"
+          aria-selected="true"
+          aria-controls="login-form"
+          class="mt-btn mt-btn-primary text-xs"
+        >
+          Masuk
+        </button>
+        <button
+          type="button"
+          id="auth-tab-signup"
+          role="tab"
+          aria-selected="false"
+          aria-controls="signup-form"
+          class="mt-btn mt-btn-secondary text-xs"
+        >
+          Daftar Workshop
+        </button>
+      </div>
+
       <div id="auth-error-box" role="alert" class="hidden mb-4 p-3 mt-notice-error text-xs font-medium"></div>
+      <div id="auth-info-box" role="status" aria-live="polite" class="hidden mb-4 p-3 mt-notice-warn text-xs font-medium"></div>
 
       <form id="login-form" class="space-y-4">
         <div>
@@ -79,8 +103,194 @@
         </button>
       </form>
 
+      <form id="signup-form" class="hidden space-y-4">
+        <div>
+          <label for="signup-email" class="block text-xs font-semibold mt-text mb-1.5">
+            Email pemilik workshop
+          </label>
+          <input
+            type="email"
+            id="signup-email"
+            required
+            autocomplete="email"
+            placeholder="owner@workshop.com"
+            class="mt-input"
+          />
+        </div>
+
+        <div>
+          <label for="signup-password" class="block text-xs font-semibold mt-text mb-1.5">
+            Kata sandi (minimal 8 karakter)
+          </label>
+          <input
+            type="password"
+            id="signup-password"
+            required
+            minlength="8"
+            autocomplete="new-password"
+            placeholder="Buat kata sandi yang kuat"
+            class="mt-input"
+          />
+        </div>
+
+        <div>
+          <label for="signup-password-confirm" class="block text-xs font-semibold mt-text mb-1.5">
+            Ulangi kata sandi
+          </label>
+          <input
+            type="password"
+            id="signup-password-confirm"
+            required
+            minlength="8"
+            autocomplete="new-password"
+            placeholder="Ketik ulang kata sandi"
+            class="mt-input"
+          />
+        </div>
+
+        <button
+          type="submit"
+          id="signup-submit-btn"
+          class="mt-btn mt-btn-primary w-full mt-2"
+        >
+          <i data-lucide="user-plus" class="w-4 h-4" aria-hidden="true"></i>
+          <span>Daftar &amp; Kirim Verifikasi Email</span>
+        </button>
+      </form>
+
+      <div id="verify-email-panel" class="hidden space-y-4">
+        <div class="mt-card-muted p-4 space-y-2">
+          <div class="flex items-center gap-2">
+            <i data-lucide="mail-check" class="w-5 h-5 mt-accent shrink-0" aria-hidden="true"></i>
+            <h3 class="text-sm font-bold mt-text">Verifikasi email diperlukan</h3>
+          </div>
+          <p class="text-xs mt-muted leading-relaxed">
+            Kami telah mengirim tautan konfirmasi ke <strong id="verify-email-address" class="mt-text font-mono-code">-</strong>.
+            Buka inbox atau folder spam, lalu klik tautan verifikasi untuk melanjutkan pembuatan workshop.
+          </p>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <button type="button" id="resend-verify-email-btn" class="mt-btn mt-btn-secondary w-full text-xs">
+            <i data-lucide="refresh-cw" class="w-4 h-4" aria-hidden="true"></i>
+            <span>Kirim ulang email verifikasi</span>
+          </button>
+          <button type="button" id="back-to-login-btn" class="mt-btn mt-btn-primary w-full text-xs">
+            <span>Sudah verifikasi? Masuk sekarang</span>
+          </button>
+        </div>
+      </div>
+
       <div class="mt-6 pt-4 mt-seam-t flex items-center justify-between text-xs mt-muted">
-        <span>by MendTrack</span>
+        <a href="/" class="hover:underline mt-text font-medium">Beranda MendTrack</a>
+        <button type="button" class="mt-theme-toggle" data-mt-theme-toggle aria-label="Aktifkan mode gelap" title="Mode gelap">
+          <i data-lucide="moon" aria-hidden="true"></i><span class="mt-theme-label">Gelap</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <section id="onboarding-screen" aria-labelledby="onboarding-heading" class="hidden mt-auth min-h-screen flex items-center justify-center p-4">
+    <div class="w-full max-w-lg mt-modal-panel p-6 sm:p-8">
+      <div class="flex items-start justify-between gap-3 mb-5 pb-4 mt-seam-b">
+        <div>
+          <h2 id="onboarding-heading" class="text-xl font-extrabold tracking-tight mt-text">Buat Ruang Kerja Workshop</h2>
+          <p class="text-xs mt-muted mt-1">
+            Email terverifikasi (<span id="onboarding-user-email" class="font-mono-code mt-text">-</span>). Lengkapi profil workshop untuk mulai mencatat order.
+          </p>
+        </div>
+        <button type="button" id="onboarding-logout-btn" class="mt-btn mt-btn-secondary text-xs shrink-0">
+          Keluar
+        </button>
+      </div>
+
+      <div id="onboarding-error-box" role="alert" class="hidden mb-4 p-3 mt-notice-error text-xs font-medium"></div>
+
+      <form id="onboarding-form" class="space-y-4">
+        <div>
+          <label for="onboard-name" class="block text-xs font-semibold mt-text mb-1">Nama workshop *</label>
+          <input
+            type="text"
+            id="onboard-name"
+            required
+            maxlength="100"
+            placeholder="Contoh: Studio Jahit Nusantara"
+            class="mt-input"
+          />
+        </div>
+
+        <div>
+          <label for="onboard-slug" class="block text-xs font-semibold mt-text mb-1">Slug URL pelacakan publik *</label>
+          <input
+            type="text"
+            id="onboard-slug"
+            required
+            minlength="3"
+            maxlength="48"
+            pattern="[a-z0-9](?:[a-z0-9-]{1,46}[a-z0-9])?"
+            autocomplete="off"
+            placeholder="contoh: studio-jahit-nusantara"
+            class="mt-input font-mono-code"
+          />
+          <p class="mt-1 text-xs mt-muted">
+            Tautan pelanggan: <span id="onboard-slug-preview" class="font-mono-code mt-text">/t/...</span>
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label for="onboard-phone" class="block text-xs font-semibold mt-text mb-1">Nomor WhatsApp admin</label>
+            <input
+              type="tel"
+              id="onboard-phone"
+              inputmode="tel"
+              maxlength="20"
+              placeholder="08xxxxxxxxxx"
+              class="mt-input font-mono-code"
+            />
+          </div>
+          <div>
+            <label for="onboard-hours" class="block text-xs font-semibold mt-text mb-1">Jam operasional</label>
+            <input
+              type="text"
+              id="onboard-hours"
+              maxlength="160"
+              value="Senin - Sabtu, 09.00 - 17.00"
+              class="mt-input"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label for="onboard-address" class="block text-xs font-semibold mt-text mb-1">Alamat workshop</label>
+          <textarea
+            id="onboard-address"
+            rows="2"
+            maxlength="300"
+            placeholder="Jalan, kota, dan patokan lokasi workshop"
+            class="mt-textarea"
+          ></textarea>
+        </div>
+
+        <div>
+          <label for="onboard-tagline" class="block text-xs font-semibold mt-text mb-1">Tagline (opsional)</label>
+          <input
+            type="text"
+            id="onboard-tagline"
+            maxlength="160"
+            placeholder="Contoh: Reparasi, Vermak & Custom Pakaian"
+            class="mt-input"
+          />
+        </div>
+
+        <button type="submit" id="onboard-submit-btn" class="mt-btn mt-btn-primary w-full mt-2">
+          <i data-lucide="store" class="w-4 h-4" aria-hidden="true"></i>
+          <span>Buat Workshop &amp; Masuk Ruang Kerja</span>
+        </button>
+      </form>
+
+      <div class="mt-6 pt-4 mt-seam-t flex items-center justify-between text-xs mt-muted">
+        <span>Template ukuran awal akan dibuat otomatis</span>
         <button type="button" class="mt-theme-toggle" data-mt-theme-toggle aria-label="Aktifkan mode gelap" title="Mode gelap">
           <i data-lucide="moon" aria-hidden="true"></i><span class="mt-theme-label">Gelap</span>
         </button>
@@ -101,7 +311,7 @@
               <i data-lucide="scissors" class="w-5 h-5" aria-hidden="true"></i>
             </div>
             <div class="mt-sb-brandtext">
-              <span data-store-name id="header-store-name" class="mt-sb-name">BRKH DENIM</span>
+              <span data-store-name id="header-store-name" class="mt-sb-name">MendTrack</span>
               <span id="connection-badge" class="mt-badge mt-badge-online">
                 <span class="mt-badge-dot" aria-hidden="true"></span>
                 <span>Online</span>
@@ -153,8 +363,8 @@
           </button>
           <div class="mt-sb-foot">
             <div class="mt-sb-footer-brand">
-              <img class="mt-sb-footer-logo-horizontal" src="assets/mendtrack-logo-horizontal.png" width="136" height="28" alt="MendTrack" />
-              <img class="mt-sb-footer-logo-icon" src="assets/mendtrack-icon-64.png" width="36" height="36" alt="MendTrack" />
+              <img class="mt-sb-footer-logo-horizontal" src="/assets/mendtrack-logo-horizontal.png" width="136" height="28" alt="MendTrack" />
+              <img class="mt-sb-footer-logo-icon" src="/assets/mendtrack-icon-64.png" width="36" height="36" alt="MendTrack" />
             </div>
             <button type="button" class="mt-theme-toggle" data-mt-theme-toggle aria-label="Aktifkan mode gelap" title="Mode gelap">
               <i data-lucide="moon" aria-hidden="true"></i><span class="mt-theme-label">Gelap</span>
@@ -171,7 +381,7 @@
           <i data-lucide="menu" class="w-5 h-5" aria-hidden="true"></i>
           <span>Menu</span>
         </button>
-        <span data-store-name class="mt-sb-name truncate">BRKH DENIM</span>
+        <span data-store-name class="mt-sb-name truncate">MendTrack</span>
       </div>
     </header>
 
@@ -800,6 +1010,13 @@
               <button type="button" id="remove-store-logo-btn" class="mt-btn mt-btn-danger-ghost text-xs">Hapus logo</button>
             </div>
           </div>
+          <div class="mt-card-muted p-3 space-y-1.5">
+            <label for="store-tracking-url-display" class="block text-xs font-semibold mt-text">Tautan pelacakan pelanggan</label>
+            <div class="flex items-center gap-2">
+              <input id="store-tracking-url-display" type="text" readonly class="mt-input mt-input-locked font-mono-code text-xs flex-1" />
+              <button type="button" id="copy-store-track-url-btn" class="mt-btn mt-btn-secondary text-xs shrink-0">Salin</button>
+            </div>
+          </div>
           <div>
             <label for="store-name-input" class="block text-xs font-semibold mt-text mb-1">Nama toko</label>
             <input id="store-name-input" type="text" maxlength="100" required class="mt-input" />
@@ -929,8 +1146,8 @@
   </div>
 
   <script>if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(console.warn));</script>
-  <script src="./js/theme-toggle.js" defer></script>
-  <script src="./js/sidebar.js" defer></script>
-  <script type="module" src="./js/admin-panel.js"></script>
+  <script src="/js/theme-toggle.js" defer></script>
+  <script src="/js/sidebar.js" defer></script>
+  <script type="module" src="/js/admin-panel.js"></script>
 </body>
 </html>

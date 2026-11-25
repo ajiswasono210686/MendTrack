@@ -43,7 +43,7 @@ export function normalizePhone(rawPhone) {
   return digits;
 }
 
-export function generateTicketCode(sequenceNumber = null) {
+export function generateTicketCode(sequenceNumber = null, prefix = WORKSHOP_INFO.TICKET_PREFIX) {
   const now = new Date();
   const yy = String(now.getFullYear()).slice(-2);
   const mm = String(now.getMonth() + 1).padStart(2, '0');
@@ -51,8 +51,12 @@ export function generateTicketCode(sequenceNumber = null) {
     sequenceNumber !== null
       ? String(sequenceNumber).padStart(3, '0')
       : String(Math.floor(100 + Math.random() * 900));
+  const safePrefix = String(prefix || WORKSHOP_INFO.TICKET_PREFIX || 'MND')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '') || 'MND';
 
-  return `${WORKSHOP_INFO.TICKET_PREFIX}-${yy}${mm}-${seq}`;
+  return `${safePrefix}-${yy}${mm}-${seq}`;
 }
 
 export function buildWhatsAppLink(phone, message) {

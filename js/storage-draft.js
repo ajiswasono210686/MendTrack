@@ -1,4 +1,9 @@
-const DRAFT_STORAGE_KEY = 'mendtrack_admin_order_draft_v1';
+const DRAFT_STORAGE_PREFIX = 'mendtrack_admin_order_draft_v1';
+
+function getDraftStorageKey(tenantId) {
+  const id = String(tenantId || '').trim();
+  return id ? `${DRAFT_STORAGE_PREFIX}:${id}` : null;
+}
 
 export function initConnectionMonitor(badgeElementId = 'connection-badge', onStatusChange = null) {
   const updateUI = () => {
@@ -30,13 +35,15 @@ export function initConnectionMonitor(badgeElementId = 'connection-badge', onSta
   };
 }
 
-export function saveOrderDraft(draftData) {
+export function saveOrderDraft(draftData, tenantId) {
+  const key = getDraftStorageKey(tenantId);
+  if (!key) return false;
   try {
     const payload = {
       savedAt: new Date().toISOString(),
       data: draftData,
     };
-    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(payload));
+    localStorage.setItem(key, JSON.stringify(payload));
     return true;
   } catch (err) {
     console.warn('Gagal menyimpan draf order ke localStorage:', err);
@@ -44,9 +51,11 @@ export function saveOrderDraft(draftData) {
   }
 }
 
-export function loadOrderDraft() {
+export function loadOrderDraft(tenantId) {
+  const key = getDraftStorageKey(tenantId);
+  if (!key) return null;
   try {
-    const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return parsed && parsed.data ? parsed : null;
@@ -56,9 +65,11 @@ export function loadOrderDraft() {
   }
 }
 
-export function clearOrderDraft() {
+export function clearOrderDraft(tenantId) {
+  const key = getDraftStorageKey(tenantId);
+  if (!key) return;
   try {
-    localStorage.removeItem(DRAFT_STORAGE_KEY);
+    localStorage.removeItem(key);
   } catch (err) {
     console.warn('Gagal menghapus draf order:', err);
   }

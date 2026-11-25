@@ -1,25 +1,29 @@
-// Shared store profile: public read, authenticated admin update via Supabase.
-import { WORKSHOP_INFO } from './config.js';
+// Tenant-scoped workshop profile and service catalog helpers.
 import { supabase } from './supabase-client.js';
 
 export const DEFAULT_STORE_SETTINGS = {
-  NAME: WORKSHOP_INFO.NAME,
-  ADDRESS: WORKSHOP_INFO.ADDRESS,
-  ADMIN_PHONE: WORKSHOP_INFO.ADMIN_PHONE,
-  TAGLINE: 'RAW AUTHENTIC DURABLE',
+  NAME: 'MendTrack',
+  SLUG: '',
+  ADDRESS: '',
+  ADMIN_PHONE: '',
+  TAGLINE: 'Reparasi, Vermak & Custom Pakaian',
   OPENING_HOURS: 'Senin - Sabtu, 09.00 - 17.00',
   LOGO: '',
   DAILY_CAPACITY_MINUTES: 480,
+  LOCALE: 'id',
+  CURRENCY: 'IDR',
+  TIMEZONE: 'Asia/Jakarta',
+  TICKET_PREFIX: 'MND',
 };
 
-const columns = 'name,address,admin_phone,tagline,opening_hours,logo_data_url,daily_capacity_minutes';
+const TENANT_COLUMNS =
+  'id,slug,name,address,admin_phone,tagline,opening_hours,logo_data_url,daily_capacity_minutes,locale,currency,timezone,ticket_prefix';
 
-export async function fetchStoreSettings() {
-  const { data, error } = await supabase.from('store_settings').select(columns).eq('id', 1).maybeSingle();
-  if (error) throw error;
+export function mapTenantToSettings(data) {
   if (!data) return { ...DEFAULT_STORE_SETTINGS };
   return {
     NAME: data.name || DEFAULT_STORE_SETTINGS.NAME,
+    SLUG: data.slug || '',
     ADDRESS: data.address || '',
     ADMIN_PHONE: data.admin_phone || '',
     TAGLINE: data.tagline || '',
@@ -29,12 +33,27 @@ export async function fetchStoreSettings() {
       Number.isInteger(data.daily_capacity_minutes) && data.daily_capacity_minutes > 0
         ? data.daily_capacity_minutes
         : DEFAULT_STORE_SETTINGS.DAILY_CAPACITY_MINUTES,
+    LOCALE: data.locale || DEFAULT_STORE_SETTINGS.LOCALE,
+    CURRENCY: data.currency || DEFAULT_STORE_SETTINGS.CURRENCY,
+    TIMEZONE: data.timezone || DEFAULT_STORE_SETTINGS.TIMEZONE,
+    TICKET_PREFIX: data.ticket_prefix || DEFAULT_STORE_SETTINGS.TICKET_PREFIX,
   };
 }
 
-export async function persistStoreSettings(s) {
+export async function fetchStoreSettings(tenantId) {
+  if (!tenantId) return { ...DEFAULT_STORE_SETTINGS };
+  const { data, error } = await supabase
+    .from('tenants')
+    .select(TENANT_COLUMNS)
+    .eq('id', tenantId)
+    .maybeSingle();
+  if (error) throw error;
+  return mapTenantToSettings(data);
+}
+
+export async function persistStoreSettings(tenantId, s) {
+  if (!tenantId) throw new Error('Tenant aktif tidak ditemukan.');
   const payload = {
-    id: 1,
     name: s.NAME,
     address: s.ADDRESS,
     admin_phone: s.ADMIN_PHONE,
@@ -44,7 +63,7 @@ export async function persistStoreSettings(s) {
     daily_capacity_minutes: s.DAILY_CAPACITY_MINUTES,
     updated_at: new Date().toISOString(),
   };
-  const { error } = await supabase.from('store_settings').upsert(payload, { onConflict: 'id' });
+  const { error } = await supabase.from('tenants').update(payload).eq('id', tenantId);
   if (error) throw error;
 }
 
@@ -83,28 +102,38 @@ export function applyStoreIdentity(doc, settings) {
 }
 
 // Soft-disable only; historical orders keep their copied service names.
-export async function fetchServices() {
+export async function fetchServices(tenantId) {
+  if (!tenantId) return [];
   const { data, error } = await supabase
     .from('services')
-    .select('id,name,estimated_minutes,service_category,is_active,sort_order')
+    .select('id,tenant_id,name,estimated_minutes,service_category,is_active,sort_order')
+    .eq('tenant_id', tenantId)
     .order('sort_order')
     .order('name');
   if (error) throw error;
   return data || [];
 }
 
-export async function createService(name, estimatedMinutes, serviceCategory = 'reparasi') {
+export async function createService(tenantId, name, estimatedMinutes, serviceCategory = 'reparasi') {
+  if (!tenantId) throw new Error('Tenant aktif tidak ditemukan.');
   const category = serviceCategory === 'custom' ? 'custom' : 'reparasi';
   const { data, error } = await supabase
     .from('services')
-    .insert({ name, estimated_minutes: estimatedMinutes, service_category: category, is_active: true })
+    .insert({
+      tenant_id: tenantId,
+      name,
+      estimated_minutes: estimatedMinutes,
+      service_category: category,
+      is_active: true,
+    })
     .select()
     .single();
   if (error) throw error;
   return data;
 }
 
-export async function updateService(id, name, estimatedMinutes, serviceCategory = 'reparasi') {
+export async function updateService(tenantId, id, name, estimatedMinutes, serviceCategory = 'reparasi') {
+  if (!tenantId) throw new Error('Tenant aktif tidak ditemukan.');
   const category = serviceCategory === 'custom' ? 'custom' : 'reparasi';
   const { error } = await supabase
     .from('services')
@@ -114,22 +143,27 @@ export async function updateService(id, name, estimatedMinutes, serviceCategory 
       service_category: category,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', id);
+    .eq('id', id)
+    .eq('tenant_id', tenantId);
   if (error) throw error;
 }
 
-export async function deactivateService(id) {
+export async function deactivateService(tenantId, id) {
+  if (!tenantId) throw new Error('Tenant aktif tidak ditemukan.');
   const { error } = await supabase
     .from('services')
     .update({ is_active: false, updated_at: new Date().toISOString() })
-    .eq('id', id);
+    .eq('id', id)
+    .eq('tenant_id', tenantId);
   if (error) throw error;
 }
 
-export async function activateService(id) {
+export async function activateService(tenantId, id) {
+  if (!tenantId) throw new Error('Tenant aktif tidak ditemukan.');
   const { error } = await supabase
     .from('services')
     .update({ is_active: true, updated_at: new Date().toISOString() })
-    .eq('id', id);
+    .eq('id', id)
+    .eq('tenant_id', tenantId);
   if (error) throw error;
 }
