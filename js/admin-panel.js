@@ -328,6 +328,9 @@ const verifyEmailPanel = document.getElementById('verify-email-panel');
 const authModeTabs = document.getElementById('auth-mode-tabs');
 const authTabLogin = document.getElementById('auth-tab-login');
 const authTabSignup = document.getElementById('auth-tab-signup');
+const authSsoSection = document.getElementById('auth-sso-section');
+const googleSsoBtn = document.getElementById('google-sso-btn');
+const googleSsoLabel = document.getElementById('google-sso-label');
 const authErrorBox = document.getElementById('auth-error-box');
 const authInfoBox = document.getElementById('auth-info-box');
 const onboardingErrorBox = document.getElementById('onboarding-error-box');
@@ -878,6 +881,24 @@ function bindWorkloadCalendarEvents() {
   });
 }
 
+function consumeAuthRedirectError() {
+  const searchParams = new URLSearchParams(window.location.search);
+  const hashRaw = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
+  const hashParams = new URLSearchParams(hashRaw);
+
+  const errCode = searchParams.get('error') || hashParams.get('error');
+  const errDesc = searchParams.get('error_description') || hashParams.get('error_description');
+  if (!errCode && !errDesc) return null;
+
+  const cleanUrl = `${window.location.origin}${window.location.pathname}`;
+  window.history.replaceState({}, '', cleanUrl);
+
+  if (errCode === 'access_denied') {
+    return 'Login Google dibatalkan. Silakan coba lagi atau masuk dengan email.';
+  }
+  return errDesc || 'Gagal menyelesaikan autentikasi Google. Silakan coba kembali.';
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   mountSeparatedManagementPages();
   applyStoreSettings();
@@ -891,11 +912,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
+  const oauthRedirectError = consumeAuthRedirectError();
+
   const {
     data: { session },
   } = await supabase.auth.getSession();
 
   await resolveAuthSession(session);
+  if (!session && oauthRedirectError) {
+    showAuthError(oauthRedirectError);
+  }
 
   supabase.auth.onAuthStateChange((event, newSession) => {
     if (event === 'SIGNED_OUT') {
@@ -923,7 +949,12 @@ function setAuthMode(mode = 'login') {
   authModeTabs?.classList.toggle('hidden', isVerify);
   loginForm?.classList.toggle('hidden', !isLogin);
   signupForm?.classList.toggle('hidden', !isSignup);
+  authSsoSection?.classList.toggle('hidden', isVerify);
   verifyEmailPanel?.classList.toggle('hidden', !isVerify);
+
+  if (googleSsoLabel) {
+    googleSsoLabel.textContent = isSignup ? 'Daftar dengan Google' : 'Lanjutkan dengan Google';
+  }
 
   if (authTabLogin) {
     authTabLogin.setAttribute('aria-selected', String(isLogin));
@@ -1335,6 +1366,33 @@ function bindGlobalEvents() {
   authTabLogin?.addEventListener('click', () => setAuthMode('login'));
   authTabSignup?.addEventListener('click', () => setAuthMode('signup'));
   document.getElementById('back-to-login-btn')?.addEventListener('click', () => setAuthMode('login'));
+
+  googleSsoBtn?.addEventListener('click', async () => {
+    clearAuthNotices();
+    const prevLabel = googleSsoLabel?.textContent || 'Lanjutkan dengan Google';
+    googleSsoBtn.disabled = true;
+    if (googleSsoLabel) googleSsoLabel.textContent = 'Mengarahkan ke Google...';
+
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: getAdminRedirectUrl(),
+          queryParams: {
+            prompt: 'select_account',
+          },
+        },
+      });
+      if (error) throw error;
+    } catch (err) {
+      showAuthError(
+        err.message ||
+          'Gagal membuka login Google. Pastikan provider Google sudah diaktifkan di Supabase Auth.'
+      );
+      googleSsoBtn.disabled = false;
+      if (googleSsoLabel) googleSsoLabel.textContent = prevLabel;
+    }
+  });
 
   document.getElementById('copy-store-track-url-btn')?.addEventListener('click', async () => {
     const url = getPublicTrackingUrl();
