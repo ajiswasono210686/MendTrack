@@ -4,7 +4,7 @@
   "rewrites": [
     {
       "source": "/t/:slug",
-      "destination": "/track.html"
+      "destination": "/track"
     }
   ],
   "headers": [

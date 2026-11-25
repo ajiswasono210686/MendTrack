@@ -319,9 +319,11 @@ async function imageFileToDataUrl(file) {
   return canvas.toDataURL('image/webp', 0.8);
 }
 
+const authLoadingScreen = document.getElementById('auth-loading-screen');
 const authScreen = document.getElementById('auth-screen');
 const onboardingScreen = document.getElementById('onboarding-screen');
 const adminWorkspace = document.getElementById('admin-workspace');
+const adminDocHeading = document.getElementById('admin-doc-heading');
 const loginForm = document.getElementById('login-form');
 const signupForm = document.getElementById('signup-form');
 const verifyEmailPanel = document.getElementById('verify-email-panel');
@@ -958,10 +960,12 @@ function setAuthMode(mode = 'login') {
 
   if (authTabLogin) {
     authTabLogin.setAttribute('aria-selected', String(isLogin));
+    authTabLogin.tabIndex = isLogin ? 0 : -1;
     authTabLogin.className = `mt-btn text-xs ${isLogin ? 'mt-btn-primary' : 'mt-btn-secondary'}`;
   }
   if (authTabSignup) {
     authTabSignup.setAttribute('aria-selected', String(isSignup));
+    authTabSignup.tabIndex = isSignup ? 0 : -1;
     authTabSignup.className = `mt-btn text-xs ${isSignup ? 'mt-btn-primary' : 'mt-btn-secondary'}`;
   }
 
@@ -973,10 +977,18 @@ function setAuthMode(mode = 'login') {
         ? 'Daftarkan akun pemilik workshop baru'
         : 'Masuk ke ruang kerja admin workshop';
   }
+  if (adminDocHeading) {
+    adminDocHeading.textContent = isVerify
+      ? 'MendTrack Admin - Verifikasi email'
+      : isSignup
+        ? 'MendTrack Admin - Daftar workshop'
+        : 'MendTrack Admin - Masuk';
+  }
   if (window.lucide) window.lucide.createIcons();
 }
 
 function showAuthScreen(mode = 'login') {
+  authLoadingScreen?.classList.add('hidden');
   authScreen?.classList.remove('hidden');
   onboardingScreen?.classList.add('hidden');
   adminWorkspace?.classList.add('hidden');
@@ -999,11 +1011,13 @@ function updateOnboardingSlugPreview() {
 }
 
 function showOnboardingScreen(userEmail = '') {
+  authLoadingScreen?.classList.add('hidden');
   authScreen?.classList.add('hidden');
   adminWorkspace?.classList.add('hidden');
   onboardingScreen?.classList.remove('hidden');
   onboardingErrorBox?.classList.add('hidden');
   onboardingSlugTouched = false;
+  if (adminDocHeading) adminDocHeading.textContent = 'MendTrack Admin - Buat ruang kerja workshop';
   const emailEl = document.getElementById('onboarding-user-email');
   if (emailEl) emailEl.textContent = userEmail || '-';
   updateOnboardingSlugPreview();
@@ -1105,9 +1119,11 @@ async function enterWorkspace(tenant) {
   workshopSettings = mapTenantToSettings(tenant);
   applyStoreSettings();
 
+  authLoadingScreen?.classList.add('hidden');
   authScreen?.classList.add('hidden');
   onboardingScreen?.classList.add('hidden');
   adminWorkspace?.classList.remove('hidden');
+  if (adminDocHeading) adminDocHeading.textContent = `${workshopSettings.NAME} - Ruang kerja admin`;
 
   if (switchedTenant) {
     allOrders = [];
@@ -1365,6 +1381,17 @@ function bindGlobalEvents() {
 
   authTabLogin?.addEventListener('click', () => setAuthMode('login'));
   authTabSignup?.addEventListener('click', () => setAuthMode('signup'));
+  authModeTabs?.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const goSignup =
+      event.key === 'End' ||
+      (event.key === 'ArrowRight' && document.activeElement === authTabLogin) ||
+      (event.key === 'ArrowLeft' && document.activeElement === authTabLogin);
+    const nextMode = event.key === 'Home' ? 'login' : goSignup ? 'signup' : 'login';
+    setAuthMode(nextMode);
+    (nextMode === 'signup' ? authTabSignup : authTabLogin)?.focus();
+  });
   document.getElementById('back-to-login-btn')?.addEventListener('click', () => setAuthMode('login'));
 
   googleSsoBtn?.addEventListener('click', async () => {
