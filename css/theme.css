@@ -411,11 +411,23 @@ html[data-theme="dark"] .mt-badge-online .mt-badge-dot { background: #6EE7B7; }
 html[data-theme="dark"] .mt-badge-offline { background: #6B1C2D; color: #FFE4E6; border-color: #A83850; }
 html[data-theme="dark"] .mt-badge-offline .mt-badge-dot { background: #FDA4AF; }
 
-/* Public header, hero & auth screen. */
+/* Public header, hero & auth screen (Tema A: controlled liquid glass accent #1 on sticky header). */
 .mt-header-dark {
   background-color: var(--mt-hero-bg);
   color: var(--mt-hero-ink);
-  border-bottom: 1px solid rgba(212, 220, 232, 0.16);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.1), 0 6px 20px -10px rgba(16, 22, 35, 0.42);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .mt-header-dark {
+    background-color: rgba(24, 37, 62, 0.86);
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    backdrop-filter: blur(14px) saturate(160%);
+  }
+  html[data-theme="dark"] .mt-header-dark {
+    background-color: rgba(18, 27, 46, 0.84);
+  }
 }
 
 .mt-hero {
@@ -482,9 +494,16 @@ html[data-theme="dark"] .mt-badge-offline .mt-badge-dot { background: #FDA4AF; }
   }
 }
 
-/* Modal & popover surfaces (only elevated layer with shadow, no blur). */
+/* Modal & popover surfaces (solid panels for WCAG AA contrast; controlled glass accent #2 on toast & modal scrim). */
 .mt-modal-backdrop {
-  background-color: rgba(16, 22, 35, 0.72);
+  background-color: rgba(16, 22, 35, 0.68);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .mt-modal-backdrop {
+    -webkit-backdrop-filter: blur(8px) saturate(135%);
+    backdrop-filter: blur(8px) saturate(135%);
+  }
 }
 
 .mt-modal-panel {
@@ -512,9 +531,20 @@ html[data-theme="dark"] .mt-badge-offline .mt-badge-dot { background: #FDA4AF; }
 .mt-toast {
   background-color: var(--mt-hero-bg);
   color: var(--mt-hero-ink);
-  border: 1px solid rgba(244, 177, 131, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.22);
   border-radius: 12px;
-  box-shadow: var(--mt-shadow-elevated);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), var(--mt-shadow-elevated);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .mt-toast {
+    background-color: rgba(24, 37, 62, 0.88);
+    -webkit-backdrop-filter: blur(16px) saturate(165%);
+    backdrop-filter: blur(16px) saturate(165%);
+  }
+  html[data-theme="dark"] .mt-toast {
+    background-color: rgba(18, 27, 46, 0.88);
+  }
 }
 
 /* Radio pill choice inside payment modal. */
@@ -791,6 +821,39 @@ html[data-theme="dark"] .mt-badge-offline .mt-badge-dot { background: #FDA4AF; }
   background-color: var(--mt-surface);
   border-bottom: 1px solid var(--mt-border);
   color: var(--mt-ink);
+  box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.45), 0 4px 16px -8px rgba(24, 37, 62, 0.2);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .mt-topbar {
+    background-color: rgba(255, 253, 249, 0.86);
+    -webkit-backdrop-filter: blur(14px) saturate(160%);
+    backdrop-filter: blur(14px) saturate(160%);
+  }
+  html[data-theme="dark"] .mt-topbar {
+    background-color: rgba(24, 33, 51, 0.84);
+    border-bottom-color: rgba(212, 220, 232, 0.16);
+    box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.08), 0 6px 20px -10px rgba(0, 0, 0, 0.48);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .mt-header-dark,
+  .mt-toast {
+    background-color: var(--mt-hero-bg);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .mt-topbar {
+    background-color: var(--mt-surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  .mt-modal-backdrop {
+    background-color: rgba(16, 22, 35, 0.78);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
 .mt-topbar-btn {

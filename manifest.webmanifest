@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "MendTrack | BRKH DENIM",
+  "name": "MendTrack",
   "short_name": "MendTrack",
-  "description": "Manajemen order dan pelacakan pengerjaan workshop BRKH DENIM",
+  "description": "Manajemen order dan pelacakan pengerjaan workshop pakaian",
   "start_url": "/admin.html",
   "scope": "/",
   "display": "standalone",

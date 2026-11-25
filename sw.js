@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mendtrack-shell-v11-layout-fix';
+const CACHE_NAME = 'mendtrack-shell-v12-glass-accent-audit';
 const APP_SHELL = [
   '/admin.html',
   '/index.html',

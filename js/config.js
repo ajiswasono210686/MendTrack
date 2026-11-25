@@ -5,10 +5,10 @@ export const SUPABASE_CONFIG = {
 };
 
 export const WORKSHOP_INFO = {
-  NAME: 'BRKH DENIM',
-  SUBTITLE: 'Reparasi, Vermak & Custom Denim',
-  ADDRESS: 'Jl. Gajayana 21 B, Malang, Jawa Timur',
-  ADMIN_PHONE: '6285648492858',
+  NAME: 'MendTrack',
+  SUBTITLE: 'Reparasi, Vermak & Custom Pakaian',
+  ADDRESS: '',
+  ADMIN_PHONE: '',
   TICKET_PREFIX: 'MND',
 };
 
