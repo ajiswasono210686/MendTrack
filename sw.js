@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mendtrack-shell-v14-i18n-currency';
+const CACHE_NAME = 'mendtrack-shell-v15-stage3-mailin-qr-passport';
 const APP_SHELL = [
   '/admin.html',
   '/index.html',
@@ -8,6 +8,7 @@ const APP_SHELL = [
   '/js/theme-toggle.js',
   '/js/sidebar.js',
   '/js/i18n.js',
+  '/js/qr-svg.js',
   '/js/config.js',
   '/js/utils.js',
   '/js/store-settings.js',

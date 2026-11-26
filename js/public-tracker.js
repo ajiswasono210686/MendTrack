@@ -21,6 +21,7 @@ import {
   applyTranslations,
   getOrderSteps,
   getStatusMeta,
+  getOrderTypeMeta,
   getPaymentStatusMeta,
   translateSystemLogNote,
 } from './i18n.js';
@@ -466,7 +467,9 @@ function renderTicketSelectionList(tickets) {
 
   const cardsHTML = tickets
     .map((ticket) => {
-      const statusInfo = getStatusMeta(ticket.status);
+      const orderType = ticket.order_type === 'mail_in' ? 'mail_in' : 'walk_in';
+      const statusInfo = getStatusMeta(ticket.status, null, orderType);
+      const typeInfo = orderType === 'mail_in' ? getOrderTypeMeta(orderType) : null;
       return `
         <button
           type="button"
@@ -476,6 +479,7 @@ function renderTicketSelectionList(tickets) {
           <div class="min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
               <span class="font-mono-code font-bold text-sm mt-text">${escapeHTML(ticket.ticket_code)}</span>
+              ${typeInfo ? `<span class="${typeInfo.badgeClass}">${escapeHTML(typeInfo.label)}</span>` : ''}
               <span class="${statusInfo.badgeClass}">
                 <span class="${statusInfo.dotClass}" aria-hidden="true"></span>
                 <span>${escapeHTML(statusInfo.label)}</span>
@@ -517,13 +521,18 @@ function renderOrderDetail(payload) {
   lastDetailPayload = payload;
   const { order, items = [], logs = [], isDemo = false } = payload;
 
-  const orderSteps = getOrderSteps();
-  const statusInfo = getStatusMeta(order.status);
+  const orderType = order.order_type === 'mail_in' ? 'mail_in' : 'walk_in';
+  const isMailIn = orderType === 'mail_in';
+  const orderSteps = getOrderSteps(null, orderType);
+  const statusInfo = getStatusMeta(order.status, null, orderType);
+  const typeInfo = getOrderTypeMeta(orderType);
   const payInfo = getPaymentStatusMeta(order.payment_status);
   const remainingAmount = Math.max(0, Number(order.total_amount) - Number(order.paid_amount));
   const deadlineInfo = getDeadlineStatus(order.estimated_done_date);
+  const isDoneStage = ['ready', 'shipped', 'completed'].includes(order.status);
 
-  const effectiveStatus = order.status === 'completed' ? 'ready' : order.status;
+  const lastStepKey = orderSteps[orderSteps.length - 1]?.key || 'ready';
+  const effectiveStatus = order.status === 'completed' ? lastStepKey : order.status;
   const currentStepIdx = Math.max(
     0,
     orderSteps.findIndex((s) => s.key === effectiveStatus)
@@ -577,7 +586,7 @@ function renderOrderDetail(payload) {
           .slice()
           .reverse()
           .map((log) => {
-            const meta = getStatusMeta(log.status);
+            const meta = getStatusMeta(log.status, null, orderType);
             const localizedNote = translateSystemLogNote(log.log_note, log.status);
             return `
               <div class="flex items-start gap-2.5 text-xs py-2.5 border-b last:border-none" style="border-color: var(--mt-border);">
@@ -591,6 +600,70 @@ function renderOrderDetail(payload) {
           })
           .join('')
       : `<p class="text-xs mt-muted">${escapeHTML(t('tracker.activityLogEmpty'))}</p>`;
+
+  const renderTrackingRow = (courierLabel, trackingLabel, courier, tracking) => {
+    const hasTracking = Boolean(tracking);
+    return `
+      <div class="mt-card-muted p-3.5 space-y-1.5">
+        <div class="flex items-center justify-between gap-2 text-xs">
+          <span class="mt-muted font-semibold">${escapeHTML(courierLabel)}</span>
+          <span class="font-semibold mt-text">${escapeHTML(courier || t('tracker.trackingPending'))}</span>
+        </div>
+        <div class="flex items-center justify-between gap-2 pt-1.5 mt-seam-t">
+          <div class="min-w-0">
+            <p class="text-xs mt-muted">${escapeHTML(trackingLabel)}</p>
+            <p class="font-mono-code text-sm font-bold ${hasTracking ? 'mt-text' : 'mt-muted'} mt-tracking-code">
+              ${escapeHTML(hasTracking ? tracking : t('tracker.trackingPending'))}
+            </p>
+          </div>
+          ${
+            hasTracking
+              ? `<button
+                  type="button"
+                  data-copy-tracking="${escapeHTML(tracking)}"
+                  aria-label="${escapeHTML(t('tracker.copyTrackingAria', { tracking }))}"
+                  title="${escapeHTML(t('common.copy'))}"
+                  class="mt-btn-icon mt-btn-secondary shrink-0"
+                >
+                  <i data-lucide="copy" class="w-4 h-4" aria-hidden="true"></i>
+                </button>`
+              : ''
+          }
+        </div>
+      </div>
+    `;
+  };
+
+  const mailInCardHTML = isMailIn
+    ? `<section class="mt-card p-5 sm:p-6 space-y-3">
+        <h3 class="text-sm font-bold mt-text flex items-center gap-2">
+          <i data-lucide="truck" class="w-4 h-4 mt-accent" aria-hidden="true"></i>
+          <span>${escapeHTML(t('tracker.mailInHeading'))}</span>
+        </h3>
+        ${
+          order.status === 'awaiting_package' && publicStoreSettings.ADDRESS
+            ? `<div class="mt-notice-warn p-3 text-xs space-y-1">
+                <p class="font-semibold">${escapeHTML(t('tracker.shipToWorkshopHint', { ticket: order.ticket_code }))}</p>
+                <p class="font-medium">${escapeHTML(publicStoreSettings.NAME)} · ${escapeHTML(publicStoreSettings.ADDRESS)}</p>
+              </div>`
+            : ''
+        }
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          ${renderTrackingRow(
+            t('tracker.inboundCourier'),
+            t('tracker.inboundTracking'),
+            order.inbound_courier,
+            order.inbound_tracking
+          )}
+          ${renderTrackingRow(
+            t('tracker.outboundCourier'),
+            t('tracker.outboundTracking'),
+            order.outbound_courier,
+            order.outbound_tracking
+          )}
+        </div>
+      </section>`
+    : '';
 
   const itemsHTML = items
     .map((item, index) => {
@@ -695,12 +768,15 @@ function renderOrderDetail(payload) {
         </div>
 
         <div class="flex flex-col items-start sm:items-end gap-1.5">
-          <span class="${statusInfo.badgeClass}">
-            <span class="${statusInfo.dotClass}" aria-hidden="true"></span>
-            <span>${escapeHTML(statusInfo.label)}</span>
-          </span>
+          <div class="flex items-center gap-1.5 flex-wrap">
+            ${isMailIn ? `<span class="${typeInfo.badgeClass}">${escapeHTML(typeInfo.label)}</span>` : ''}
+            <span class="${statusInfo.badgeClass}">
+              <span class="${statusInfo.dotClass}" aria-hidden="true"></span>
+              <span>${escapeHTML(statusInfo.label)}</span>
+            </span>
+          </div>
           <span class="text-xs mt-muted">
-            ${escapeHTML(t('tracker.targetDoneLabel'))} <strong class="${deadlineInfo.isOverdue ? 'mt-danger-text' : 'mt-text'}">${escapeHTML(formatDateID(order.estimated_done_date))}</strong>
+            ${escapeHTML(t('tracker.targetDoneLabel'))} <strong class="${deadlineInfo.isOverdue && !isDoneStage ? 'mt-danger-text' : 'mt-text'}">${escapeHTML(formatDateID(order.estimated_done_date))}</strong>
           </span>
         </div>
       </div>
@@ -714,6 +790,8 @@ function renderOrderDetail(payload) {
           : ''
       }
     </section>
+
+    ${mailInCardHTML}
 
     <section class="mt-card p-5 sm:p-6">
       <h3 class="text-sm font-bold mt-text mb-5 flex items-center gap-2">
@@ -788,6 +866,26 @@ function renderOrderDetail(payload) {
 
   document.getElementById('back-to-ticket-list-btn')?.addEventListener('click', () => {
     renderTicketSelectionList(lastTicketList);
+  });
+
+  resultEl.querySelectorAll('[data-copy-tracking]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const tracking = btn.getAttribute('data-copy-tracking') || '';
+      if (!tracking) return;
+      try {
+        await navigator.clipboard.writeText(tracking);
+        btn.innerHTML = '<i data-lucide="check" class="w-4 h-4 mt-success-text" aria-hidden="true"></i>';
+        btn.setAttribute('aria-label', t('tracker.copyTrackingDoneAria'));
+        if (window.lucide) window.lucide.createIcons();
+        setTimeout(() => {
+          btn.innerHTML = '<i data-lucide="copy" class="w-4 h-4" aria-hidden="true"></i>';
+          btn.setAttribute('aria-label', t('tracker.copyTrackingAria', { tracking }));
+          if (window.lucide) window.lucide.createIcons();
+        }, 1800);
+      } catch {
+        alert(`${t('tracker.inboundTracking')}: ${tracking}`);
+      }
+    });
   });
 
   const copyBtn = document.getElementById('copy-ticket-btn');
