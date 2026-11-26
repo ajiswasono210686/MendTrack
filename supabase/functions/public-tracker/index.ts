@@ -114,7 +114,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: tenant, error: tenantError } = await supabaseAdmin
     .from("tenants")
-    .select("id, slug, name, tagline, address, admin_phone, opening_hours, logo_data_url, locale, currency, is_active")
+    .select("id, slug, name, tagline, address, admin_phone, opening_hours, logo_data_url, locale, currency, timezone, is_active")
     .eq("slug", slug)
     .eq("is_active", true)
     .maybeSingle();
@@ -145,6 +145,7 @@ Deno.serve(async (req: Request) => {
           logo_data_url: tenant.logo_data_url || "",
           locale: tenant.locale || "id",
           currency: tenant.currency || "IDR",
+          timezone: tenant.timezone || "Asia/Jakarta",
         },
       },
       origin

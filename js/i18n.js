@@ -1,0 +1,1828 @@
+// Lightweight zero-build bilingual localization (id / en) and multi-currency metadata.
+
+export const SUPPORTED_LOCALES = ['id', 'en'];
+export const LOCALE_STORAGE_KEY = 'mendtrack-locale';
+
+export const SUPPORTED_CURRENCIES = [
+  { code: 'IDR', decimals: 0, symbol: 'Rp', shortLabel: 'Rp', step: '1000', minPositive: '1', label: 'IDR (Rp) - Indonesian Rupiah' },
+  { code: 'USD', decimals: 2, symbol: '$', shortLabel: 'USD', step: '0.01', minPositive: '0.01', label: 'USD ($) - US Dollar' },
+  { code: 'SGD', decimals: 2, symbol: 'S$', shortLabel: 'SGD', step: '0.01', minPositive: '0.01', label: 'SGD (S$) - Singapore Dollar' },
+  { code: 'MYR', decimals: 2, symbol: 'RM', shortLabel: 'MYR', step: '0.01', minPositive: '0.01', label: 'MYR (RM) - Malaysian Ringgit' },
+  { code: 'EUR', decimals: 2, symbol: '€', shortLabel: 'EUR', step: '0.01', minPositive: '0.01', label: 'EUR (€) - Euro' },
+  { code: 'GBP', decimals: 2, symbol: '£', shortLabel: 'GBP', step: '0.01', minPositive: '0.01', label: 'GBP (£) - British Pound' },
+  { code: 'AUD', decimals: 2, symbol: 'A$', shortLabel: 'AUD', step: '0.01', minPositive: '0.01', label: 'AUD (A$) - Australian Dollar' },
+  { code: 'JPY', decimals: 0, symbol: '¥', shortLabel: 'JPY', step: '100', minPositive: '1', label: 'JPY (¥) - Japanese Yen' },
+];
+
+export const SUPPORTED_TIMEZONES = [
+  { value: 'Asia/Jakarta', label: 'Asia/Jakarta (WIB, UTC+7)' },
+  { value: 'Asia/Makassar', label: 'Asia/Makassar (WITA, UTC+8)' },
+  { value: 'Asia/Jayapura', label: 'Asia/Jayapura (WIT, UTC+9)' },
+  { value: 'Asia/Singapore', label: 'Asia/Singapore (SGT, UTC+8)' },
+  { value: 'Asia/Kuala_Lumpur', label: 'Asia/Kuala_Lumpur (MYT, UTC+8)' },
+  { value: 'Asia/Tokyo', label: 'Asia/Tokyo (JST, UTC+9)' },
+  { value: 'Australia/Sydney', label: 'Australia/Sydney (AEST/AEDT)' },
+  { value: 'Australia/Melbourne', label: 'Australia/Melbourne (AEST/AEDT)' },
+  { value: 'Europe/London', label: 'Europe/London (GMT/BST)' },
+  { value: 'Europe/Berlin', label: 'Europe/Berlin (CET/CEST)' },
+  { value: 'Europe/Paris', label: 'Europe/Paris (CET/CEST)' },
+  { value: 'America/New_York', label: 'America/New_York (ET)' },
+  { value: 'America/Chicago', label: 'America/Chicago (CT)' },
+  { value: 'America/Los_Angeles', label: 'America/Los_Angeles (PT)' },
+  { value: 'UTC', label: 'UTC (Coordinated Universal Time)' },
+];
+
+const CURRENCY_MAP = Object.fromEntries(SUPPORTED_CURRENCIES.map((c) => [c.code, c]));
+
+const DICTIONARIES = {
+  id: {
+    // Common & Shared
+    'common.skipToMain': 'Lewati ke konten utama',
+    'common.dark': 'Gelap',
+    'common.light': 'Terang',
+    'common.enableDark': 'Aktifkan mode gelap',
+    'common.enableLight': 'Aktifkan mode terang',
+    'common.darkModeTitle': 'Mode gelap',
+    'common.lightModeTitle': 'Mode terang',
+    'common.switchLanguage': 'Bahasa saat ini: Indonesia. Ganti ke English',
+    'common.langToggleTitle': 'Bahasa: Indonesia (klik untuk English)',
+    'common.online': 'Online',
+    'common.offlineDraft': 'Offline (Draf Lokal)',
+    'common.close': 'Tutup',
+    'common.cancel': 'Batal',
+    'common.save': 'Simpan',
+    'common.saveChanges': 'Simpan Perubahan',
+    'common.saving': 'Menyimpan...',
+    'common.edit': 'Edit',
+    'common.back': 'Kembali',
+    'common.copy': 'Salin',
+    'common.copied': 'Tersalin',
+    'common.reload': 'Muat ulang',
+    'common.search': 'Cari',
+    'common.today': 'Hari ini',
+    'common.select': 'Pilih',
+    'common.done': 'Selesai',
+    'common.active': 'Aktif',
+    'common.inactive': 'Nonaktif',
+    'common.activate': 'Aktifkan',
+    'common.deactivate': 'Nonaktifkan',
+    'common.logout': 'Keluar',
+    'common.logoutAria': 'Keluar dari akun',
+    'common.menu': 'Menu',
+    'common.openNav': 'Buka menu navigasi',
+    'common.collapseSidebar': 'Ciutkan menu samping',
+    'common.expandSidebar': 'Lebarkan menu samping',
+    'common.toggleSidebarTitle': 'Ciutkan atau lebarkan menu',
+    'common.prevMonth': 'Bulan sebelumnya',
+    'common.nextMonth': 'Bulan berikutnya',
+    'common.noActiveTenant': 'Workshop aktif tidak ditemukan.',
+    'common.genericError': 'Terjadi kesalahan.',
+    'common.logoAlt': 'Logo {name}',
+    'common.logoPreviewAlt': 'Pratinjau logo toko',
+    'common.defaultTagline': 'Reparasi, Vermak & Custom Pakaian',
+    'common.defaultHours': 'Senin - Sabtu, 09.00 - 17.00',
+    'common.itemLabel': 'Item #{number}',
+    'common.itemCount': '{count} item',
+    'common.orderCount': '{count} order',
+    'common.byMendTrack': 'by MendTrack',
+
+    // Compression errors
+    'image.invalidFile': 'File bukan gambar yang valid.',
+    'image.readFailed': 'Gagal membaca file gambar.',
+    'image.loadFailed': 'Gagal memuat gambar untuk kompresi.',
+    'image.compressFailed': 'Gagal mengompresi gambar.',
+
+    // Deadlines
+    'deadline.none': 'Tanpa Deadline',
+    'deadline.overdue': 'Terlambat {days} hari',
+    'deadline.today': 'Deadline Hari Ini',
+    'deadline.tomorrow': 'Besok (H-1)',
+    'deadline.inDays': '{days} hari lagi',
+
+    // Weekdays (Mon-Sun)
+    'weekday.mon': 'Sen',
+    'weekday.tue': 'Sel',
+    'weekday.wed': 'Rab',
+    'weekday.thu': 'Kam',
+    'weekday.fri': 'Jum',
+    'weekday.sat': 'Sab',
+    'weekday.sun': 'Min',
+
+    // Duration
+    'duration.hm': '{hours}j {minutes}m',
+    'duration.h': '{hours} jam',
+    'duration.m': '{minutes} menit',
+
+    // Statuses & Order Steps
+    'status.received': 'Diterima',
+    'status.queued': 'Antrean',
+    'status.in_progress': 'Proses Pengerjaan',
+    'status.in_progress_short': 'Dikerjakan',
+    'status.qc': 'Quality Check',
+    'status.qc_short': 'QC',
+    'status.ready': 'Siap Diambil',
+    'status.completed': 'Sudah Diambil',
+    'step.received.desc': 'Item telah diterima dan dicatat oleh workshop.',
+    'step.queued.desc': 'Menunggu giliran pengerjaan di meja reparasi.',
+    'step.in_progress.desc': 'Sedang dalam proses jahit, reparasi, atau custom.',
+    'step.qc.desc': 'Pemeriksaan detail jahitan, ukuran, dan kebersihan akhir.',
+    'step.ready.desc': 'Pengerjaan selesai. Silakan ambil di workshop.',
+    'log.default.received': 'Order diterima oleh workshop',
+    'log.default.queued': 'Order masuk dalam antrean pengerjaan',
+    'log.default.in_progress': 'Sedang dalam proses pengerjaan',
+    'log.default.qc': 'Tahap pemeriksaan kualitas (Quality Check)',
+    'log.default.ready': 'Pengerjaan selesai dan siap diambil',
+    'log.default.completed': 'Order telah diambil / selesai',
+
+    // Payment Statuses
+    'paymentStatus.unpaid': 'Belum Lunas',
+    'paymentStatus.partial': 'DP / Sebagian',
+    'paymentStatus.paid': 'Lunas',
+
+    // Service Categories
+    'serviceCategory.reparasi': 'Reparasi',
+    'serviceCategory.custom': 'Custom',
+
+    // Cash Categories
+    'cashCategory.custom': 'Custom',
+    'cashCategory.reparasi': 'Reparasi',
+    'cashCategory.lain_lain': 'Lain-lain',
+    'cashCategory.alat_bahan': 'Alat dan Bahan',
+    'cashCategory.operasional': 'Operasional',
+    'cashCategory.makan_minum': 'Makan dan Minum',
+    'cashCategory.gaji': 'Gaji',
+
+    // Payment Methods (canonical DB values: Tunai, Transfer, QRIS, Lainnya)
+    'paymentMethod.Tunai': 'Tunai',
+    'paymentMethod.Transfer': 'Transfer',
+    'paymentMethod.QRIS': 'QRIS',
+    'paymentMethod.Lainnya': 'Lainnya',
+
+    // Root Landing Page (index.html)
+    'landing.title': 'MendTrack | Buku Kerja & Pelacakan Workshop Pakaian',
+    'landing.metaDescription': 'Portal pelacakan status pengerjaan pelanggan dan manajemen order harian untuk workshop reparasi, vermak, dan custom pakaian.',
+    'landing.navAria': 'Navigasi utama',
+    'landing.adminPortal': 'Portal Admin',
+    'landing.heroTitle': 'Lacak progres pengerjaan atau kelola workshop Anda',
+    'landing.heroDesc': 'MendTrack membantu workshop reparasi denim, vermak, dan jahit custom mencatat order, kapasitas kerja harian, kas, serta berbagi tautan pelacakan kepada pelanggan.',
+    'landing.lookupHeading': 'Buka portal pelacakan workshop',
+    'landing.lookupDesc': 'Masukkan slug workshop yang tertera pada nota atau pesan WhatsApp Anda untuk langsung mengecek status pengerjaan.',
+    'landing.slugLabelPrefix': 'Slug workshop (contoh: ',
+    'landing.slugPlaceholder': 'nama-workshop',
+    'landing.openTrackerBtn': 'Buka Pelacakan',
+    'landing.slugInvalid': 'Masukkan slug workshop yang valid (3-48 karakter huruf kecil, angka, atau tanda hubung).',
+    'landing.ownerHeading': 'Pemilik atau admin workshop',
+    'landing.ownerDescPrefix': 'Masuk ke ruang kerja operasional atau daftarkan workshop baru untuk mendapatkan tautan pelacakan ',
+    'landing.ownerSlugExample': '/t/slug-anda',
+    'landing.ownerCta': 'Masuk / Daftar Workshop',
+    'landing.footerSubtitle': 'Buku kerja operasional dan pelacakan order workshop pakaian',
+
+    // Public Tracker (track.html & js/public-tracker.js)
+    'tracker.titleDefault': 'Lacak Status Pengerjaan | MendTrack',
+    'tracker.metaDescription': 'Portal pelacakan status pengerjaan reparasi, vermak, dan custom pakaian di workshop.',
+    'tracker.titleStore': '{name} | MendTrack',
+    'tracker.titleNotFound': 'Workshop Tidak Ditemukan | MendTrack',
+    'tracker.exitAria': 'Tutup hasil dan kembali ke pencarian',
+    'tracker.exitTitle': 'Tutup hasil pencarian',
+    'tracker.heroTitle': 'Lacak progres pengerjaan Anda',
+    'tracker.heroDescPrefix': 'Masukkan ',
+    'tracker.heroDescHighlight': 'Nomor WhatsApp',
+    'tracker.heroDescSuffix': ' yang terdaftar saat order diserahkan ke workshop.',
+    'tracker.phoneLabel': 'Nomor WhatsApp terdaftar',
+    'tracker.phonePlaceholder': 'Contoh: 0812xxxxxxxx',
+    'tracker.clearInputAria': 'Hapus nomor pencarian',
+    'tracker.trackBtn': 'Lacak Status',
+    'tracker.notFoundHeading': 'Workshop tidak ditemukan',
+    'tracker.notFoundDefault': 'Tautan workshop tidak valid atau sedang tidak aktif. Periksa kembali alamat tautan dari workshop Anda.',
+    'tracker.notFoundNoSlug': 'Alamat tautan workshop tidak menyertakan slug yang valid.',
+    'tracker.notFoundSlug': 'Workshop "{slug}" tidak ditemukan atau sedang tidak aktif.',
+    'tracker.notFoundLoadError': 'Terjadi gangguan saat memuat data workshop. Silakan muat ulang halaman.',
+    'tracker.findAtHome': 'Cari Workshop di Beranda',
+    'tracker.goAdmin': 'Masuk Portal Admin',
+    'tracker.previewTitle': 'Mode pratinjau (Supabase belum terhubung)',
+    'tracker.previewDescPrefix': 'Lengkapi kredensial js/config.js untuk menghubungkan ke database produksi. Anda dapat mencoba simulasi menggunakan nomor contoh ',
+    'tracker.loadingTitle': 'Memuat status pengerjaan...',
+    'tracker.loadingDesc': 'Sedang mengambil data order dari server workshop.',
+    'tracker.emptyTitleDefault': 'Order tidak ditemukan',
+    'tracker.emptyMessageDefault': 'Pastikan nomor WhatsApp yang Anda masukkan sama dengan nomor yang didaftarkan saat order diterima.',
+    'tracker.tryAnotherPhone': 'Coba nomor lain',
+    'tracker.invalidPhoneTitle': 'Nomor WhatsApp tidak valid',
+    'tracker.invalidPhoneMsg': 'Masukkan nomor HP yang terdaftar, minimal 10 digit.',
+    'tracker.previewActiveTitle': 'Mode pratinjau aktif',
+    'tracker.previewActiveMsg': 'Supabase belum dikonfigurasi di js/config.js. Gunakan nomor contoh 0812-3456-7890 untuk melihat simulasi.',
+    'tracker.loadFailedTitle': 'Gagal memuat data',
+    'tracker.loadFailedMsg': 'Terjadi gangguan koneksi ke server. Pastikan internet aktif lalu coba kembali.',
+    'tracker.detailUnavailableTitle': 'Data tidak tersedia',
+    'tracker.detailUnavailableMsg': 'Detail order belum dapat ditampilkan. Silakan coba lagi.',
+    'tracker.detailFailedTitle': 'Gagal memuat detail',
+    'tracker.detailFailedMsg': 'Terjadi gangguan saat mengambil detail order. Silakan kembali dan pilih order lagi.',
+    'tracker.detailNotFoundMsg': 'Detail order tidak dapat ditemukan. Silakan cari kembali menggunakan nomor WhatsApp.',
+    'tracker.serverStatusError': 'Server merespons status {status}.',
+    'tracker.guideHeading': 'Cara melacak pengerjaan',
+    'tracker.guideDesc': 'Gunakan nomor WhatsApp yang dicatat petugas saat menyerahkan pakaian. Jika Anda memiliki lebih dari satu order aktif, sistem akan menampilkan daftar tiket untuk dipilih.',
+    'tracker.guideStep1Prefix': 'Masukkan nomor WhatsApp di kolom pencarian di atas lalu tekan ',
+    'tracker.guideStep2': 'Periksa tahapan pengerjaan (Diterima, Antrean, Proses Pengerjaan, Quality Check, hingga Siap Diambil) beserta rincian biaya.',
+    'tracker.guideStep3Prefix': 'Ambil pesanan di workshop ketika status berubah menjadi ',
+    'tracker.locationHeading': 'Lokasi workshop',
+    'tracker.hoursHeading': 'Jam operasional',
+    'tracker.photoModalDefault': 'Dokumentasi item',
+    'tracker.photoModalCloseAria': 'Tutup pratinjau foto',
+    'tracker.photoModalImgAlt': 'Dokumentasi pakaian',
+    'tracker.foundTicketsHeading': 'Ditemukan {count} order terdaftar',
+    'tracker.foundTicketsDesc': 'Pilih kode tiket di bawah untuk melihat detail progres.',
+    'tracker.ticketReceivedMeta': 'Masuk: {date}',
+    'tracker.ticketEstMeta': 'Estimasi:',
+    'tracker.backToList': 'Kembali ke daftar tiket ({count})',
+    'tracker.demoBanner': '[DATA SIMULASI] Tampilan ini menggunakan contoh order karena koneksi Supabase belum aktif.',
+    'tracker.ticketCodeLabel': 'Kode tiket order',
+    'tracker.copyTicketAria': 'Salin kode tiket {code}',
+    'tracker.copyTicketTitle': 'Salin kode tiket',
+    'tracker.copyTicketDoneAria': 'Kode tiket disalin',
+    'tracker.customerLabel': 'Pelanggan:',
+    'tracker.targetDoneLabel': 'Target selesai:',
+    'tracker.workshopNotesLabel': 'Catatan workshop:',
+    'tracker.stagesHeading': 'Tahapan pengerjaan',
+    'tracker.currentStageTag': ' (Tahap saat ini)',
+    'tracker.activityLogSummary': 'Lihat riwayat aktivitas lengkap ({count})',
+    'tracker.activityLogEmpty': 'Belum ada catatan aktivitas.',
+    'tracker.itemsHeading': 'Daftar item & layanan ({count})',
+    'tracker.beforeBadge': 'Sebelum',
+    'tracker.afterBadge': 'Sesudah',
+    'tracker.beforeTitle': 'Sebelum: {name}',
+    'tracker.afterTitle': 'Sesudah: {name}',
+    'tracker.beforeAlt': 'Foto sebelum pengerjaan {name}',
+    'tracker.afterAlt': 'Foto sesudah pengerjaan {name}',
+    'tracker.costHeading': 'Rincian biaya',
+    'tracker.totalServiceCost': 'Total biaya layanan',
+    'tracker.alreadyPaidLabel': 'Sudah dibayar (DP / cicilan)',
+    'tracker.remainingBalance': 'Sisa tagihan',
+    'tracker.contactAdminWa': 'Hubungi Admin via WhatsApp',
+    'tracker.waInquiryMessage': 'Halo Admin {store}, saya *{customer}* ingin menanyakan progres order dengan kode tiket *{ticket}*. Terima kasih.',
+
+    // Admin Auth, Verify Email & Onboarding
+    'admin.titleDefault': 'MendTrack Admin | Manajemen Order Workshop',
+    'admin.docHeadingWorkspace': '{name} - Ruang kerja admin',
+    'admin.docHeadingLogin': 'MendTrack Admin - Masuk',
+    'admin.docHeadingSignup': 'MendTrack Admin - Daftar workshop',
+    'admin.docHeadingVerify': 'MendTrack Admin - Verifikasi email',
+    'admin.docHeadingOnboarding': 'MendTrack Admin - Buat ruang kerja workshop',
+    'admin.authCheckingTitle': 'Memeriksa sesi akun workshop...',
+    'admin.authCheckingDesc': 'Mohon tunggu sebentar, sedang memuat ruang kerja Anda.',
+    'admin.authHeading': 'MendTrack Admin',
+    'admin.authSubLogin': 'Masuk ke ruang kerja admin workshop',
+    'admin.authSubSignup': 'Daftarkan akun pemilik workshop baru',
+    'admin.authSubVerify': 'Konfirmasi alamat email untuk mengaktifkan akun',
+    'admin.authTabsAria': 'Mode autentikasi',
+    'admin.tabLogin': 'Masuk',
+    'admin.tabSignup': 'Daftar Workshop',
+    'admin.loginEmailLabel': 'Email admin',
+    'admin.loginEmailPlaceholder': 'nama@workshop.com',
+    'admin.loginPasswordLabel': 'Kata sandi',
+    'admin.loginPasswordPlaceholder': 'Masukkan kata sandi',
+    'admin.loginSubmitBtn': 'Masuk ke Workshop',
+    'admin.loginVerifying': 'Memverifikasi...',
+    'admin.loginFailed': 'Gagal masuk. Periksa email dan kata sandi.',
+    'admin.signupEmailLabel': 'Email pemilik workshop',
+    'admin.signupEmailPlaceholder': 'owner@workshop.com',
+    'admin.signupPasswordLabel': 'Kata sandi (minimal 8 karakter)',
+    'admin.signupPasswordPlaceholder': 'Buat kata sandi yang kuat',
+    'admin.signupConfirmLabel': 'Ulangi kata sandi',
+    'admin.signupConfirmPlaceholder': 'Ketik ulang kata sandi',
+    'admin.signupSubmitBtn': 'Daftar & Kirim Verifikasi Email',
+    'admin.signupSubmitting': 'Mendaftarkan...',
+    'admin.signupEmailRequired': 'Email wajib diisi.',
+    'admin.signupPasswordMin': 'Kata sandi minimal 8 karakter.',
+    'admin.signupPasswordMismatch': 'Konfirmasi kata sandi tidak cocok.',
+    'admin.signupFailed': 'Gagal mendaftar. Coba beberapa saat lagi.',
+    'admin.orDivider': 'atau',
+    'admin.googleContinue': 'Lanjutkan dengan Google',
+    'admin.googleSignup': 'Daftar dengan Google',
+    'admin.googleRedirecting': 'Mengarahkan ke Google...',
+    'admin.googleCancelled': 'Login Google dibatalkan. Silakan coba lagi atau masuk dengan email.',
+    'admin.googleFailed': 'Gagal membuka login Google. Pastikan provider Google sudah diaktifkan di Supabase Auth.',
+    'admin.googleAuthError': 'Gagal menyelesaikan autentikasi Google. Silakan coba kembali.',
+    'admin.configMissingError': 'Kredensial Supabase belum diisi di js/config.js. Lengkapi URL dan Anon Key terlebih dahulu.',
+    'admin.loadTenantFailed': 'Gagal memuat data workshop: {message}',
+    'admin.retrySignIn': 'Coba masuk kembali.',
+    'admin.verifyTitle': 'Verifikasi email diperlukan',
+    'admin.verifyDescPrefix': 'Kami telah mengirim tautan konfirmasi ke ',
+    'admin.verifyDescSuffix': '. Buka inbox atau folder spam, lalu klik tautan verifikasi untuk melanjutkan pembuatan workshop.',
+    'admin.verifyResendBtn': 'Kirim ulang email verifikasi',
+    'admin.verifyResendSuccess': 'Email verifikasi telah dikirim ulang ke {email}.',
+    'admin.verifyResendMissing': 'Alamat email tidak tersedia. Kembali ke form Masuk untuk mengisi email.',
+    'admin.verifyResendFailed': 'Gagal mengirim ulang email verifikasi.',
+    'admin.verifyBackToLogin': 'Sudah verifikasi? Masuk sekarang',
+    'admin.homeLink': 'Beranda MendTrack',
+    'admin.onboardHeading': 'Buat ruang kerja workshop',
+    'admin.onboardVerifiedPrefix': 'Email terverifikasi (',
+    'admin.onboardVerifiedSuffix': '). Lengkapi profil workshop untuk mulai mencatat order.',
+    'admin.onboardNameLabel': 'Nama workshop *',
+    'admin.onboardNamePlaceholder': 'Contoh: Studio Jahit Nusantara',
+    'admin.onboardSlugLabel': 'Slug URL pelacakan publik *',
+    'admin.onboardSlugPlaceholder': 'contoh: studio-jahit-nusantara',
+    'admin.onboardSlugPreviewLabel': 'Tautan pelanggan:',
+    'admin.onboardPhoneLabel': 'Nomor WhatsApp admin',
+    'admin.onboardPhonePlaceholder': '08xxxxxxxxxx',
+    'admin.onboardHoursLabel': 'Jam operasional',
+    'admin.onboardAddressLabel': 'Alamat workshop',
+    'admin.onboardAddressPlaceholder': 'Jalan, kota, dan patokan lokasi workshop',
+    'admin.onboardTaglineLabel': 'Tagline (opsional)',
+    'admin.onboardTaglinePlaceholder': 'Contoh: Reparasi, Vermak & Custom Pakaian',
+    'admin.onboardLocaleLabel': 'Bahasa workshop *',
+    'admin.onboardCurrencyLabel': 'Mata uang *',
+    'admin.onboardTimezoneLabel': 'Zona waktu',
+    'admin.onboardPrefixLabel': 'Prefix kode tiket',
+    'admin.onboardPrefixPlaceholder': 'MND',
+    'admin.onboardSubmitBtn': 'Buat Workshop & Masuk Ruang Kerja',
+    'admin.onboardSubmitting': 'Membuat workshop...',
+    'admin.onboardFooterNote': 'Template ukuran awal akan dibuat otomatis',
+    'admin.onboardNameRequired': 'Nama workshop wajib diisi.',
+    'admin.onboardSlugInvalid': 'Slug harus 3-48 karakter huruf kecil, angka, atau tanda hubung (-) tanpa tanda hubung di awal/akhir.',
+    'admin.onboardPrefixInvalid': 'Prefix kode tiket harus 2-8 karakter huruf atau angka.',
+    'admin.onboardNoTenantReturned': 'Data workshop gagal dikembalikan oleh server.',
+    'admin.onboardCreateFailed': 'Gagal membuat workshop.',
+
+    // Sidebar & Navigation & Page Headings
+    'sidebar.aria': 'Menu samping',
+    'sidebar.navAria': 'Navigasi utama',
+    'sidebar.newOrder': 'Order Baru',
+    'sidebar.groupOperational': 'Operasional',
+    'sidebar.groupSettings': 'Pengaturan',
+    'nav.orders': 'Order',
+    'nav.customers': 'Pelanggan',
+    'nav.schedule': 'Jadwal',
+    'nav.cash': 'Kas',
+    'nav.reports': 'Laporan',
+    'nav.services': 'Layanan & Durasi',
+    'nav.measurements': 'Template Ukuran',
+    'nav.archive': 'Arsip',
+    'nav.storeSettings': 'Pengaturan Toko',
+    'page.orders.title': 'Order aktif',
+    'page.orders.subtitle': 'Pantau antrean pengerjaan, deadline terdekat, dan pelunasan.',
+    'page.customers.title': 'Pelanggan',
+    'page.customers.subtitle': 'Kelola data kontak, catatan ukuran, dan riwayat order pelanggan.',
+    'page.schedule.title': 'Jadwal workshop',
+    'page.schedule.subtitle': 'Pantau kepadatan beban kerja harian berdasarkan target selesai order.',
+    'page.cash.title': 'Kas workshop',
+    'page.cash.subtitle': 'Catat dan pantau uang masuk serta pengeluaran operasional workshop.',
+    'page.reports.title': 'Laporan transaksi',
+    'page.reports.subtitle': 'Ringkasan nilai order, piutang, dan arus kas sesuai periode terpilih.',
+    'page.services.title': 'Layanan & durasi',
+    'page.services.subtitle': 'Atur katalog layanan, kategori, dan estimasi durasi pengerjaan.',
+    'page.measurements.title': 'Template ukuran',
+    'page.measurements.subtitle': 'Susun jenis pakaian dan urutan komponen ukuran pelanggan.',
+    'page.archive.title': 'Arsip order',
+    'page.archive.subtitle': 'Daftar order yang sudah selesai dan diambil pelanggan.',
+
+    // Draft Banner & Metrics
+    'draft.title': 'Draf order belum tersimpan ditemukan',
+    'draft.defaultTime': 'Tersimpan otomatis di perangkat ini.',
+    'draft.savedDetail': 'Draf untuk "{name}" disimpan pada {time}',
+    'draft.discardBtn': 'Hapus Draf',
+    'draft.restoreBtn': 'Pulihkan Form',
+    'metrics.aria': 'Ringkasan prioritas operasional',
+    'metrics.nearestDeadline': 'Deadline terdekat',
+    'metrics.noUrgentQueue': 'Tidak ada antrean mendesak',
+    'metrics.activeOrders': 'Order aktif',
+    'metrics.activeOrdersSub': 'Dalam antrean atau proses',
+    'metrics.unpaidReceivables': 'Sisa piutang',
+    'metrics.unpaidReceivablesSub': 'Tagihan belum dilunasi',
+
+    // Schedule / Daily Workload
+    'workload.heading': 'Beban Kerja Harian',
+    'workload.desc': 'Beban kerja dihitung berdasarkan target selesai setiap order aktif.',
+    'workload.low': 'Rendah',
+    'workload.medium': 'Sedang',
+    'workload.high': 'Penuh',
+    'workload.over': 'Melebihi kapasitas',
+    'workload.overShort': 'Over',
+    'workload.calendarAria': 'Kalender beban kerja',
+    'workload.selectedDate': 'Tanggal dipilih',
+    'workload.loadCapacity': 'Beban / kapasitas',
+    'workload.addOrderAria': 'Tambah order baru pada tanggal terpilih',
+    'workload.addOrderBtn': 'Tambah Order',
+    'workload.defaultNote': 'Pilih tanggal untuk melihat daftar order yang dijadwalkan selesai.',
+    'workload.noteUnknownItems': '{orders} order terjadwal. {unknown} item belum memiliki estimasi layanan di katalog, sehingga belum masuk hitungan durasi.',
+    'workload.noteScheduled': '{orders} order terjadwal pada tanggal ini. Order Siap Diambil dan Selesai tidak dihitung.',
+    'workload.noteEmpty': 'Tidak ada order aktif yang dijadwalkan selesai pada tanggal ini.',
+    'workload.capacityDate': 'Kapasitas · {date}',
+
+    // Orders Filter & List
+    'orders.filterAria': 'Pencarian dan filter order',
+    'orders.searchLabel': 'Cari order',
+    'orders.searchPlaceholder': 'Kode tiket, nama pelanggan, atau nomor WhatsApp...',
+    'orders.statusFilterLabel': 'Filter proses',
+    'orders.statusAll': 'Semua proses',
+    'orders.resetFilter': 'Reset filter',
+    'orders.listAria': 'Daftar order',
+    'orders.loading': 'Memuat daftar order workshop...',
+    'orders.loadFailed': 'Gagal memuat order: {message}',
+    'orders.shownCount': '{count} order ditampilkan',
+    'orders.emptyActiveTitle': 'Belum ada order aktif',
+    'orders.emptyActiveDesc': 'Catat pesanan pertama workshop untuk mulai memantau antrean dan beban kerja.',
+    'orders.addFirstBtn': 'Tambah Order Pertama',
+    'orders.emptyFilterTitle': 'Tidak ada order yang cocok dengan filter',
+    'orders.emptyFilterDesc': 'Ubah kata kunci pencarian, status proses, atau bersihkan filter aktif.',
+    'orders.noItems': 'Belum ada item',
+    'orders.remainingPrefix': 'Sisa: {amount}',
+    'orders.overduePrefix': 'Terlambat: ',
+    'orders.targetPrefix': 'Target: ',
+    'orders.next.received': 'Masuk Antrean',
+    'orders.next.queued': 'Mulai Kerjakan',
+    'orders.next.in_progress': 'Lanjut QC',
+    'orders.next.qc': 'Tandai Siap Diambil',
+    'orders.next.ready': 'Selesai / Diambil',
+    'orders.settlementBtn': 'Pelunasan',
+    'orders.receiptBtn': 'Nota',
+    'orders.receiptTitle': 'Nota Digital',
+    'orders.editTitle': 'Edit Order dan Foto',
+    'orders.deleteTitle': 'Hapus Order',
+    'orders.deleteAria': 'Hapus order {code}',
+    'orders.deleteConfirm': 'Batalkan dan hapus permanen order {code} ({customer})?\n\nSemua data order ini (item, riwayat pembayaran, dan kas terkait) akan dihapus. Data pelanggan (nama, nomor HP, dan ukuran) tetap disimpan.',
+    'orders.deleteFailed': 'Gagal menghapus order: {message}',
+    'orders.unpaidCompleteAlert': 'Order {code} belum lunas (sisa tagihan {remaining}). Tekan tombol Pelunasan terlebih dahulu sebelum menandai Selesai / Diambil.',
+    'orders.statusUpdateFailed': 'Gagal memperbarui status: {message}',
+    'orders.waFollowUp': 'Halo {customer}, update order {ticket} dari {store}:',
+
+    // Archive
+    'archive.completedMeta': 'Selesai · {date}',
+    'archive.viewOrder': 'Lihat order',
+    'archive.empty': 'Belum ada order selesai dan diambil.',
+
+    // Customers
+    'customers.heading': 'Daftar Pelanggan',
+    'customers.loadingCount': 'Memuat jumlah pelanggan...',
+    'customers.count': '{count} pelanggan terdaftar',
+    'customers.addBtn': 'Tambah Pelanggan',
+    'customers.searchLabel': 'Cari pelanggan',
+    'customers.searchPlaceholder': 'Ketik nama atau nomor WhatsApp...',
+    'customers.loading': 'Memuat pelanggan...',
+    'customers.loadFailed': 'Gagal memuat pelanggan: {message}',
+    'customers.emptySearch': 'Tidak ada pelanggan yang cocok dengan kata kunci tersebut.',
+    'customers.emptyList': 'Belum ada pelanggan terdaftar. Gunakan tombol Tambah Pelanggan di atas.',
+    'customers.editTitle': 'Edit pelanggan',
+    'customers.editAria': 'Edit pelanggan {name}',
+    'customers.addOrderTitle': 'Tambah order',
+    'customers.addOrderAria': 'Tambah order untuk {name}',
+    'customers.createTitle': 'Tambah Pelanggan',
+    'customers.createSub': 'Cukup isi nama dan nomor HP',
+    'customers.closeCreateAria': 'Tutup form tambah pelanggan',
+    'customers.nameLabel': 'Nama pelanggan *',
+    'customers.nameLabelOpt': 'Nama pelanggan',
+    'customers.namePlaceholder': 'Nama lengkap pelanggan',
+    'customers.phoneLabel': 'Nomor HP / WhatsApp *',
+    'customers.phoneLabelWa': 'Nomor WhatsApp',
+    'customers.phoneHint': 'Nomor HP digunakan untuk mengenali akun pelanggan.',
+    'customers.saveBtn': 'Simpan Pelanggan',
+    'customers.nameRequired': 'Nama pelanggan wajib diisi.',
+    'customers.phoneInvalid': 'Nomor HP tidak valid. Masukkan minimal 10 digit.',
+    'customers.phoneInvalidWa': 'Nomor WhatsApp tidak valid.',
+    'customers.duplicatePhone': 'Nomor HP sudah terdaftar atas nama {name}. Gunakan data pelanggan yang sudah ada.',
+    'customers.duplicatePhoneShort': 'Nomor ini sudah terdaftar atas nama {name}.',
+    'customers.createdSuccess': 'Pelanggan berhasil ditambahkan.',
+    'customers.createFailed': 'Gagal menambahkan pelanggan: {message}',
+    'customers.updatedSuccess': 'Data pelanggan berhasil diperbarui.',
+    'customers.updateFailed': 'Gagal memperbarui pelanggan: {message}',
+    'customers.detailTitle': 'Detail Pelanggan',
+    'customers.detailSub': 'Profil, ukuran, dan riwayat order',
+    'customers.closeDetailAria': 'Tutup detail pelanggan',
+    'customers.editHeading': 'Edit Pelanggan',
+    'customers.measurementsBtnTitle': 'Daftar Ukuran',
+    'customers.measurementsBtnDesc': 'Lihat, tambah, dan edit ukuran pelanggan',
+    'customers.ordersBtnTitle': 'Riwayat Order',
+    'customers.ordersBtnDesc': 'Lihat semua pesanan pelanggan',
+    'customers.transactionsCount': '{count} transaksi',
+    'customers.noOrderHistory': 'Belum ada riwayat order.',
+
+    // Customer Measurements & Templates
+    'measure.listTitle': 'Daftar Ukuran',
+    'measure.loadingList': 'Memuat daftar ukuran...',
+    'measure.addBtn': 'Tambah Ukuran',
+    'measure.editTitle': 'Edit Ukuran',
+    'measure.noDesc': 'Tanpa keterangan',
+    'measure.editAria': 'Edit ukuran {type}',
+    'measure.deleteAria': 'Hapus ukuran {type}',
+    'measure.deleteConfirm': 'Hapus catatan ukuran ini?',
+    'measure.deleteFailed': 'Gagal menghapus ukuran: {message}',
+    'measure.noValues': 'Belum ada nilai ukuran.',
+    'measure.emptyList': 'Belum ada ukuran tersimpan.',
+    'measure.loadFailed': 'Gagal memuat ukuran: {message}',
+    'measure.noFieldsInTemplate': 'Belum ada komponen ukuran pada template ini. Tambahkan melalui menu Template Ukuran.',
+    'measure.noTemplateError': 'Template ukuran belum tersedia. Tambahkan melalui menu Template Ukuran.',
+    'measure.garmentTypeLabel': 'Jenis pakaian',
+    'measure.modelLabel': 'Model',
+    'measure.modelPlaceholder': 'Contoh: Slim Fit, Trucker',
+    'measure.descLabel': 'Keterangan / pemakai',
+    'measure.descPlaceholder': 'Nama pemakai atau catatan fitting',
+    'measure.dataHeading': 'Data ukuran',
+    'measure.saveBtn': 'Simpan Ukuran',
+    'measure.openFormFailed': 'Gagal membuka formulir ukuran.',
+    'measure.templateNotFound': 'Template ukuran tidak ditemukan.',
+    'measure.saveFailed': 'Gagal menyimpan ukuran: {message}',
+    'templates.pageHeading': 'Template Komponen Ukuran',
+    'templates.pageDesc': 'Kelola jenis pakaian dan komponen ukuran pelanggan. Riwayat ukuran tersimpan tidak ikut berubah.',
+    'templates.sectionHeading': 'Template ukuran',
+    'templates.sectionDesc': 'Atur jenis pakaian dan komponen ukuran yang muncul saat menyimpan ukuran pelanggan.',
+    'templates.loading': 'Memuat template ukuran...',
+    'templates.addTypeBtn': 'Tambah Jenis Pakaian',
+    'templates.unitLabel': 'Satuan ukuran',
+    'templates.unitDesc': 'Berlaku untuk input dan tampilan ukuran pelanggan',
+    'templates.fieldCount': '{count} komponen',
+    'templates.moveUpAria': 'Geser {label} ke atas',
+    'templates.moveUpTitle': 'Geser ke atas',
+    'templates.moveDownAria': 'Geser {label} ke bawah',
+    'templates.moveDownTitle': 'Geser ke bawah',
+    'templates.fieldNameAria': 'Nama komponen {label}',
+    'templates.deleteFieldTitle': 'Hapus komponen',
+    'templates.deleteFieldAria': 'Hapus komponen {label}',
+    'templates.dragHint': 'Tekan agak lama lalu geser, atau klik tombol Edit untuk urutkan dengan keyboard',
+    'templates.emptyFields': 'Belum ada komponen ukuran.',
+    'templates.finishEditAria': 'Selesai edit template',
+    'templates.startEditAria': 'Edit dan urutkan komponen',
+    'templates.editOrderBtn': 'Edit & Urutkan',
+    'templates.addFieldAria': 'Tambah komponen untuk {type}',
+    'templates.addFieldBtn': 'Komponen',
+    'templates.loadFailed': 'Gagal memuat template: {message}',
+    'templates.reorderFailed': 'Gagal menyimpan urutan komponen: {message}',
+    'templates.moveFailed': 'Gagal memindahkan urutan komponen: {message}',
+    'templates.fieldNameRequired': 'Nama komponen wajib diisi.',
+    'templates.fieldUpdateFailed': 'Gagal mengubah komponen: {message}',
+    'templates.promptNewType': 'Nama jenis pakaian baru:',
+    'templates.typeNameRequired': 'Nama jenis pakaian wajib diisi.',
+    'templates.typeDefaultDesc': 'Template ukuran {name}',
+    'templates.typeAddFailed': 'Gagal menambahkan jenis pakaian: {message}',
+    'templates.deleteFieldConfirm': 'Yakin ingin menghapus komponen "{label}"? Data ukuran pelanggan yang sudah tersimpan tidak akan diubah.',
+    'templates.deleteFieldFailed': 'Gagal menghapus komponen: {message}',
+    'templates.promptNewField': 'Nama komponen ukuran untuk {type}:',
+    'templates.fieldNameInvalid': 'Nama komponen tidak valid.',
+    'templates.fieldAddFailed': 'Gagal menambahkan komponen: {message}',
+
+    // Reports & Cash
+    'period.day': 'Hari ini',
+    'period.week': '7 hari terakhir',
+    'period.month': 'Bulan ini',
+    'period.all': 'Semua waktu',
+    'reports.heading': 'Ringkasan Transaksi',
+    'reports.desc': 'Dikelompokkan berdasarkan tanggal order dibuat.',
+    'reports.periodLabel': 'Periode laporan',
+    'reports.loading': 'Memuat laporan transaksi...',
+    'reports.cashLoadError': 'Gagal mengambil data transaksi kas.',
+    'reports.cashBannerError': 'Data kas gagal dimuat: {message}',
+    'reports.noTransactions': 'Belum ada transaksi pada periode ini.',
+    'reports.incomeVsExpense': 'Pemasukan vs Pengeluaran',
+    'reports.income': 'Pemasukan',
+    'reports.expense': 'Pengeluaran',
+    'reports.inShort': 'Masuk {amount}',
+    'reports.outShort': 'Keluar {amount}',
+    'reports.groupedByMonth': 'Dikelompokkan per bulan sepanjang riwayat transaksi.',
+    'reports.groupedByDay': 'Dikelompokkan per hari pada periode terpilih.',
+    'reports.incomeCategories': 'Kategori Pemasukan',
+    'reports.expenseCategories': 'Kategori Pengeluaran',
+    'reports.orderValue': 'Nilai order',
+    'reports.orderValueSub': '{count} order dibuat pada periode ini',
+    'reports.recordedPayments': 'Pembayaran tercatat',
+    'reports.recordedPaymentsSub': 'Total DP dan pelunasan yang tercatat',
+    'reports.unpaidReceivables': 'Sisa piutang',
+    'reports.unpaidOrdersSub': '{count} order belum lunas',
+    'reports.unpaidOrdersTitle': 'Order belum lunas',
+    'reports.noReceivables': 'Tidak ada piutang pada periode ini.',
+    'reports.topServicesTitle': 'Layanan paling sering dipesan',
+    'reports.noServiceData': 'Belum ada data layanan pada periode ini.',
+    'reports.footnote': 'Catatan: laporan mengelompokkan order berdasarkan tanggal dibuat. Pembayaran menampilkan akumulasi terkini dari setiap order, bukan histori kas per tanggal.',
+    'cash.periodLabel': 'Periode kas',
+    'cash.addBtn': 'Tambah Kas',
+    'cash.balance': 'Saldo kas',
+    'cash.balanceSub': 'Akumulasi seluruh transaksi kas',
+    'cash.incomeLabel': 'Uang masuk',
+    'cash.expenseLabel': 'Uang keluar',
+    'cash.loading': 'Memuat transaksi kas...',
+    'cash.loadFailed': 'Gagal memuat kas: {message}',
+    'cash.sourceOrder': 'Order',
+    'cash.sourceManual': 'Manual',
+    'cash.modalTitle': 'Tambah Kas',
+    'cash.modalSub': 'Transaksi di luar pembayaran order',
+    'cash.closeAria': 'Tutup form kas',
+    'cash.typeLabel': 'Jenis transaksi',
+    'cash.typeIncome': 'Uang Masuk',
+    'cash.typeExpense': 'Uang Keluar',
+    'cash.categoryLabel': 'Kategori',
+    'cash.amountLabelPrefix': 'Nominal (',
+    'cash.amountPlaceholder': 'Masukkan nominal',
+    'cash.methodLabel': 'Metode',
+    'cash.descLabel': 'Keterangan (opsional)',
+    'cash.descPlaceholder': 'Contoh: beli benang jahit',
+    'cash.saveBtn': 'Simpan Transaksi',
+    'cash.saveFailed': 'Gagal menyimpan transaksi kas: {message}',
+
+    // Services & Duration
+    'services.pageHeading': 'Daftar Layanan & Estimasi Durasi',
+    'services.pageDesc': 'Kelola layanan dan estimasi waktu pengerjaan untuk perhitungan beban kerja.',
+    'services.listHeading': 'Daftar layanan',
+    'services.listDesc': 'Estimasi menjadi nilai default untuk order baru. Layanan nonaktif tetap tersimpan untuk riwayat.',
+    'services.loading': 'Memuat layanan...',
+    'services.empty': 'Belum ada layanan. Tambahkan layanan pertama pada formulir di bawah.',
+    'services.loadFailed': 'Gagal memuat layanan: {message}',
+    'services.newNameLabel': 'Nama layanan baru',
+    'services.newNamePlaceholder': 'Contoh: Chainstitch Hemming',
+    'services.categoryLabel': 'Kategori layanan',
+    'services.hoursLabel': 'Estimasi jam',
+    'services.minutesLabel': 'Estimasi menit',
+    'services.addBtn': 'Tambah Layanan',
+    'services.nameRequired': 'Masukkan nama layanan.',
+    'services.durationInvalid': 'Estimasi layanan harus lebih dari 0 menit.',
+    'services.addFailed': 'Gagal menambah layanan: {message}',
+    'services.addFailedHint': 'Periksa hak akses tabel services.',
+    'services.disableConfirm': 'Nonaktifkan layanan ini? Riwayat order tidak akan dihapus.',
+    'services.disableFailed': 'Gagal menonaktifkan layanan: {message}',
+    'services.activateFailed': 'Gagal mengaktifkan layanan: {message}',
+    'services.editTitle': 'Edit Layanan',
+    'services.editSub': 'Perbarui nama, kategori, dan estimasi durasi',
+    'services.closeEditAria': 'Tutup form edit layanan',
+    'services.editNameLabel': 'Nama layanan *',
+    'services.editCategoryLabel': 'Kategori layanan *',
+    'services.editMinutesLabel': 'Estimasi (menit) *',
+    'services.editMinutesPlaceholder': 'Contoh: 60',
+    'services.editNameRequired': 'Nama layanan wajib diisi.',
+    'services.editMinutesInvalid': 'Estimasi dalam menit harus berupa bilangan bulat lebih dari 0.',
+    'services.editFailed': 'Gagal mengubah layanan: {message}',
+
+    // Order Form Modal
+    'orderForm.newTitle': 'Input Order Baru',
+    'orderForm.editTitle': 'Edit Order {code}',
+    'orderForm.subtitle': 'Draf otomatis tersimpan di perangkat',
+    'orderForm.closeAria': 'Tutup form order',
+    'orderForm.ticketLabel': 'Kode tiket',
+    'orderForm.ticketLockedTitle': 'Kode tiket dibuat otomatis dan tidak dapat diubah',
+    'orderForm.deadlineLabel': 'Target selesai (deadline) *',
+    'orderForm.deadlinePlaceholder': 'Pilih tanggal target selesai',
+    'orderForm.datePickerAria': 'Pilih tanggal target selesai',
+    'orderForm.deadlineRequired': 'Target selesai (deadline) wajib diisi.',
+    'orderForm.customerNameLabel': 'Nama pelanggan *',
+    'orderForm.customerPhoneLabel': 'Nomor WhatsApp *',
+    'orderForm.lookupIdle': 'Nomor HP akan diperiksa saat diisi.',
+    'orderForm.lookupPrompt': 'Masukkan nomor HP untuk memeriksa data pelanggan.',
+    'orderForm.lookupMinDigits': 'Masukkan nomor HP minimal 10 digit.',
+    'orderForm.lookupChecking': 'Memeriksa nomor pelanggan...',
+    'orderForm.lookupFound': 'Nomor ini sudah terdaftar atas nama {name}.',
+    'orderForm.lookupNew': 'Nomor belum terdaftar. Pelanggan baru akan otomatis dibuat saat order disimpan.',
+    'orderForm.lookupFailed': 'Pemeriksaan pelanggan gagal: {message}',
+    'orderForm.retryShort': 'Coba lagi.',
+    'orderForm.notesLabel': 'Catatan umum workshop',
+    'orderForm.notesPlaceholder': 'Catatan benang, preferensi fitting, atau instruksi khusus...',
+    'orderForm.itemsHeading': 'Daftar item pakaian & layanan *',
+    'orderForm.addItemBtn': 'Tambah Item',
+    'orderForm.removeItemBtn': 'Hapus Item',
+    'orderForm.minOneItem': 'Minimal harus terdapat 1 item pakaian dalam satu order.',
+    'orderForm.garmentLabel': 'Nama pakaian / artikel *',
+    'orderForm.garmentPlaceholder': 'Contoh: Raw Denim 15oz',
+    'orderForm.serviceLabel': 'Jenis layanan *',
+    'orderForm.servicePlaceholder': 'Pilih atau ketik layanan...',
+    'orderForm.specsLabel': 'Spesifikasi ukuran (opsional)',
+    'orderForm.specsPlaceholder': 'Contoh: Inseam: 78cm, Leg Opening: 18cm',
+    'orderForm.itemPricePrefix': 'Biaya item (',
+    'orderForm.photoBefore': 'Foto sebelum',
+    'orderForm.photoAfter': 'Foto sesudah',
+    'orderForm.photoSaved': '(Tersimpan)',
+    'orderForm.photoSavedHint': 'Foto tersimpan · pilih file baru untuk mengganti',
+    'orderForm.photoBeforeAlt': 'Foto sebelum tersimpan',
+    'orderForm.photoAfterAlt': 'Foto sesudah tersimpan',
+    'orderForm.totalCost': 'Total biaya layanan',
+    'orderForm.dpLabelPrefix': 'Pembayaran awal / DP (',
+    'orderForm.remaining': 'Sisa tagihan',
+    'orderForm.saveBtn': 'Simpan Order',
+    'orderForm.ticketRequired': 'Kode tiket wajib diisi.',
+    'orderForm.phoneInvalid': 'Nomor WhatsApp tidak valid (minimal 10 digit).',
+    'orderForm.dpInvalid': 'Nominal pembayaran tidak valid.',
+    'orderForm.garmentRequired': 'Nama pakaian pada setiap item wajib diisi.',
+    'orderForm.serviceRequired': 'Jenis layanan pada setiap item wajib diisi.',
+    'orderForm.priceInvalid': 'Biaya item tidak valid.',
+    'orderForm.noIdReturned': 'Database tidak mengembalikan ID order yang tersimpan.',
+    'orderForm.saveFailed': 'Gagal menyimpan order: {message}',
+    'orderForm.specNoteKey': 'Catatan',
+
+    // Payment Modal
+    'payment.title': 'Catat Pelunasan',
+    'payment.closeAria': 'Tutup modal pelunasan',
+    'payment.totalBill': 'Total tagihan',
+    'payment.alreadyPaid': 'Sudah dibayar',
+    'payment.remaining': 'Sisa kekurangan',
+    'payment.amountLabelPrefix': 'Nominal pelunasan (',
+    'payment.fillRemaining': 'Isi sisa tagihan',
+    'payment.methodLegend': 'Metode pembayaran (catatan log)',
+    'payment.saveBtn': 'Simpan Pelunasan',
+    'payment.exactAmountError': 'Nominal pelunasan harus sama persis dengan sisa tagihan: {amount}',
+    'payment.saveFailed': 'Gagal menyimpan pembayaran: {message}',
+
+    // Receipt Modal & WhatsApp Messages
+    'receipt.modalTitle': 'Nota Digital Workshop',
+    'receipt.closeAria': 'Tutup nota digital',
+    'receipt.sendWaBtn': 'Kirim Nota WA',
+    'receipt.printBtn': 'Cetak',
+    'receipt.ticketNo': 'No. Tiket:',
+    'receipt.customer': 'Pelanggan:',
+    'receipt.receivedDate': 'Tanggal masuk:',
+    'receipt.targetDone': 'Target selesai:',
+    'receipt.serviceDetails': 'Rincian layanan',
+    'receipt.totalBill': 'Total tagihan',
+    'receipt.paid': 'Sudah dibayar',
+    'receipt.remaining': 'Sisa tagihan',
+    'receipt.statusBadge': 'Status: {status}',
+    'receipt.trackNote': 'Lacak progres dengan nomor WhatsApp terdaftar di:',
+    'wa.toastTitle': 'Order siap diambil',
+    'wa.toastDescDefault': 'Kirim notifikasi WhatsApp ke pelanggan?',
+    'wa.toastDesc': 'Kirim info siap ambil ke {customer} ({ticket})',
+    'wa.toastCloseAria': 'Tutup notifikasi WhatsApp',
+    'wa.toastSendBtn': 'Kirim Pesan WhatsApp Sekarang',
+    'wa.readyBillingUnpaid': 'Sisa tagihan: *{remaining}* (pembayaran saat pengambilan).',
+    'wa.readyBillingPaid': 'Status pembayaran: *Lunas*.',
+    'wa.readyMessage': 'Halo Kak *{customer}*, pengerjaan order Anda di *{store}* dengan kode tiket *{ticket}* telah *Selesai dan Siap Diambil*.\n\n{billingLine}\nDetail dan foto hasil pengerjaan dapat dilihat di:\n{trackingUrl}\n\nAlamat Workshop: {address}\nJam buka: {hours}\nTerima kasih!\n\nby MendTrack',
+    'wa.newOrderMessage': '*Struk Digital - {store}*\nNo. Tiket: *{ticket}*\nPelanggan: {customer}\nTarget Selesai: {targetDate}\n\n*Detail Layanan:*\n{items}\n\nTotal: *{total}*\nDibayar: {paid}\nSisa Tagihan: *{remaining}*\n\nPantau progres dengan nomor WhatsApp terdaftar: {trackingUrl}\n\nJam Operasional: {hours}\nTerima kasih telah mempercayakan perawatan pakaian Anda kepada {store}.\n\nby MendTrack',
+    'wa.receiptMessage': '*Nota Digital - {store}*\nNo. Tiket: *{ticket}*\nPelanggan: {customer}\nTarget Selesai: {targetDate}\n\n*Detail Layanan:*\n{items}\n\nTotal: *{total}*\nDibayar: {paid}\nSisa Tagihan: *{remaining}*\n\nPantau status pengerjaan Anda di:\n{trackingUrl}\n\nAlamat: {address}\nJam buka: {hours}\n\nTerima kasih telah mempercayakan perawatan pakaian Anda di {store}.\n\nby MendTrack',
+
+    // Store Settings Modal
+    'settings.title': 'Pengaturan Toko',
+    'settings.subtitle': 'Informasi identitas dan operasional toko',
+    'settings.closeAria': 'Tutup pengaturan toko',
+    'settings.chooseLogo': 'Pilih Logo',
+    'settings.logoHint': 'Pilih gambar JPG, PNG, atau WebP dari perangkat.',
+    'settings.removeLogo': 'Hapus logo',
+    'settings.logoReadFailed': 'Logo gagal dibaca.',
+    'settings.logoInvalidType': 'Logo harus berupa gambar JPG, PNG, atau WebP.',
+    'settings.logoMaxSize': 'Ukuran logo maksimal 8 MB.',
+    'settings.trackingUrlLabel': 'Tautan pelacakan pelanggan',
+    'settings.copyUrlAlert': 'Salin tautan pelacakan:\n{url}',
+    'settings.storeNameLabel': 'Nama toko',
+    'settings.addressLabel': 'Alamat',
+    'settings.phoneLabel': 'Nomor WhatsApp (format 08... atau 62...)',
+    'settings.taglineLabel': 'Tagline',
+    'settings.hoursLabel': 'Jam buka',
+    'settings.hoursPlaceholder': 'Contoh: Senin - Sabtu, 09.00 - 17.00',
+    'settings.regionalHeading': 'Bahasa, mata uang & wilayah',
+    'settings.regionalDesc': 'Berlaku di dashboard admin, nota digital, pesan WhatsApp, dan portal pelacakan pelanggan.',
+    'settings.localeLabel': 'Bahasa antarmuka',
+    'settings.currencyLabel': 'Mata uang',
+    'settings.currencyNote': 'Mengubah mata uang hanya mengganti format tampilan dan simbol tanpa mengonversi nominal transaksi lama.',
+    'settings.timezoneLabel': 'Zona waktu',
+    'settings.ticketPrefixLabel': 'Prefix kode tiket (2-8 huruf/angka)',
+    'settings.capacityHeading': 'Kapasitas kerja harian',
+    'settings.capacityDesc': 'Kapasitas tetap yang berlaku setiap hari.',
+    'settings.capacityHours': 'Jam',
+    'settings.capacityMinutes': 'Menit',
+    'settings.footerNote': 'Pengaturan toko disimpan di Supabase dan digunakan di semua perangkat. Data order tidak diubah.',
+    'settings.saveBtn': 'Simpan Pengaturan',
+    'settings.nameRequired': 'Nama toko wajib diisi.',
+    'settings.capacityInvalid': 'Kapasitas harian harus lebih dari 0 menit.',
+    'settings.prefixInvalid': 'Prefix kode tiket harus 2-8 karakter huruf kapital atau angka.',
+    'settings.savedSuccess': 'Pengaturan toko berhasil disimpan.',
+    'settings.saveFailed': 'Gagal menyimpan pengaturan: {message}',
+    'settings.saveFailedHint': 'Periksa tabel, kebijakan akses, dan koneksi.',
+  },
+
+  en: {
+    // Common & Shared
+    'common.skipToMain': 'Skip to main content',
+    'common.dark': 'Dark',
+    'common.light': 'Light',
+    'common.enableDark': 'Switch to dark mode',
+    'common.enableLight': 'Switch to light mode',
+    'common.darkModeTitle': 'Dark mode',
+    'common.lightModeTitle': 'Light mode',
+    'common.switchLanguage': 'Current language: English. Switch to Bahasa Indonesia',
+    'common.langToggleTitle': 'Language: English (click for Bahasa Indonesia)',
+    'common.online': 'Online',
+    'common.offlineDraft': 'Offline (Local Draft)',
+    'common.close': 'Close',
+    'common.cancel': 'Cancel',
+    'common.save': 'Save',
+    'common.saveChanges': 'Save Changes',
+    'common.saving': 'Saving...',
+    'common.edit': 'Edit',
+    'common.back': 'Back',
+    'common.copy': 'Copy',
+    'common.copied': 'Copied',
+    'common.reload': 'Reload',
+    'common.search': 'Search',
+    'common.today': 'Today',
+    'common.select': 'Select',
+    'common.done': 'Done',
+    'common.active': 'Active',
+    'common.inactive': 'Inactive',
+    'common.activate': 'Activate',
+    'common.deactivate': 'Deactivate',
+    'common.logout': 'Sign Out',
+    'common.logoutAria': 'Sign out of account',
+    'common.menu': 'Menu',
+    'common.openNav': 'Open navigation menu',
+    'common.collapseSidebar': 'Collapse sidebar',
+    'common.expandSidebar': 'Expand sidebar',
+    'common.toggleSidebarTitle': 'Collapse or expand sidebar',
+    'common.prevMonth': 'Previous month',
+    'common.nextMonth': 'Next month',
+    'common.noActiveTenant': 'Active workshop not found.',
+    'common.genericError': 'An unexpected error occurred.',
+    'common.logoAlt': '{name} logo',
+    'common.logoPreviewAlt': 'Workshop logo preview',
+    'common.defaultTagline': 'Garment Repair, Alteration & Custom Tailoring',
+    'common.defaultHours': 'Mon - Sat, 09:00 - 17:00',
+    'common.itemLabel': 'Item #{number}',
+    'common.itemCount': '{count} items',
+    'common.orderCount': '{count} orders',
+    'common.byMendTrack': 'by MendTrack',
+
+    // Compression errors
+    'image.invalidFile': 'Selected file is not a valid image.',
+    'image.readFailed': 'Failed to read image file.',
+    'image.loadFailed': 'Failed to load image for compression.',
+    'image.compressFailed': 'Failed to compress image.',
+
+    // Deadlines
+    'deadline.none': 'No Deadline',
+    'deadline.overdue': 'Overdue {days}d',
+    'deadline.today': 'Due Today',
+    'deadline.tomorrow': 'Tomorrow (D-1)',
+    'deadline.inDays': 'In {days} days',
+
+    // Weekdays (Mon-Sun)
+    'weekday.mon': 'Mon',
+    'weekday.tue': 'Tue',
+    'weekday.wed': 'Wed',
+    'weekday.thu': 'Thu',
+    'weekday.fri': 'Fri',
+    'weekday.sat': 'Sat',
+    'weekday.sun': 'Sun',
+
+    // Duration
+    'duration.hm': '{hours}h {minutes}m',
+    'duration.h': '{hours} hr',
+    'duration.m': '{minutes} min',
+
+    // Statuses & Order Steps
+    'status.received': 'Received',
+    'status.queued': 'Queued',
+    'status.in_progress': 'In Progress',
+    'status.in_progress_short': 'In Progress',
+    'status.qc': 'Quality Check',
+    'status.qc_short': 'QC',
+    'status.ready': 'Ready for Pickup',
+    'status.completed': 'Picked Up',
+    'step.received.desc': 'Item has been received and logged by the workshop.',
+    'step.queued.desc': 'Waiting in queue for the repair workbench.',
+    'step.in_progress.desc': 'Currently being stitched, mended, altered, or tailored.',
+    'step.qc.desc': 'Final inspection of stitching, measurements, and finishing.',
+    'step.ready.desc': 'Work is complete. Ready for pickup at the workshop.',
+    'log.default.received': 'Order received by workshop',
+    'log.default.queued': 'Order entered the work queue',
+    'log.default.in_progress': 'Work in progress',
+    'log.default.qc': 'Quality check stage',
+    'log.default.ready': 'Work completed and ready for pickup',
+    'log.default.completed': 'Order picked up / completed',
+
+    // Payment Statuses
+    'paymentStatus.unpaid': 'Unpaid',
+    'paymentStatus.partial': 'Partial / Deposit',
+    'paymentStatus.paid': 'Paid',
+
+    // Service Categories
+    'serviceCategory.reparasi': 'Repair',
+    'serviceCategory.custom': 'Custom',
+
+    // Cash Categories
+    'cashCategory.custom': 'Custom',
+    'cashCategory.reparasi': 'Repair',
+    'cashCategory.lain_lain': 'Other',
+    'cashCategory.alat_bahan': 'Tools & Materials',
+    'cashCategory.operasional': 'Operations',
+    'cashCategory.makan_minum': 'Food & Drinks',
+    'cashCategory.gaji': 'Wages',
+
+    // Payment Methods (canonical DB values: Tunai, Transfer, QRIS, Lainnya)
+    'paymentMethod.Tunai': 'Cash',
+    'paymentMethod.Transfer': 'Bank Transfer',
+    'paymentMethod.QRIS': 'QRIS',
+    'paymentMethod.Lainnya': 'Other',
+
+    // Root Landing Page (index.html)
+    'landing.title': 'MendTrack | Garment Workshop Ledger & Order Tracking',
+    'landing.metaDescription': 'Customer repair progress tracker and daily order ledger for denim repair, alteration, and custom tailoring workshops.',
+    'landing.navAria': 'Main navigation',
+    'landing.adminPortal': 'Admin Portal',
+    'landing.heroTitle': 'Track repair progress or manage your workshop',
+    'landing.heroDesc': 'MendTrack helps denim repair, alteration, and custom tailoring workshops log orders, manage daily bench capacity, track cash flow, and share live tracking links with customers.',
+    'landing.lookupHeading': 'Open a workshop tracking portal',
+    'landing.lookupDesc': 'Enter the workshop slug printed on your receipt or WhatsApp message to check your order status.',
+    'landing.slugLabelPrefix': 'Workshop slug (example: ',
+    'landing.slugPlaceholder': 'workshop-name',
+    'landing.openTrackerBtn': 'Open Tracker',
+    'landing.slugInvalid': 'Enter a valid workshop slug (3-48 lowercase letters, numbers, or hyphens).',
+    'landing.ownerHeading': 'Workshop owner or admin',
+    'landing.ownerDescPrefix': 'Sign in to your operational workspace or register a new workshop to get your customer link ',
+    'landing.ownerSlugExample': '/t/your-slug',
+    'landing.ownerCta': 'Sign In / Register Workshop',
+    'landing.footerSubtitle': 'Operational ledger and customer order tracking for garment workshops',
+
+    // Public Tracker (track.html & js/public-tracker.js)
+    'tracker.titleDefault': 'Track Order Status | MendTrack',
+    'tracker.metaDescription': 'Track garment repair, alteration, and custom tailoring order progress at your workshop.',
+    'tracker.titleStore': '{name} | MendTrack',
+    'tracker.titleNotFound': 'Workshop Not Found | MendTrack',
+    'tracker.exitAria': 'Close results and return to search',
+    'tracker.exitTitle': 'Close search results',
+    'tracker.heroTitle': 'Track your garment progress',
+    'tracker.heroDescPrefix': 'Enter the ',
+    'tracker.heroDescHighlight': 'WhatsApp Number',
+    'tracker.heroDescSuffix': ' registered when your order was dropped off at the workshop.',
+    'tracker.phoneLabel': 'Registered WhatsApp number',
+    'tracker.phonePlaceholder': 'e.g. +1 415 555 0199',
+    'tracker.clearInputAria': 'Clear phone number',
+    'tracker.trackBtn': 'Track Order',
+    'tracker.notFoundHeading': 'Workshop not found',
+    'tracker.notFoundDefault': 'This workshop link is invalid or currently inactive. Please double-check the link shared by your workshop.',
+    'tracker.notFoundNoSlug': 'This tracking URL does not include a valid workshop slug.',
+    'tracker.notFoundSlug': 'Workshop "{slug}" was not found or is currently inactive.',
+    'tracker.notFoundLoadError': 'Could not load workshop profile. Please reload the page.',
+    'tracker.findAtHome': 'Find Workshop on Home',
+    'tracker.goAdmin': 'Open Admin Portal',
+    'tracker.previewTitle': 'Preview mode (Supabase not configured)',
+    'tracker.previewDescPrefix': 'Add your Supabase credentials in js/config.js to connect to live data. You can test the demo using sample number ',
+    'tracker.loadingTitle': 'Loading order status...',
+    'tracker.loadingDesc': 'Fetching order details from the workshop server.',
+    'tracker.emptyTitleDefault': 'Order not found',
+    'tracker.emptyMessageDefault': 'Make sure the WhatsApp number matches the number registered when the order was created.',
+    'tracker.tryAnotherPhone': 'Try another number',
+    'tracker.invalidPhoneTitle': 'Invalid WhatsApp number',
+    'tracker.invalidPhoneMsg': 'Enter a registered phone number with at least 10 digits.',
+    'tracker.previewActiveTitle': 'Preview mode active',
+    'tracker.previewActiveMsg': 'Supabase is not configured in js/config.js. Use sample number 0812-3456-7890 to preview.',
+    'tracker.loadFailedTitle': 'Failed to load data',
+    'tracker.loadFailedMsg': 'Could not reach the server. Check your internet connection and try again.',
+    'tracker.detailUnavailableTitle': 'Details unavailable',
+    'tracker.detailUnavailableMsg': 'Order details could not be displayed right now. Please try again.',
+    'tracker.detailFailedTitle': 'Failed to load details',
+    'tracker.detailFailedMsg': 'A network error occurred while loading order details. Please go back and select the order again.',
+    'tracker.detailNotFoundMsg': 'Order details were not found for this phone number and ticket code.',
+    'tracker.serverStatusError': 'Server responded with status {status}.',
+    'tracker.guideHeading': 'How to track your order',
+    'tracker.guideDesc': 'Use the WhatsApp number recorded when dropping off your garments. If you have more than one order, you can pick a ticket from the list.',
+    'tracker.guideStep1Prefix': 'Enter your WhatsApp number in the search box above and click ',
+    'tracker.guideStep2': 'Review each stage (Received, Queued, In Progress, Quality Check, Ready for Pickup) along with your cost breakdown.',
+    'tracker.guideStep3Prefix': 'Pick up your order at the workshop once the status changes to ',
+    'tracker.locationHeading': 'Workshop location',
+    'tracker.hoursHeading': 'Opening hours',
+    'tracker.photoModalDefault': 'Item documentation',
+    'tracker.photoModalCloseAria': 'Close photo preview',
+    'tracker.photoModalImgAlt': 'Garment documentation',
+    'tracker.foundTicketsHeading': 'Found {count} registered orders',
+    'tracker.foundTicketsDesc': 'Select a ticket code below to inspect detailed progress.',
+    'tracker.ticketReceivedMeta': 'Received: {date}',
+    'tracker.ticketEstMeta': 'Est. ready:',
+    'tracker.backToList': 'Back to ticket list ({count})',
+    'tracker.demoBanner': '[SIMULATED DATA] Showing a sample order because Supabase is not configured.',
+    'tracker.ticketCodeLabel': 'Order ticket code',
+    'tracker.copyTicketAria': 'Copy ticket code {code}',
+    'tracker.copyTicketTitle': 'Copy ticket code',
+    'tracker.copyTicketDoneAria': 'Ticket code copied',
+    'tracker.customerLabel': 'Customer:',
+    'tracker.targetDoneLabel': 'Est. ready:',
+    'tracker.workshopNotesLabel': 'Workshop notes:',
+    'tracker.stagesHeading': 'Work progress',
+    'tracker.currentStageTag': ' (Current stage)',
+    'tracker.activityLogSummary': 'View full activity log ({count})',
+    'tracker.activityLogEmpty': 'No activity logs recorded yet.',
+    'tracker.itemsHeading': 'Items & services ({count})',
+    'tracker.beforeBadge': 'Before',
+    'tracker.afterBadge': 'After',
+    'tracker.beforeTitle': 'Before: {name}',
+    'tracker.afterTitle': 'After: {name}',
+    'tracker.beforeAlt': 'Before photo of {name}',
+    'tracker.afterAlt': 'After photo of {name}',
+    'tracker.costHeading': 'Cost summary',
+    'tracker.totalServiceCost': 'Total service cost',
+    'tracker.alreadyPaidLabel': 'Paid so far (deposit / payments)',
+    'tracker.remainingBalance': 'Remaining balance',
+    'tracker.contactAdminWa': 'Contact Workshop via WhatsApp',
+    'tracker.waInquiryMessage': 'Hello {store} team, I am *{customer}* checking on order *{ticket}*. Thank you.',
+
+    // Admin Auth, Verify Email & Onboarding
+    'admin.titleDefault': 'MendTrack Admin | Workshop Order Management',
+    'admin.docHeadingWorkspace': '{name} - Admin workspace',
+    'admin.docHeadingLogin': 'MendTrack Admin - Sign in',
+    'admin.docHeadingSignup': 'MendTrack Admin - Register workshop',
+    'admin.docHeadingVerify': 'MendTrack Admin - Verify email',
+    'admin.docHeadingOnboarding': 'MendTrack Admin - Create workshop',
+    'admin.authCheckingTitle': 'Checking workshop session...',
+    'admin.authCheckingDesc': 'Please wait a moment while we load your workspace.',
+    'admin.authHeading': 'MendTrack Admin',
+    'admin.authSubLogin': 'Sign in to your workshop workspace',
+    'admin.authSubSignup': 'Register a new workshop owner account',
+    'admin.authSubVerify': 'Confirm your email address to activate your account',
+    'admin.authTabsAria': 'Authentication mode',
+    'admin.tabLogin': 'Sign In',
+    'admin.tabSignup': 'Register Workshop',
+    'admin.loginEmailLabel': 'Admin email',
+    'admin.loginEmailPlaceholder': 'name@workshop.com',
+    'admin.loginPasswordLabel': 'Password',
+    'admin.loginPasswordPlaceholder': 'Enter your password',
+    'admin.loginSubmitBtn': 'Sign In to Workshop',
+    'admin.loginVerifying': 'Verifying...',
+    'admin.loginFailed': 'Sign in failed. Check your email and password.',
+    'admin.signupEmailLabel': 'Workshop owner email',
+    'admin.signupEmailPlaceholder': 'owner@workshop.com',
+    'admin.signupPasswordLabel': 'Password (at least 8 characters)',
+    'admin.signupPasswordPlaceholder': 'Create a strong password',
+    'admin.signupConfirmLabel': 'Confirm password',
+    'admin.signupConfirmPlaceholder': 'Re-enter your password',
+    'admin.signupSubmitBtn': 'Sign Up & Send Verification Email',
+    'admin.signupSubmitting': 'Creating account...',
+    'admin.signupEmailRequired': 'Email is required.',
+    'admin.signupPasswordMin': 'Password must be at least 8 characters.',
+    'admin.signupPasswordMismatch': 'Password confirmation does not match.',
+    'admin.signupFailed': 'Registration failed. Please try again shortly.',
+    'admin.orDivider': 'or',
+    'admin.googleContinue': 'Continue with Google',
+    'admin.googleSignup': 'Sign up with Google',
+    'admin.googleRedirecting': 'Redirecting to Google...',
+    'admin.googleCancelled': 'Google sign-in was cancelled. Try again or sign in with email.',
+    'admin.googleFailed': 'Could not start Google sign-in. Make sure Google provider is enabled in Supabase Auth.',
+    'admin.googleAuthError': 'Could not complete Google authentication. Please try again.',
+    'admin.configMissingError': 'Supabase credentials are missing in js/config.js. Fill in URL and Anon Key first.',
+    'admin.loadTenantFailed': 'Failed to load workshop data: {message}',
+    'admin.retrySignIn': 'Please sign in again.',
+    'admin.verifyTitle': 'Email verification required',
+    'admin.verifyDescPrefix': 'We sent a confirmation link to ',
+    'admin.verifyDescSuffix': '. Check your inbox or spam folder and click the link to continue setting up your workshop.',
+    'admin.verifyResendBtn': 'Resend verification email',
+    'admin.verifyResendSuccess': 'Verification email resent to {email}.',
+    'admin.verifyResendMissing': 'Email address unavailable. Return to Sign In to enter your email.',
+    'admin.verifyResendFailed': 'Failed to resend verification email.',
+    'admin.verifyBackToLogin': 'Already verified? Sign in now',
+    'admin.homeLink': 'MendTrack Home',
+    'admin.onboardHeading': 'Create your workshop workspace',
+    'admin.onboardVerifiedPrefix': 'Verified email (',
+    'admin.onboardVerifiedSuffix': '). Complete your workshop profile to start logging orders.',
+    'admin.onboardNameLabel': 'Workshop name *',
+    'admin.onboardNamePlaceholder': 'Example: Copper Stitch Denim Studio',
+    'admin.onboardSlugLabel': 'Public tracking URL slug *',
+    'admin.onboardSlugPlaceholder': 'example: copper-stitch-denim',
+    'admin.onboardSlugPreviewLabel': 'Customer link:',
+    'admin.onboardPhoneLabel': 'Admin WhatsApp number',
+    'admin.onboardPhonePlaceholder': '+1 415 555 0199',
+    'admin.onboardHoursLabel': 'Opening hours',
+    'admin.onboardAddressLabel': 'Workshop address',
+    'admin.onboardAddressPlaceholder': 'Street, city, and pickup landmark',
+    'admin.onboardTaglineLabel': 'Tagline (optional)',
+    'admin.onboardTaglinePlaceholder': 'Example: Denim Repair, Alteration & Custom Tailoring',
+    'admin.onboardLocaleLabel': 'Workshop language *',
+    'admin.onboardCurrencyLabel': 'Currency *',
+    'admin.onboardTimezoneLabel': 'Timezone',
+    'admin.onboardPrefixLabel': 'Ticket prefix',
+    'admin.onboardPrefixPlaceholder': 'MND',
+    'admin.onboardSubmitBtn': 'Create Workshop & Open Workspace',
+    'admin.onboardSubmitting': 'Creating workshop...',
+    'admin.onboardFooterNote': 'Starter measurement templates will be seeded automatically',
+    'admin.onboardNameRequired': 'Workshop name is required.',
+    'admin.onboardSlugInvalid': 'Slug must be 3-48 lowercase letters, numbers, or hyphens (-) with no leading/trailing hyphen.',
+    'admin.onboardPrefixInvalid': 'Ticket prefix must be 2-8 letters or numbers.',
+    'admin.onboardNoTenantReturned': 'Server did not return the created workshop.',
+    'admin.onboardCreateFailed': 'Failed to create workshop.',
+
+    // Sidebar & Navigation & Page Headings
+    'sidebar.aria': 'Sidebar navigation',
+    'sidebar.navAria': 'Main navigation',
+    'sidebar.newOrder': 'New Order',
+    'sidebar.groupOperational': 'Operations',
+    'sidebar.groupSettings': 'Settings',
+    'nav.orders': 'Orders',
+    'nav.customers': 'Customers',
+    'nav.schedule': 'Schedule',
+    'nav.cash': 'Cash',
+    'nav.reports': 'Reports',
+    'nav.services': 'Services & Duration',
+    'nav.measurements': 'Measurement Templates',
+    'nav.archive': 'Archive',
+    'nav.storeSettings': 'Store Settings',
+    'page.orders.title': 'Active orders',
+    'page.orders.subtitle': 'Track work queue, upcoming deadlines, and remaining balances.',
+    'page.customers.title': 'Customers',
+    'page.customers.subtitle': 'Manage customer contacts, saved measurements, and order history.',
+    'page.schedule.title': 'Workshop schedule',
+    'page.schedule.subtitle': 'Monitor daily bench workload based on target completion dates.',
+    'page.cash.title': 'Workshop cash ledger',
+    'page.cash.subtitle': 'Record and review workshop income and operating expenses.',
+    'page.reports.title': 'Transaction reports',
+    'page.reports.subtitle': 'Summary of order value, receivables, and cash flow for the selected period.',
+    'page.services.title': 'Services & duration',
+    'page.services.subtitle': 'Manage your service catalog, revenue category, and estimated duration.',
+    'page.measurements.title': 'Measurement templates',
+    'page.measurements.subtitle': 'Organize garment types and measurement field order for customers.',
+    'page.archive.title': 'Order archive',
+    'page.archive.subtitle': 'Completed orders that have been picked up by customers.',
+
+    // Draft Banner & Metrics
+    'draft.title': 'Unsaved order draft found',
+    'draft.defaultTime': 'Automatically saved on this device.',
+    'draft.savedDetail': 'Draft for "{name}" saved on {time}',
+    'draft.discardBtn': 'Discard Draft',
+    'draft.restoreBtn': 'Restore Form',
+    'metrics.aria': 'Operational priority summary',
+    'metrics.nearestDeadline': 'Nearest deadline',
+    'metrics.noUrgentQueue': 'No urgent queue items',
+    'metrics.activeOrders': 'Active orders',
+    'metrics.activeOrdersSub': 'Queued or in progress',
+    'metrics.unpaidReceivables': 'Outstanding balance',
+    'metrics.unpaidReceivablesSub': 'Unpaid order balance',
+
+    // Schedule / Daily Workload
+    'workload.heading': 'Daily Workload',
+    'workload.desc': 'Workload is calculated from the target completion date of active orders.',
+    'workload.low': 'Low',
+    'workload.medium': 'Moderate',
+    'workload.high': 'Full',
+    'workload.over': 'Over capacity',
+    'workload.overShort': 'Over',
+    'workload.calendarAria': 'Workload calendar',
+    'workload.selectedDate': 'Selected date',
+    'workload.loadCapacity': 'Load / capacity',
+    'workload.addOrderAria': 'Add new order on selected date',
+    'workload.addOrderBtn': 'New Order',
+    'workload.defaultNote': 'Select a date to view orders scheduled for completion.',
+    'workload.noteUnknownItems': '{orders} orders scheduled. {unknown} items have no matching catalog duration and are excluded from load totals.',
+    'workload.noteScheduled': '{orders} orders scheduled for this date. Ready and Picked Up orders are excluded.',
+    'workload.noteEmpty': 'No active orders scheduled for completion on this date.',
+    'workload.capacityDate': 'Capacity · {date}',
+
+    // Orders Filter & List
+    'orders.filterAria': 'Search and filter orders',
+    'orders.searchLabel': 'Search orders',
+    'orders.searchPlaceholder': 'Ticket code, customer name, or WhatsApp number...',
+    'orders.statusFilterLabel': 'Filter stage',
+    'orders.statusAll': 'All stages',
+    'orders.resetFilter': 'Reset filters',
+    'orders.listAria': 'Order list',
+    'orders.loading': 'Loading workshop orders...',
+    'orders.loadFailed': 'Failed to load orders: {message}',
+    'orders.shownCount': '{count} orders shown',
+    'orders.emptyActiveTitle': 'No active orders yet',
+    'orders.emptyActiveDesc': 'Create your first workshop order to track queue stages and daily workload.',
+    'orders.addFirstBtn': 'Add First Order',
+    'orders.emptyFilterTitle': 'No orders match these filters',
+    'orders.emptyFilterDesc': 'Adjust your search keyword, stage filter, or reset active filters.',
+    'orders.noItems': 'No items yet',
+    'orders.remainingPrefix': 'Due: {amount}',
+    'orders.overduePrefix': 'Overdue: ',
+    'orders.targetPrefix': 'Due: ',
+    'orders.next.received': 'Move to Queue',
+    'orders.next.queued': 'Start Work',
+    'orders.next.in_progress': 'Move to QC',
+    'orders.next.qc': 'Mark Ready',
+    'orders.next.ready': 'Complete / Picked Up',
+    'orders.settlementBtn': 'Settle',
+    'orders.receiptBtn': 'Receipt',
+    'orders.receiptTitle': 'Digital Receipt',
+    'orders.editTitle': 'Edit Order & Photos',
+    'orders.deleteTitle': 'Delete Order',
+    'orders.deleteAria': 'Delete order {code}',
+    'orders.deleteConfirm': 'Cancel and permanently delete order {code} ({customer})?\n\nAll records for this order (items, payments, and linked cash entries) will be removed. Customer profile and saved measurements remain intact.',
+    'orders.deleteFailed': 'Failed to delete order: {message}',
+    'orders.unpaidCompleteAlert': 'Order {code} still has an unpaid balance ({remaining}). Click Settle first before marking it Complete / Picked Up.',
+    'orders.statusUpdateFailed': 'Failed to update status: {message}',
+    'orders.waFollowUp': 'Hello {customer}, update on order {ticket} from {store}:',
+
+    // Archive
+    'archive.completedMeta': 'Completed · {date}',
+    'archive.viewOrder': 'View order',
+    'archive.empty': 'No completed orders yet.',
+
+    // Customers
+    'customers.heading': 'Customer Directory',
+    'customers.loadingCount': 'Loading customer count...',
+    'customers.count': '{count} registered customers',
+    'customers.addBtn': 'Add Customer',
+    'customers.searchLabel': 'Search customers',
+    'customers.searchPlaceholder': 'Type a name or WhatsApp number...',
+    'customers.loading': 'Loading customers...',
+    'customers.loadFailed': 'Failed to load customers: {message}',
+    'customers.emptySearch': 'No customers match that search query.',
+    'customers.emptyList': 'No customers registered yet. Use Add Customer above.',
+    'customers.editTitle': 'Edit customer',
+    'customers.editAria': 'Edit customer {name}',
+    'customers.addOrderTitle': 'New order',
+    'customers.addOrderAria': 'Create order for {name}',
+    'customers.createTitle': 'Add Customer',
+    'customers.createSub': 'Just enter name and phone number',
+    'customers.closeCreateAria': 'Close add customer form',
+    'customers.nameLabel': 'Customer name *',
+    'customers.nameLabelOpt': 'Customer name',
+    'customers.namePlaceholder': 'Full customer name',
+    'customers.phoneLabel': 'Phone / WhatsApp number *',
+    'customers.phoneLabelWa': 'WhatsApp number',
+    'customers.phoneHint': 'Phone number is used to identify the customer profile.',
+    'customers.saveBtn': 'Save Customer',
+    'customers.nameRequired': 'Customer name is required.',
+    'customers.phoneInvalid': 'Invalid phone number. Enter at least 10 digits.',
+    'customers.phoneInvalidWa': 'Invalid WhatsApp number.',
+    'customers.duplicatePhone': 'This phone number is already registered under {name}. Use the existing customer record.',
+    'customers.duplicatePhoneShort': 'This number is already registered under {name}.',
+    'customers.createdSuccess': 'Customer added successfully.',
+    'customers.createFailed': 'Failed to add customer: {message}',
+    'customers.updatedSuccess': 'Customer details updated.',
+    'customers.updateFailed': 'Failed to update customer: {message}',
+    'customers.detailTitle': 'Customer Details',
+    'customers.detailSub': 'Profile, measurements, and order history',
+    'customers.closeDetailAria': 'Close customer details',
+    'customers.editHeading': 'Edit Customer',
+    'customers.measurementsBtnTitle': 'Measurements',
+    'customers.measurementsBtnDesc': 'View, add, and edit customer measurements',
+    'customers.ordersBtnTitle': 'Order History',
+    'customers.ordersBtnDesc': 'View all orders for this customer',
+    'customers.transactionsCount': '{count} orders',
+    'customers.noOrderHistory': 'No order history yet.',
+
+    // Customer Measurements & Templates
+    'measure.listTitle': 'Measurements',
+    'measure.loadingList': 'Loading measurements...',
+    'measure.addBtn': 'Add Measurement',
+    'measure.editTitle': 'Edit Measurement',
+    'measure.noDesc': 'No description',
+    'measure.editAria': 'Edit measurement for {type}',
+    'measure.deleteAria': 'Delete measurement for {type}',
+    'measure.deleteConfirm': 'Delete this measurement record?',
+    'measure.deleteFailed': 'Failed to delete measurement: {message}',
+    'measure.noValues': 'No measurement values recorded.',
+    'measure.emptyList': 'No saved measurements yet.',
+    'measure.loadFailed': 'Failed to load measurements: {message}',
+    'measure.noFieldsInTemplate': 'No fields in this template yet. Add fields from Measurement Templates.',
+    'measure.noTemplateError': 'No measurement templates available yet. Add one under Measurement Templates.',
+    'measure.garmentTypeLabel': 'Garment type',
+    'measure.modelLabel': 'Style / cut',
+    'measure.modelPlaceholder': 'Example: Slim Fit, Trucker',
+    'measure.descLabel': 'Notes / wearer',
+    'measure.descPlaceholder': 'Wearer name or fitting notes',
+    'measure.dataHeading': 'Measurements',
+    'measure.saveBtn': 'Save Measurement',
+    'measure.openFormFailed': 'Could not open measurement form.',
+    'measure.templateNotFound': 'Measurement template not found.',
+    'measure.saveFailed': 'Failed to save measurement: {message}',
+    'templates.pageHeading': 'Measurement Field Templates',
+    'templates.pageDesc': 'Manage garment types and customer measurement fields. Saved historical records remain unchanged.',
+    'templates.sectionHeading': 'Measurement templates',
+    'templates.sectionDesc': 'Configure garment types and fields displayed when saving customer measurements.',
+    'templates.loading': 'Loading measurement templates...',
+    'templates.addTypeBtn': 'Add Garment Type',
+    'templates.unitLabel': 'Measurement unit',
+    'templates.unitDesc': 'Applies to entering and displaying customer measurements',
+    'templates.fieldCount': '{count} fields',
+    'templates.moveUpAria': 'Move {label} up',
+    'templates.moveUpTitle': 'Move up',
+    'templates.moveDownAria': 'Move {label} down',
+    'templates.moveDownTitle': 'Move down',
+    'templates.fieldNameAria': 'Field name {label}',
+    'templates.deleteFieldTitle': 'Delete field',
+    'templates.deleteFieldAria': 'Delete field {label}',
+    'templates.dragHint': 'Press and hold to drag, or click Edit to reorder with keyboard controls',
+    'templates.emptyFields': 'No measurement fields yet.',
+    'templates.finishEditAria': 'Finish editing template',
+    'templates.startEditAria': 'Edit and reorder fields',
+    'templates.editOrderBtn': 'Edit & Reorder',
+    'templates.addFieldAria': 'Add field for {type}',
+    'templates.addFieldBtn': 'Field',
+    'templates.loadFailed': 'Failed to load templates: {message}',
+    'templates.reorderFailed': 'Failed to save field order: {message}',
+    'templates.moveFailed': 'Failed to move field order: {message}',
+    'templates.fieldNameRequired': 'Field name is required.',
+    'templates.fieldUpdateFailed': 'Failed to update field: {message}',
+    'templates.promptNewType': 'New garment type name:',
+    'templates.typeNameRequired': 'Garment type name is required.',
+    'templates.typeDefaultDesc': '{name} measurement template',
+    'templates.typeAddFailed': 'Failed to add garment type: {message}',
+    'templates.deleteFieldConfirm': 'Delete field "{label}"? Previously saved customer measurements will not be modified.',
+    'templates.deleteFieldFailed': 'Failed to delete field: {message}',
+    'templates.promptNewField': 'Measurement field name for {type}:',
+    'templates.fieldNameInvalid': 'Invalid field name.',
+    'templates.fieldAddFailed': 'Failed to add field: {message}',
+
+    // Reports & Cash
+    'period.day': 'Today',
+    'period.week': 'Last 7 days',
+    'period.month': 'This month',
+    'period.all': 'All time',
+    'reports.heading': 'Transaction Summary',
+    'reports.desc': 'Grouped by order creation date.',
+    'reports.periodLabel': 'Report period',
+    'reports.loading': 'Loading transaction report...',
+    'reports.cashLoadError': 'Failed to fetch cash transactions.',
+    'reports.cashBannerError': 'Cash data failed to load: {message}',
+    'reports.noTransactions': 'No transactions in this period.',
+    'reports.incomeVsExpense': 'Income vs Expense',
+    'reports.income': 'Income',
+    'reports.expense': 'Expense',
+    'reports.inShort': 'In {amount}',
+    'reports.outShort': 'Out {amount}',
+    'reports.groupedByMonth': 'Grouped by month across all transaction history.',
+    'reports.groupedByDay': 'Grouped by day for the selected period.',
+    'reports.incomeCategories': 'Income Categories',
+    'reports.expenseCategories': 'Expense Categories',
+    'reports.orderValue': 'Order value',
+    'reports.orderValueSub': '{count} orders created in this period',
+    'reports.recordedPayments': 'Recorded payments',
+    'reports.recordedPaymentsSub': 'Total deposits and settlements logged',
+    'reports.unpaidReceivables': 'Outstanding receivables',
+    'reports.unpaidOrdersSub': '{count} unpaid orders',
+    'reports.unpaidOrdersTitle': 'Unpaid orders',
+    'reports.noReceivables': 'No unpaid balances in this period.',
+    'reports.topServicesTitle': 'Most ordered services',
+    'reports.noServiceData': 'No service data in this period.',
+    'reports.footnote': 'Note: orders are grouped by creation date. Payment totals reflect current accumulated payments per order rather than daily cash history.',
+    'cash.periodLabel': 'Cash period',
+    'cash.addBtn': 'Add Entry',
+    'cash.balance': 'Cash balance',
+    'cash.balanceSub': 'Cumulative balance across all entries',
+    'cash.incomeLabel': 'Cash in',
+    'cash.expenseLabel': 'Cash out',
+    'cash.loading': 'Loading cash transactions...',
+    'cash.loadFailed': 'Failed to load cash ledger: {message}',
+    'cash.sourceOrder': 'Order',
+    'cash.sourceManual': 'Manual',
+    'cash.modalTitle': 'Add Cash Entry',
+    'cash.modalSub': 'Transactions outside order payments',
+    'cash.closeAria': 'Close cash entry form',
+    'cash.typeLabel': 'Transaction type',
+    'cash.typeIncome': 'Cash In',
+    'cash.typeExpense': 'Cash Out',
+    'cash.categoryLabel': 'Category',
+    'cash.amountLabelPrefix': 'Amount (',
+    'cash.amountPlaceholder': 'Enter amount',
+    'cash.methodLabel': 'Method',
+    'cash.descLabel': 'Description (optional)',
+    'cash.descPlaceholder': 'Example: sewing thread supplies',
+    'cash.saveBtn': 'Save Entry',
+    'cash.saveFailed': 'Failed to save cash entry: {message}',
+
+    // Services & Duration
+    'services.pageHeading': 'Services & Estimated Duration',
+    'services.pageDesc': 'Manage services and estimated work duration for daily workload calculations.',
+    'services.listHeading': 'Service catalog',
+    'services.listDesc': 'Durations apply as defaults for new orders. Inactive services remain preserved for past orders.',
+    'services.loading': 'Loading services...',
+    'services.empty': 'No services yet. Add your first service using the form below.',
+    'services.loadFailed': 'Failed to load services: {message}',
+    'services.newNameLabel': 'New service name',
+    'services.newNamePlaceholder': 'Example: Chainstitch Hemming',
+    'services.categoryLabel': 'Service category',
+    'services.hoursLabel': 'Est. hours',
+    'services.minutesLabel': 'Est. minutes',
+    'services.addBtn': 'Add Service',
+    'services.nameRequired': 'Please enter a service name.',
+    'services.durationInvalid': 'Estimated duration must be greater than 0 minutes.',
+    'services.addFailed': 'Failed to add service: {message}',
+    'services.addFailedHint': 'Check services table permissions.',
+    'services.disableConfirm': 'Deactivate this service? Historical orders will not be affected.',
+    'services.disableFailed': 'Failed to deactivate service: {message}',
+    'services.activateFailed': 'Failed to activate service: {message}',
+    'services.editTitle': 'Edit Service',
+    'services.editSub': 'Update name, category, and estimated duration',
+    'services.closeEditAria': 'Close edit service modal',
+    'services.editNameLabel': 'Service name *',
+    'services.editCategoryLabel': 'Service category *',
+    'services.editMinutesLabel': 'Estimated duration (minutes) *',
+    'services.editMinutesPlaceholder': 'Example: 60',
+    'services.editNameRequired': 'Service name is required.',
+    'services.editMinutesInvalid': 'Estimated minutes must be a whole number greater than 0.',
+    'services.editFailed': 'Failed to update service: {message}',
+
+    // Order Form Modal
+    'orderForm.newTitle': 'Create New Order',
+    'orderForm.editTitle': 'Edit Order {code}',
+    'orderForm.subtitle': 'Draft is auto-saved on this device',
+    'orderForm.closeAria': 'Close order form',
+    'orderForm.ticketLabel': 'Ticket code',
+    'orderForm.ticketLockedTitle': 'Ticket code is generated automatically and cannot be edited',
+    'orderForm.deadlineLabel': 'Target completion date *',
+    'orderForm.deadlinePlaceholder': 'Select target completion date',
+    'orderForm.datePickerAria': 'Select target completion date',
+    'orderForm.deadlineRequired': 'Target completion date is required.',
+    'orderForm.customerNameLabel': 'Customer name *',
+    'orderForm.customerPhoneLabel': 'WhatsApp number *',
+    'orderForm.lookupIdle': 'Phone number will be checked when entered.',
+    'orderForm.lookupPrompt': 'Enter a phone number to check existing customer records.',
+    'orderForm.lookupMinDigits': 'Enter a phone number with at least 10 digits.',
+    'orderForm.lookupChecking': 'Checking customer phone...',
+    'orderForm.lookupFound': 'Number is already registered under {name}.',
+    'orderForm.lookupNew': 'New phone number. A customer profile will be created when the order is saved.',
+    'orderForm.lookupFailed': 'Customer lookup failed: {message}',
+    'orderForm.retryShort': 'Try again.',
+    'orderForm.notesLabel': 'General workshop notes',
+    'orderForm.notesPlaceholder': 'Thread color, fitting preferences, or special instructions...',
+    'orderForm.itemsHeading': 'Garment items & services *',
+    'orderForm.addItemBtn': 'Add Item',
+    'orderForm.removeItemBtn': 'Remove',
+    'orderForm.minOneItem': 'An order must contain at least 1 garment item.',
+    'orderForm.garmentLabel': 'Garment / article name *',
+    'orderForm.garmentPlaceholder': 'Example: Raw Denim 15oz',
+    'orderForm.serviceLabel': 'Service type *',
+    'orderForm.servicePlaceholder': 'Choose or type a service...',
+    'orderForm.specsLabel': 'Measurement specs (optional)',
+    'orderForm.specsPlaceholder': 'Example: Inseam: 78cm, Leg Opening: 18cm',
+    'orderForm.itemPricePrefix': 'Item price (',
+    'orderForm.photoBefore': 'Before photo',
+    'orderForm.photoAfter': 'After photo',
+    'orderForm.photoSaved': '(Saved)',
+    'orderForm.photoSavedHint': 'Photo saved · choose a new file to replace',
+    'orderForm.photoBeforeAlt': 'Saved before photo',
+    'orderForm.photoAfterAlt': 'Saved after photo',
+    'orderForm.totalCost': 'Total service cost',
+    'orderForm.dpLabelPrefix': 'Initial payment / Deposit (',
+    'orderForm.remaining': 'Remaining balance',
+    'orderForm.saveBtn': 'Save Order',
+    'orderForm.ticketRequired': 'Ticket code is required.',
+    'orderForm.phoneInvalid': 'Invalid WhatsApp number (at least 10 digits).',
+    'orderForm.dpInvalid': 'Invalid payment amount.',
+    'orderForm.garmentRequired': 'Garment name is required for every item.',
+    'orderForm.serviceRequired': 'Service type is required for every item.',
+    'orderForm.priceInvalid': 'Invalid item price.',
+    'orderForm.noIdReturned': 'Database did not return the saved order ID.',
+    'orderForm.saveFailed': 'Failed to save order: {message}',
+    'orderForm.specNoteKey': 'Note',
+
+    // Payment Modal
+    'payment.title': 'Record Settlement',
+    'payment.closeAria': 'Close settlement modal',
+    'payment.totalBill': 'Total amount',
+    'payment.alreadyPaid': 'Already paid',
+    'payment.remaining': 'Remaining balance',
+    'payment.amountLabelPrefix': 'Settlement amount (',
+    'payment.fillRemaining': 'Fill remaining',
+    'payment.methodLegend': 'Payment method (log record)',
+    'payment.saveBtn': 'Save Settlement',
+    'payment.exactAmountError': 'Settlement amount must exactly match the remaining balance: {amount}',
+    'payment.saveFailed': 'Failed to save payment: {message}',
+
+    // Receipt Modal & WhatsApp Messages
+    'receipt.modalTitle': 'Digital Workshop Receipt',
+    'receipt.closeAria': 'Close digital receipt',
+    'receipt.sendWaBtn': 'Send via WhatsApp',
+    'receipt.printBtn': 'Print',
+    'receipt.ticketNo': 'Ticket No.:',
+    'receipt.customer': 'Customer:',
+    'receipt.receivedDate': 'Received:',
+    'receipt.targetDone': 'Est. ready:',
+    'receipt.serviceDetails': 'Service details',
+    'receipt.totalBill': 'Total amount',
+    'receipt.paid': 'Paid',
+    'receipt.remaining': 'Remaining balance',
+    'receipt.statusBadge': 'Status: {status}',
+    'receipt.trackNote': 'Track progress with your registered WhatsApp number at:',
+    'wa.toastTitle': 'Order ready for pickup',
+    'wa.toastDescDefault': 'Send WhatsApp notification to customer?',
+    'wa.toastDesc': 'Send pickup notice to {customer} ({ticket})',
+    'wa.toastCloseAria': 'Close WhatsApp notification',
+    'wa.toastSendBtn': 'Send WhatsApp Message Now',
+    'wa.readyBillingUnpaid': 'Remaining balance: *{remaining}* (payable upon pickup).',
+    'wa.readyBillingPaid': 'Payment status: *Paid*.',
+    'wa.readyMessage': 'Hello *{customer}*, your order at *{store}* (Ticket *{ticket}*) is now *Complete and Ready for Pickup*.\n\n{billingLine}\nView order details and photos at:\n{trackingUrl}\n\nWorkshop Address: {address}\nOpening Hours: {hours}\nThank you!\n\nby MendTrack',
+    'wa.newOrderMessage': '*Digital Receipt - {store}*\nTicket No.: *{ticket}*\nCustomer: {customer}\nEst. Ready: {targetDate}\n\n*Service Details:*\n{items}\n\nTotal: *{total}*\nPaid: {paid}\nRemaining Balance: *{remaining}*\n\nTrack progress with your registered WhatsApp number: {trackingUrl}\n\nOpening Hours: {hours}\nThank you for trusting {store} with your garments.\n\nby MendTrack',
+    'wa.receiptMessage': '*Digital Receipt - {store}*\nTicket No.: *{ticket}*\nCustomer: {customer}\nEst. Ready: {targetDate}\n\n*Service Details:*\n{items}\n\nTotal: *{total}*\nPaid: {paid}\nRemaining Balance: *{remaining}*\n\nTrack your order progress at:\n{trackingUrl}\n\nAddress: {address}\nOpening Hours: {hours}\n\nThank you for trusting {store} with your garments.\n\nby MendTrack',
+
+    // Store Settings Modal
+    'settings.title': 'Store Settings',
+    'settings.subtitle': 'Workshop identity, regional, and operational settings',
+    'settings.closeAria': 'Close store settings',
+    'settings.chooseLogo': 'Choose Logo',
+    'settings.logoHint': 'Choose a JPG, PNG, or WebP image from your device.',
+    'settings.removeLogo': 'Remove logo',
+    'settings.logoReadFailed': 'Failed to read logo file.',
+    'settings.logoInvalidType': 'Logo must be a JPG, PNG, or WebP image.',
+    'settings.logoMaxSize': 'Logo size must be 8 MB or smaller.',
+    'settings.trackingUrlLabel': 'Customer tracking link',
+    'settings.copyUrlAlert': 'Copy tracking link:\n{url}',
+    'settings.storeNameLabel': 'Workshop name',
+    'settings.addressLabel': 'Address',
+    'settings.phoneLabel': 'WhatsApp number (e.g. +1... or 62...)',
+    'settings.taglineLabel': 'Tagline',
+    'settings.hoursLabel': 'Opening hours',
+    'settings.hoursPlaceholder': 'Example: Mon - Sat, 09:00 - 17:00',
+    'settings.regionalHeading': 'Language, currency & region',
+    'settings.regionalDesc': 'Applies across the admin dashboard, receipts, WhatsApp messages, and customer tracking portal.',
+    'settings.localeLabel': 'Interface language',
+    'settings.currencyLabel': 'Currency',
+    'settings.currencyNote': 'Changing currency updates display formatting and symbols only; existing numeric amounts are not converted.',
+    'settings.timezoneLabel': 'Timezone',
+    'settings.ticketPrefixLabel': 'Ticket prefix (2-8 letters/numbers)',
+    'settings.capacityHeading': 'Daily work capacity',
+    'settings.capacityDesc': 'Standard working capacity applied to each day.',
+    'settings.capacityHours': 'Hours',
+    'settings.capacityMinutes': 'Minutes',
+    'settings.footerNote': 'Store settings are saved in Supabase and synced across devices. Existing orders are not altered.',
+    'settings.saveBtn': 'Save Settings',
+    'settings.nameRequired': 'Workshop name is required.',
+    'settings.capacityInvalid': 'Daily capacity must be greater than 0 minutes.',
+    'settings.prefixInvalid': 'Ticket prefix must be 2-8 uppercase letters or numbers.',
+    'settings.savedSuccess': 'Store settings saved.',
+    'settings.saveFailed': 'Failed to save settings: {message}',
+    'settings.saveFailedHint': 'Check table permissions and network connection.',
+  },
+};
+
+const KNOWN_SYSTEM_LOG_NOTES = {
+  'Order diterima oleh workshop': 'log.default.received',
+  'Order masuk dalam antrean pengerjaan': 'log.default.queued',
+  'Sedang dalam proses pengerjaan': 'log.default.in_progress',
+  'Tahap pemeriksaan kualitas (Quality Check)': 'log.default.qc',
+  'Pengerjaan selesai dan siap diambil': 'log.default.ready',
+  'Order telah diambil / selesai': 'log.default.completed',
+};
+
+const localeListeners = new Set();
+
+export function normalizeLocale(raw) {
+  const val = String(raw || '').trim().toLowerCase();
+  return val === 'en' || val.startsWith('en-') ? 'en' : 'id';
+}
+
+export function normalizeCurrency(raw) {
+  const code = String(raw || '').trim().toUpperCase();
+  return CURRENCY_MAP[code] ? code : 'IDR';
+}
+
+export function readStoredLocale(storageKey = LOCALE_STORAGE_KEY) {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    const saved = localStorage.getItem(storageKey);
+    if (saved === 'id' || saved === 'en') return saved;
+  } catch (_) {
+    // Storage may be blocked in private browsing.
+  }
+  return null;
+}
+
+export function detectPreferredLocale() {
+  const saved = readStoredLocale(LOCALE_STORAGE_KEY);
+  if (saved) return saved;
+  if (typeof navigator !== 'undefined' && navigator.language) {
+    return navigator.language.toLowerCase().startsWith('en') ? 'en' : 'id';
+  }
+  return 'id';
+}
+
+let currentLocale = detectPreferredLocale();
+let currentCurrency = 'IDR';
+let currentTimezone = 'Asia/Jakarta';
+
+export function getLocale() {
+  return currentLocale;
+}
+
+export function getIntlLocale(locale = currentLocale) {
+  return normalizeLocale(locale) === 'en' ? 'en-US' : 'id-ID';
+}
+
+export function getCurrency() {
+  return currentCurrency;
+}
+
+export function setCurrency(code) {
+  currentCurrency = normalizeCurrency(code);
+  return currentCurrency;
+}
+
+export function getCurrencyMeta(code = currentCurrency) {
+  return CURRENCY_MAP[normalizeCurrency(code)] || CURRENCY_MAP.IDR;
+}
+
+export function roundCurrencyAmount(amount, code = currentCurrency) {
+  const num = Number(amount);
+  if (!Number.isFinite(num)) return 0;
+  const { decimals } = getCurrencyMeta(code);
+  const factor = 10 ** decimals;
+  return Math.round((num + Number.EPSILON) * factor) / factor;
+}
+
+export function getTimezone() {
+  return currentTimezone;
+}
+
+export function setTimezone(tz) {
+  const cleaned = String(tz || '').trim();
+  currentTimezone = cleaned || 'Asia/Jakarta';
+  return currentTimezone;
+}
+
+export function t(key, params = {}, localeOverride = null) {
+  const loc = localeOverride ? normalizeLocale(localeOverride) : currentLocale;
+  const dict = DICTIONARIES[loc] || DICTIONARIES.id;
+  let template = Object.prototype.hasOwnProperty.call(dict, key)
+    ? dict[key]
+    : Object.prototype.hasOwnProperty.call(DICTIONARIES.id, key)
+      ? DICTIONARIES.id[key]
+      : key;
+
+  if (params && typeof params === 'object') {
+    for (const [paramKey, paramVal] of Object.entries(params)) {
+      template = template.replace(new RegExp(`\\{${paramKey}\\}`, 'g'), String(paramVal ?? ''));
+    }
+  }
+  return template;
+}
+
+export function setLocale(locale, options = {}) {
+  const { persist = false, storageKey = LOCALE_STORAGE_KEY, silent = false } = options;
+  const next = normalizeLocale(locale);
+  const changed = next !== currentLocale;
+  currentLocale = next;
+
+  if (persist) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(storageKey, next);
+      }
+    } catch (_) {
+      // Ignore private-mode storage errors.
+    }
+  }
+
+  if (typeof document !== 'undefined') {
+    document.documentElement.lang = next;
+  }
+
+  if (!silent) {
+    localeListeners.forEach((fn) => {
+      try {
+        fn(next);
+      } catch (err) {
+        console.warn('i18n listener error:', err);
+      }
+    });
+    if (typeof document !== 'undefined' && typeof CustomEvent !== 'undefined') {
+      document.dispatchEvent(new CustomEvent('mendtrack:localechange', { detail: { locale: next, changed } }));
+    }
+  }
+
+  return next;
+}
+
+export function onLocaleChange(listener) {
+  if (typeof listener !== 'function') return () => {};
+  localeListeners.add(listener);
+  return () => localeListeners.delete(listener);
+}
+
+export function updateLangToggleButtons(root = typeof document !== 'undefined' ? document : null) {
+  if (!root) return;
+  const isEn = currentLocale === 'en';
+  root.querySelectorAll('[data-mt-lang-toggle]').forEach((btn) => {
+    btn.setAttribute('aria-label', t('common.switchLanguage'));
+    btn.setAttribute('title', t('common.langToggleTitle'));
+    btn.removeAttribute('aria-pressed');
+    btn.innerHTML = `<span class="${!isEn ? 'is-active' : ''}">ID</span><span class="mt-lang-sep" aria-hidden="true">/</span><span class="${isEn ? 'is-active' : ''}">EN</span>`;
+  });
+}
+
+export function applyTranslations(root = typeof document !== 'undefined' ? document : null) {
+  if (!root) return;
+  if (typeof document !== 'undefined') {
+    document.documentElement.lang = currentLocale;
+  }
+  root.querySelectorAll('[data-i18n]').forEach((el) => {
+    const key = el.getAttribute('data-i18n');
+    if (key) el.textContent = t(key);
+  });
+  root.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
+    const key = el.getAttribute('data-i18n-placeholder');
+    if (key) el.setAttribute('placeholder', t(key));
+  });
+  root.querySelectorAll('[data-i18n-aria-label]').forEach((el) => {
+    const key = el.getAttribute('data-i18n-aria-label');
+    if (key) el.setAttribute('aria-label', t(key));
+  });
+  root.querySelectorAll('[data-i18n-title]').forEach((el) => {
+    const key = el.getAttribute('data-i18n-title');
+    if (key) el.setAttribute('title', t(key));
+  });
+  updateLangToggleButtons(root);
+}
+
+export function getOrderSteps(localeOverride = null) {
+  return [
+    {
+      key: 'received',
+      label: t('status.received', {}, localeOverride),
+      shortLabel: t('status.received', {}, localeOverride),
+      description: t('step.received.desc', {}, localeOverride),
+      icon: 'package-check',
+    },
+    {
+      key: 'queued',
+      label: t('status.queued', {}, localeOverride),
+      shortLabel: t('status.queued', {}, localeOverride),
+      description: t('step.queued.desc', {}, localeOverride),
+      icon: 'clock',
+    },
+    {
+      key: 'in_progress',
+      label: t('status.in_progress', {}, localeOverride),
+      shortLabel: t('status.in_progress_short', {}, localeOverride),
+      description: t('step.in_progress.desc', {}, localeOverride),
+      icon: 'scissors',
+    },
+    {
+      key: 'qc',
+      label: t('status.qc', {}, localeOverride),
+      shortLabel: t('status.qc_short', {}, localeOverride),
+      description: t('step.qc.desc', {}, localeOverride),
+      icon: 'shield-check',
+    },
+    {
+      key: 'ready',
+      label: t('status.ready', {}, localeOverride),
+      shortLabel: t('status.ready', {}, localeOverride),
+      description: t('step.ready.desc', {}, localeOverride),
+      icon: 'shopping-bag',
+    },
+  ];
+}
+
+export function getStatusMeta(status, localeOverride = null) {
+  const key = ['received', 'queued', 'in_progress', 'qc', 'ready', 'completed'].includes(status)
+    ? status
+    : 'received';
+  return {
+    label: t(`status.${key}`, {}, localeOverride),
+    badgeClass: `mt-badge mt-badge-${key}`,
+    dotClass: 'mt-badge-dot',
+  };
+}
+
+export function getPaymentStatusMeta(status, localeOverride = null) {
+  const key = ['unpaid', 'partial', 'paid'].includes(status) ? status : 'unpaid';
+  return {
+    label: t(`paymentStatus.${key}`, {}, localeOverride),
+    badgeClass: `mt-badge mt-badge-${key}`,
+  };
+}
+
+export function getCashCategories(type = 'income', localeOverride = null) {
+  if (type === 'expense') {
+    return [
+      ['alat_bahan', t('cashCategory.alat_bahan', {}, localeOverride)],
+      ['operasional', t('cashCategory.operasional', {}, localeOverride)],
+      ['makan_minum', t('cashCategory.makan_minum', {}, localeOverride)],
+      ['gaji', t('cashCategory.gaji', {}, localeOverride)],
+      ['lain_lain', t('cashCategory.lain_lain', {}, localeOverride)],
+    ];
+  }
+  return [
+    ['custom', t('cashCategory.custom', {}, localeOverride)],
+    ['reparasi', t('cashCategory.reparasi', {}, localeOverride)],
+    ['lain_lain', t('cashCategory.lain_lain', {}, localeOverride)],
+  ];
+}
+
+export function getCashCategoryLabel(category, localeOverride = null) {
+  const key = `cashCategory.${category}`;
+  const translated = t(key, {}, localeOverride);
+  return translated === key ? String(category || '') : translated;
+}
+
+export function getPaymentMethodLabel(method, localeOverride = null) {
+  const canonical = String(method || 'Tunai');
+  const key = `paymentMethod.${canonical}`;
+  const translated = t(key, {}, localeOverride);
+  return translated === key ? canonical : translated;
+}
+
+export function getServiceCategoryLabel(category, localeOverride = null) {
+  return category === 'custom'
+    ? t('serviceCategory.custom', {}, localeOverride)
+    : t('serviceCategory.reparasi', {}, localeOverride);
+}
+
+export function translateSystemLogNote(note, status, localeOverride = null) {
+  const trimmed = String(note || '').trim();
+  if (!trimmed) {
+    return getStatusMeta(status, localeOverride).label;
+  }
+  const mappedKey = KNOWN_SYSTEM_LOG_NOTES[trimmed];
+  if (mappedKey) {
+    return t(mappedKey, {}, localeOverride);
+  }
+  return trimmed;
+}
+
+export function getDictionaryKeys() {
+  return {
+    id: Object.keys(DICTIONARIES.id),
+    en: Object.keys(DICTIONARIES.en),
+  };
+}
+
+// Expose a lightweight bridge for classic non-module scripts (theme-toggle.js, sidebar.js).
+if (typeof window !== 'undefined') {
+  window.MendTrackI18n = {
+    t,
+    getLocale,
+    setLocale,
+    getCurrency,
+    setCurrency,
+    getCurrencyMeta,
+    applyTranslations,
+  };
+}

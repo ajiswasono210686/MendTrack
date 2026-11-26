@@ -5,11 +5,22 @@
   const $ = (sel) => document.querySelector(sel);
   let lastTrigger = null;
 
+  const tr = (key, fallback) => {
+    const api = window.MendTrackI18n;
+    return api && typeof api.t === 'function' ? api.t(key) : fallback;
+  };
+
   const syncA11y = () => {
     const collapsed = root.dataset.sidebar === 'collapsed';
     document.querySelectorAll('[data-sidebar-collapse]').forEach((b) => {
       b.setAttribute('aria-expanded', String(!collapsed));
-      b.setAttribute('aria-label', collapsed ? 'Lebarkan menu samping' : 'Ciutkan menu samping');
+      b.setAttribute(
+        'aria-label',
+        collapsed
+          ? tr('common.expandSidebar', 'Lebarkan menu samping')
+          : tr('common.collapseSidebar', 'Ciutkan menu samping')
+      );
+      b.setAttribute('title', tr('common.toggleSidebarTitle', 'Ciutkan atau lebarkan menu'));
     });
   };
 
@@ -63,6 +74,7 @@
     }
   });
 
+  document.addEventListener('mendtrack:localechange', syncA11y);
   desktop.addEventListener?.('change', () => setDrawer(false, false));
   syncA11y();
 })();

@@ -1,34 +1,83 @@
 import { WORKSHOP_INFO } from './config.js';
+import {
+  t,
+  getLocale,
+  getIntlLocale,
+  getCurrency,
+  getCurrencyMeta,
+  getTimezone,
+} from './i18n.js';
 
-export function formatCurrency(amount) {
-  const num = Number(amount) || 0;
-  return new Intl.NumberFormat('id-ID', {
-    style: 'currency',
-    currency: 'IDR',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(num);
+const DATE_ONLY_REGEX = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+export function formatCurrency(amount, options = {}) {
+  const num = Number(amount);
+  const safeNum = Number.isFinite(num) ? num : 0;
+  const currencyCode = options.currency || getCurrency();
+  const locale = options.locale || getLocale();
+  const meta = getCurrencyMeta(currencyCode);
+  const intlLocale = getIntlLocale(locale);
+
+  try {
+    return new Intl.NumberFormat(intlLocale, {
+      style: 'currency',
+      currency: meta.code,
+      minimumFractionDigits: meta.decimals,
+      maximumFractionDigits: meta.decimals,
+    }).format(safeNum);
+  } catch (_) {
+    return new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(safeNum);
+  }
 }
 
-export function formatDateID(dateStr, includeTime = false) {
+export function formatDate(dateStr, includeTime = false, options = {}) {
   if (!dateStr) return '-';
-  const date = new Date(dateStr);
-  if (Number.isNaN(date.getTime())) return dateStr;
 
-  const options = {
+  const locale = options.locale || getLocale();
+  const intlLocale = getIntlLocale(locale);
+  const dateOnlyMatch = typeof dateStr === 'string' ? dateStr.trim().match(DATE_ONLY_REGEX) : null;
+
+  let date;
+  const formatOptions = {
     weekday: 'short',
     day: 'numeric',
     month: 'short',
     year: 'numeric',
   };
 
-  if (includeTime) {
-    options.hour = '2-digit';
-    options.minute = '2-digit';
+  if (dateOnlyMatch) {
+    // Parse YYYY-MM-DD as a calendar date so negative UTC offsets never shift deadlines by one day.
+    const [, y, m, d] = dateOnlyMatch;
+    date = new Date(Number(y), Number(m) - 1, Number(d));
+  } else {
+    date = new Date(dateStr);
+    if (includeTime) {
+      formatOptions.hour = '2-digit';
+      formatOptions.minute = '2-digit';
+    }
+    const tz = options.timezone || getTimezone();
+    if (tz) {
+      formatOptions.timeZone = tz;
+    }
   }
 
-  return new Intl.DateTimeFormat('id-ID', options).format(date);
+  if (Number.isNaN(date.getTime())) return String(dateStr);
+
+  try {
+    return new Intl.DateTimeFormat(intlLocale, formatOptions).format(date);
+  } catch (_) {
+    delete formatOptions.timeZone;
+    return new Intl.DateTimeFormat(intlLocale, formatOptions).format(date);
+  }
 }
+
+// Backward-compatible export name used across existing modules.
+export const formatDateID = formatDate;
 
 export function normalizePhone(rawPhone) {
   if (!rawPhone) return '';
@@ -51,10 +100,11 @@ export function generateTicketCode(sequenceNumber = null, prefix = WORKSHOP_INFO
     sequenceNumber !== null
       ? String(sequenceNumber).padStart(3, '0')
       : String(Math.floor(100 + Math.random() * 900));
-  const safePrefix = String(prefix || WORKSHOP_INFO.TICKET_PREFIX || 'MND')
-    .trim()
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '') || 'MND';
+  const safePrefix =
+    String(prefix || WORKSHOP_INFO.TICKET_PREFIX || 'MND')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '') || 'MND';
 
   return `${safePrefix}-${yy}${mm}-${seq}`;
 }
@@ -96,15 +146,15 @@ export function debounce(fn, delay = 400) {
 export function compressImage(file, maxWidth = 1080, quality = 0.8) {
   return new Promise((resolve, reject) => {
     if (!file || !file.type.startsWith('image/')) {
-      reject(new Error('File bukan gambar yang valid.'));
+      reject(new Error(t('image.invalidFile')));
       return;
     }
 
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error('Gagal membaca file gambar.'));
+    reader.onerror = () => reject(new Error(t('image.readFailed')));
     reader.onload = (event) => {
       const img = new Image();
-      img.onerror = () => reject(new Error('Gagal memuat gambar untuk kompresi.'));
+      img.onerror = () => reject(new Error(t('image.loadFailed')));
       img.onload = () => {
         let { width, height } = img;
 
@@ -123,7 +173,7 @@ export function compressImage(file, maxWidth = 1080, quality = 0.8) {
         canvas.toBlob(
           (blob) => {
             if (blob) resolve(blob);
-            else reject(new Error('Gagal mengompresi gambar.'));
+            else reject(new Error(t('image.compressFailed')));
           },
           'image/jpeg',
           quality
@@ -137,33 +187,36 @@ export function compressImage(file, maxWidth = 1080, quality = 0.8) {
 
 export function getDeadlineStatus(estimatedDateStr) {
   if (!estimatedDateStr) {
-    return { label: 'Tanpa Deadline', isUrgent: false, isOverdue: false, diffDays: null };
+    return { label: t('deadline.none'), isUrgent: false, isOverdue: false, diffDays: null };
   }
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const target = new Date(estimatedDateStr);
+  const dateOnlyMatch = typeof estimatedDateStr === 'string' ? estimatedDateStr.trim().match(DATE_ONLY_REGEX) : null;
+  const target = dateOnlyMatch
+    ? new Date(Number(dateOnlyMatch[1]), Number(dateOnlyMatch[2]) - 1, Number(dateOnlyMatch[3]))
+    : new Date(estimatedDateStr);
   target.setHours(0, 0, 0, 0);
 
   const diffDays = Math.round((target - today) / (1000 * 60 * 60 * 24));
 
   if (diffDays < 0) {
     return {
-      label: `Terlambat ${Math.abs(diffDays)} hari`,
+      label: t('deadline.overdue', { days: Math.abs(diffDays) }),
       isUrgent: true,
       isOverdue: true,
       diffDays,
     };
   }
   if (diffDays === 0) {
-    return { label: 'Deadline Hari Ini', isUrgent: true, isOverdue: false, diffDays: 0 };
+    return { label: t('deadline.today'), isUrgent: true, isOverdue: false, diffDays: 0 };
   }
   if (diffDays === 1) {
-    return { label: 'Besok (H-1)', isUrgent: true, isOverdue: false, diffDays: 1 };
+    return { label: t('deadline.tomorrow'), isUrgent: true, isOverdue: false, diffDays: 1 };
   }
   return {
-    label: `${diffDays} hari lagi`,
+    label: t('deadline.inDays', { days: diffDays }),
     isUrgent: false,
     isOverdue: false,
     diffDays,

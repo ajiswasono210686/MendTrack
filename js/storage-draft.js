@@ -1,3 +1,5 @@
+import { t, onLocaleChange } from './i18n.js';
+
 const DRAFT_STORAGE_PREFIX = 'mendtrack_admin_order_draft_v1';
 
 function getDraftStorageKey(tenantId) {
@@ -13,10 +15,10 @@ export function initConnectionMonitor(badgeElementId = 'connection-badge', onSta
     if (badge) {
       if (isOnline) {
         badge.className = 'mt-badge mt-badge-online';
-        badge.innerHTML = '<span class="mt-badge-dot" aria-hidden="true"></span><span>Online</span>';
+        badge.innerHTML = `<span class="mt-badge-dot" aria-hidden="true"></span><span>${t('common.online')}</span>`;
       } else {
         badge.className = 'mt-badge mt-badge-offline';
-        badge.innerHTML = '<span class="mt-badge-dot" aria-hidden="true"></span><span>Offline (Draf Lokal)</span>';
+        badge.innerHTML = `<span class="mt-badge-dot" aria-hidden="true"></span><span>${t('common.offlineDraft')}</span>`;
       }
     }
 
@@ -27,11 +29,13 @@ export function initConnectionMonitor(badgeElementId = 'connection-badge', onSta
 
   window.addEventListener('online', updateUI);
   window.addEventListener('offline', updateUI);
+  const unsubscribeLocale = onLocaleChange(updateUI);
   updateUI();
 
   return () => {
     window.removeEventListener('online', updateUI);
     window.removeEventListener('offline', updateUI);
+    unsubscribeLocale();
   };
 }
 

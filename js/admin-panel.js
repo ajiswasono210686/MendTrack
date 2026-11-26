@@ -1,8 +1,4 @@
-import {
-  SUPABASE_CONFIG,
-  STATUS_META,
-  PAYMENT_STATUS_META,
-} from './config.js';
+import { SUPABASE_CONFIG } from './config.js';
 import { supabase, isSupabaseConfigured } from './supabase-client.js';
 import {
   formatCurrency,
@@ -33,11 +29,35 @@ import {
   deactivateService,
   activateService,
 } from './store-settings.js';
+import {
+  t,
+  getLocale,
+  setLocale,
+  getIntlLocale,
+  setCurrency,
+  setTimezone,
+  getCurrencyMeta,
+  roundCurrencyAmount,
+  detectPreferredLocale,
+  applyTranslations,
+  SUPPORTED_CURRENCIES,
+  SUPPORTED_TIMEZONES,
+  LOCALE_STORAGE_KEY,
+  getStatusMeta,
+  getPaymentStatusMeta,
+  getCashCategories,
+  getCashCategoryLabel,
+  getPaymentMethodLabel,
+  getServiceCategoryLabel,
+} from './i18n.js';
 
 let activeTenant = null;
 let pendingVerifyEmail = '';
 let authResolutionSeq = 0;
 let onboardingSlugTouched = false;
+let onboardingHoursTouched = false;
+let currentAppPage = 'orders';
+let currentAuthMode = 'login';
 
 let allOrders = [];
 let workloadDateFilter = null;
@@ -53,6 +73,98 @@ let workshopSettings = { ...DEFAULT_STORE_SETTINGS };
 let activeServiceCatalog = [];
 let lastModalTrigger = null;
 let itemRowCounter = 0;
+
+function detectBrowserTimezone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Jakarta';
+  } catch (_) {
+    return 'Asia/Jakarta';
+  }
+}
+
+function populateRegionalSelects(extraTimezone = '') {
+  const currencyOptionsHTML = SUPPORTED_CURRENCIES.map(
+    (c) => `<option value="${c.code}">${escapeHTML(c.label)}</option>`
+  ).join('');
+
+  ['onboard-currency', 'store-currency-input'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = currencyOptionsHTML;
+  });
+
+  const knownTz = new Set(SUPPORTED_TIMEZONES.map((tz) => tz.value));
+  const tzList = [...SUPPORTED_TIMEZONES];
+  [detectBrowserTimezone(), extraTimezone].forEach((tz) => {
+    const cleaned = String(tz || '').trim();
+    if (cleaned && !knownTz.has(cleaned)) {
+      knownTz.add(cleaned);
+      tzList.push({ value: cleaned, label: cleaned });
+    }
+  });
+
+  const tzOptionsHTML = tzList
+    .map((tz) => `<option value="${escapeHTML(tz.value)}">${escapeHTML(tz.label)}</option>`)
+    .join('');
+
+  ['onboard-timezone', 'store-timezone-input'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = tzOptionsHTML;
+  });
+}
+
+function syncCurrencyInputs(root = document) {
+  const meta = getCurrencyMeta();
+  root.querySelectorAll('[data-currency-label]').forEach((el) => {
+    el.textContent = meta.shortLabel;
+  });
+  root.querySelectorAll('[data-currency-input]').forEach((input) => {
+    const mode = input.getAttribute('data-currency-input');
+    input.setAttribute('inputmode', meta.decimals > 0 ? 'decimal' : 'numeric');
+    if (mode === 'positive') {
+      input.setAttribute('min', meta.minPositive);
+      input.setAttribute('step', meta.decimals === 0 ? '1' : meta.step);
+    } else {
+      input.setAttribute('min', '0');
+      input.setAttribute('step', meta.step);
+    }
+  });
+}
+
+function getPageHeading(page) {
+  const key = ['orders', 'customers', 'schedule', 'cash', 'reports', 'services', 'measurements', 'archive'].includes(page)
+    ? page
+    : 'orders';
+  return {
+    title: t(`page.${key}.title`),
+    subtitle: t(`page.${key}.subtitle`),
+  };
+}
+
+function applyWorkspaceLocalization() {
+  applyTranslations(document);
+  syncCurrencyInputs(document);
+  updateCashCategoryOptions();
+
+  const heading = getPageHeading(currentAppPage);
+  const titleEl = document.getElementById('workspace-page-title');
+  const subtitleEl = document.getElementById('workspace-page-subtitle');
+  if (titleEl) titleEl.textContent = heading.title;
+  if (subtitleEl) subtitleEl.textContent = heading.subtitle;
+
+  if (activeTenant) {
+    if (adminDocHeading) adminDocHeading.textContent = t('admin.docHeadingWorkspace', { name: workshopSettings.NAME });
+    updateDashboardMetrics();
+    renderWorkloadCalendar();
+    renderOrdersList();
+    renderArchiveOrders();
+    checkSavedDraftBanner();
+    if (currentAppPage === 'customers') renderCustomersList();
+    if (currentAppPage === 'cash') renderCash();
+    if (currentAppPage === 'reports') renderReports();
+    if (currentAppPage === 'services') renderServicesList();
+    if (currentAppPage === 'measurements') renderMeasurementTemplateSettings();
+  }
+}
 
 function getActiveTenantId() {
   return activeTenant?.id || null;
@@ -84,41 +196,6 @@ function isValidWorkshopSlug(slug) {
   return /^[a-z0-9](?:[a-z0-9-]{1,46}[a-z0-9])$/.test(String(slug || ''));
 }
 
-const PAGE_HEADINGS = {
-  orders: {
-    title: 'Order Aktif',
-    subtitle: 'Pantau antrean pengerjaan, deadline terdekat, dan pelunasan.',
-  },
-  customers: {
-    title: 'Pelanggan',
-    subtitle: 'Kelola data kontak, catatan ukuran, dan riwayat order pelanggan.',
-  },
-  schedule: {
-    title: 'Jadwal Workshop',
-    subtitle: 'Pantau kepadatan beban kerja harian berdasarkan target selesai order.',
-  },
-  cash: {
-    title: 'Kas Workshop',
-    subtitle: 'Catat dan pantau uang masuk serta pengeluaran operasional workshop.',
-  },
-  reports: {
-    title: 'Laporan Transaksi',
-    subtitle: 'Ringkasan nilai order, piutang, dan arus kas sesuai periode terpilih.',
-  },
-  services: {
-    title: 'Layanan & Durasi',
-    subtitle: 'Atur katalog layanan, kategori, dan estimasi durasi pengerjaan.',
-  },
-  measurements: {
-    title: 'Template Ukuran',
-    subtitle: 'Susun jenis pakaian dan urutan komponen ukuran pelanggan.',
-  },
-  archive: {
-    title: 'Arsip Order',
-    subtitle: 'Daftar order yang sudah selesai dan diambil pelanggan.',
-  },
-};
-
 function rememberTrigger() {
   if (document.activeElement instanceof HTMLElement) {
     lastModalTrigger = document.activeElement;
@@ -138,7 +215,7 @@ function applyStoreSettings() {
   const logoWrap = document.getElementById('header-store-logo-wrap');
   if (logoWrap) {
     logoWrap.innerHTML = workshopSettings.LOGO
-      ? `<img src="${workshopSettings.LOGO}" width="40" height="40" alt="Logo ${escapeHTML(workshopSettings.NAME)}" class="w-full h-full object-contain">`
+      ? `<img src="${workshopSettings.LOGO}" width="40" height="40" alt="${escapeHTML(t('common.logoAlt', { name: workshopSettings.NAME }))}" class="w-full h-full object-contain">`
       : '<i data-lucide="scissors" class="w-5 h-5" aria-hidden="true"></i>';
   }
   applyStoreIdentity(document, workshopSettings);
@@ -150,6 +227,7 @@ function openStoreSettings() {
   if (!modal) return;
   rememberTrigger();
   delete modal.dataset.pendingLogo;
+  populateRegionalSelects(workshopSettings.TIMEZONE);
   const trackUrlInput = document.getElementById('store-tracking-url-display');
   if (trackUrlInput) trackUrlInput.value = getPublicTrackingUrl();
   document.getElementById('store-logo-input').value = '';
@@ -158,6 +236,14 @@ function openStoreSettings() {
   document.getElementById('store-phone-input').value = workshopSettings.ADMIN_PHONE;
   document.getElementById('store-tagline-input').value = workshopSettings.TAGLINE;
   document.getElementById('store-hours-input').value = workshopSettings.OPENING_HOURS;
+  const localeSelect = document.getElementById('store-locale-input');
+  if (localeSelect) localeSelect.value = workshopSettings.LOCALE || 'id';
+  const currencySelect = document.getElementById('store-currency-input');
+  if (currencySelect) currencySelect.value = workshopSettings.CURRENCY || 'IDR';
+  const timezoneSelect = document.getElementById('store-timezone-input');
+  if (timezoneSelect) timezoneSelect.value = workshopSettings.TIMEZONE || 'Asia/Jakarta';
+  const prefixInput = document.getElementById('store-ticket-prefix-input');
+  if (prefixInput) prefixInput.value = workshopSettings.TICKET_PREFIX || 'MND';
   const capacity = workshopSettings.DAILY_CAPACITY_MINUTES || 480;
   document.getElementById('daily-capacity-hours').value = Math.floor(capacity / 60);
   document.getElementById('daily-capacity-minutes').value = capacity % 60;
@@ -198,31 +284,34 @@ async function renderServicesList() {
   try {
     const services = await fetchServices(tenantId);
     if (!services.length) {
-      container.innerHTML = '<p class="text-xs mt-muted">Belum ada layanan. Tambahkan layanan pertama pada formulir di bawah.</p>';
+      container.innerHTML = `<p class="text-xs mt-muted">${escapeHTML(t('services.empty'))}</p>`;
       return;
     }
     container.innerHTML = services
       .map((service) => {
-        const duration = `${Math.floor(service.estimated_minutes / 60)}j ${service.estimated_minutes % 60}m`;
-        const categoryLabel = service.service_category === 'custom' ? 'Custom' : 'Reparasi';
+        const duration = t('duration.hm', {
+          hours: Math.floor(service.estimated_minutes / 60),
+          minutes: service.estimated_minutes % 60,
+        });
+        const categoryLabel = getServiceCategoryLabel(service.service_category);
         return `<div class="mt-card p-3 flex flex-wrap items-center justify-between gap-2 ${service.is_active ? '' : 'opacity-65'}">
           <div class="min-w-0">
             <p class="text-sm font-semibold mt-text">${escapeHTML(service.name)}</p>
-            <p class="text-xs mt-muted font-mono-code">${categoryLabel} · ${duration} · ${service.is_active ? 'Aktif' : 'Nonaktif'}</p>
+            <p class="text-xs mt-muted font-mono-code">${escapeHTML(categoryLabel)} · ${escapeHTML(duration)} · ${escapeHTML(service.is_active ? t('common.active') : t('common.inactive'))}</p>
           </div>
           <div class="flex gap-2 shrink-0">
             ${
               service.is_active
-                ? `<button type="button" data-edit-service="${service.id}" class="mt-btn mt-btn-secondary text-xs">Edit</button>
-                   <button type="button" data-disable-service="${service.id}" class="mt-btn mt-btn-danger-ghost text-xs">Nonaktifkan</button>`
-                : `<button type="button" data-activate-service="${service.id}" class="mt-btn mt-btn-success text-xs">Aktifkan</button>`
+                ? `<button type="button" data-edit-service="${service.id}" class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('common.edit'))}</button>
+                   <button type="button" data-disable-service="${service.id}" class="mt-btn mt-btn-danger-ghost text-xs">${escapeHTML(t('common.deactivate'))}</button>`
+                : `<button type="button" data-activate-service="${service.id}" class="mt-btn mt-btn-success text-xs">${escapeHTML(t('common.activate'))}</button>`
             }
           </div>
         </div>`;
       })
       .join('');
   } catch (error) {
-    container.innerHTML = `<p class="text-xs mt-danger-text">Gagal memuat layanan: ${escapeHTML(error.message || '')}</p>`;
+    container.innerHTML = `<p class="text-xs mt-danger-text">${escapeHTML(t('services.loadFailed', { message: error.message || '' }))}</p>`;
   }
 }
 
@@ -262,12 +351,12 @@ async function handleServiceEditSubmit(event) {
 
   if (!id) return;
   if (!name) {
-    alert('Nama layanan wajib diisi.');
+    alert(t('services.editNameRequired'));
     document.getElementById('edit-service-name')?.focus();
     return;
   }
   if (!Number.isInteger(totalMinutes) || totalMinutes <= 0) {
-    alert('Estimasi dalam menit harus berupa bilangan bulat lebih dari 0.');
+    alert(t('services.editMinutesInvalid'));
     document.getElementById('edit-service-minutes')?.focus();
     return;
   }
@@ -275,22 +364,22 @@ async function handleServiceEditSubmit(event) {
   const submitBtn = document.getElementById('save-service-edit-btn');
   if (submitBtn) {
     submitBtn.disabled = true;
-    submitBtn.textContent = 'Menyimpan...';
+    submitBtn.textContent = t('common.saving');
   }
   try {
     const tenantId = getActiveTenantId();
-    if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+    if (!tenantId) throw new Error(t('common.noActiveTenant'));
     await updateService(tenantId, id, name, totalMinutes, category);
     closeServiceEditModal();
     await renderServicesList();
     await loadWorkloadServices();
     renderWorkloadCalendar();
   } catch (error) {
-    alert('Gagal mengubah layanan: ' + (error.message || 'Terjadi kesalahan.'));
+    alert(t('services.editFailed', { message: error.message || t('common.genericError') }));
   } finally {
     if (submitBtn) {
       submitBtn.disabled = false;
-      submitBtn.textContent = 'Simpan Perubahan';
+      submitBtn.textContent = t('common.saveChanges');
     }
   }
 }
@@ -299,16 +388,16 @@ function renderStoreLogoPreview(dataUrl) {
   const preview = document.getElementById('store-logo-preview-wrap');
   if (!preview) return;
   preview.innerHTML = dataUrl
-    ? `<img src="${dataUrl}" width="80" height="80" alt="Pratinjau logo toko" class="w-full h-full object-contain">`
+    ? `<img src="${dataUrl}" width="80" height="80" alt="${escapeHTML(t('common.logoPreviewAlt'))}" class="w-full h-full object-contain">`
     : '<i data-lucide="image" class="w-7 h-7 mt-muted" aria-hidden="true"></i>';
   if (window.lucide) window.lucide.createIcons();
 }
 
 async function imageFileToDataUrl(file) {
   if (!file || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-    throw new Error('Logo harus berupa gambar JPG, PNG, atau WebP.');
+    throw new Error(t('settings.logoInvalidType'));
   }
-  if (file.size > 8 * 1024 * 1024) throw new Error('Ukuran logo maksimal 8 MB.');
+  if (file.size > 8 * 1024 * 1024) throw new Error(t('settings.logoMaxSize'));
   const bitmap = await createImageBitmap(file);
   const canvas = document.createElement('canvas');
   const scale = Math.min(1, 480 / Math.max(bitmap.width, bitmap.height));
@@ -401,7 +490,8 @@ function mountSeparatedManagementPages() {
 }
 
 function showAppPage(page) {
-  const heading = PAGE_HEADINGS[page] || PAGE_HEADINGS.orders;
+  currentAppPage = page || 'orders';
+  const heading = getPageHeading(currentAppPage);
   const titleEl = document.getElementById('workspace-page-title');
   const subtitleEl = document.getElementById('workspace-page-subtitle');
   if (titleEl) titleEl.textContent = heading.title;
@@ -458,16 +548,16 @@ function renderArchiveOrders() {
             <div>
               <p class="font-mono-code font-bold mt-text">${escapeHTML(order.ticket_code || '')}</p>
               <p class="text-sm mt-text">${escapeHTML(order.customer_name || '')}</p>
-              <p class="text-xs mt-muted">Selesai · ${formatDateID(order.updated_at || order.created_at)}</p>
+              <p class="text-xs mt-muted">${escapeHTML(t('archive.completedMeta', { date: formatDateID(order.updated_at || order.created_at) }))}</p>
             </div>
             <div class="text-right flex flex-col items-end gap-1">
-              <p class="font-mono-code font-bold mt-text">${formatCurrency(order.total_amount)}</p>
-              <button type="button" data-edit-order="${order.id}" class="mt-btn mt-btn-secondary text-xs">Lihat order</button>
+              <p class="font-mono-code font-bold mt-text">${escapeHTML(formatCurrency(order.total_amount))}</p>
+              <button type="button" data-edit-order="${order.id}" class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('archive.viewOrder'))}</button>
             </div>
           </article>`
         )
         .join('')
-    : '<div class="mt-card p-8 text-center text-sm mt-muted">Belum ada order selesai dan diambil.</div>';
+    : `<div class="mt-card p-8 text-center text-sm mt-muted">${escapeHTML(t('archive.empty'))}</div>`;
 }
 
 async function renderReports() {
@@ -494,7 +584,7 @@ async function renderReports() {
   const services = {};
   inRange.forEach((o) =>
     (o.order_items || []).forEach((it) => {
-      const name = it.service_type || 'Lainnya';
+      const name = it.service_type || t('cashCategory.lain_lain');
       services[name] = (services[name] || 0) + 1;
     })
   );
@@ -506,7 +596,7 @@ async function renderReports() {
   let cashFetchError = null;
   try {
     const tenantId = getActiveTenantId();
-    if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+    if (!tenantId) throw new Error(t('common.noActiveTenant'));
     let q = supabase
       .from('cash_transactions')
       .select('transaction_type,category,amount,occurred_at')
@@ -517,7 +607,7 @@ async function renderReports() {
     cashRows = data || [];
   } catch (err) {
     console.warn('Data diagram kas gagal dimuat:', err);
-    cashFetchError = err.message || 'Gagal mengambil data transaksi kas.';
+    cashFetchError = err.message || t('reports.cashLoadError');
   }
 
   const incomeRows = cashRows.filter((x) => x.transaction_type === 'income');
@@ -556,17 +646,8 @@ async function renderReports() {
         return `${colorFor(k, i)} ${a}% ${acc}%`;
       })
       .join(',');
-    const names = {
-      custom: 'Custom',
-      reparasi: 'Reparasi',
-      lain_lain: 'Lain-lain',
-      alat_bahan: 'Alat dan Bahan',
-      operasional: 'Operasional',
-      makan_minum: 'Makan dan Minum',
-      gaji: 'Gaji',
-    };
     return `<section class="mt-card p-4 min-w-0">
-      <h3 class="font-bold text-sm mt-text mb-3">${title}</h3>
+      <h3 class="font-bold text-sm mt-text mb-3">${escapeHTML(title)}</h3>
       ${
         entries.length
           ? `<div class="flex items-center gap-3">
@@ -576,14 +657,14 @@ async function renderReports() {
                   .map(
                     ([k, v], i) => `<div class="flex items-center gap-2 text-xs min-w-0">
                       <i class="w-2.5 h-2.5 rounded-sm shrink-0" style="background:${colorFor(k, i)}" aria-hidden="true"></i>
-                      <span class="truncate mt-text">${names[k] || escapeHTML(k)}</span>
+                      <span class="truncate mt-text">${escapeHTML(getCashCategoryLabel(k))}</span>
                       <b class="ml-auto font-mono-code mt-text">${Math.round((v / (total || 1)) * 100)}%</b>
                     </div>`
                   )
                   .join('')}
               </div>
             </div>`
-          : '<p class="text-xs mt-muted">Belum ada transaksi pada periode ini.</p>'
+          : `<p class="text-xs mt-muted">${escapeHTML(t('reports.noTransactions'))}</p>`
       }
     </section>`;
   };
@@ -604,6 +685,7 @@ async function renderReports() {
     else if (row.transaction_type === 'expense') bucket.expense += Number(row.amount || 0);
   });
 
+  const intlLoc = getIntlLocale();
   const chartData = [...bucketMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   const labelFor = (key) => {
     const d =
@@ -611,8 +693,8 @@ async function renderReports() {
         ? new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, 1)
         : new Date(Number(key.slice(0, 4)), Number(key.slice(5, 7)) - 1, Number(key.slice(8, 10)));
     return period === 'all'
-      ? new Intl.DateTimeFormat('id-ID', { month: 'short', year: '2-digit' }).format(d)
-      : new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'short' }).format(d);
+      ? new Intl.DateTimeFormat(intlLoc, { month: 'short', year: '2-digit' }).format(d)
+      : new Intl.DateTimeFormat(intlLoc, { day: 'numeric', month: 'short' }).format(d);
   };
   const maxValue = Math.max(1, ...chartData.flatMap(([, v]) => [v.income, v.expense]));
   const barWidth = period === 'day' ? 44 : period === 'week' ? 32 : period === 'month' ? 22 : 28;
@@ -624,57 +706,57 @@ async function renderReports() {
           const h2 = Math.max(v.expense ? 2 : 0, (v.expense / maxValue) * 112);
           return `<div class="flex flex-col items-center justify-end shrink-0" style="width:${barWidth * 2 + 14}px;height:158px">
             <div class="flex items-end justify-center gap-1 h-[124px] w-full">
-              <div title="Pemasukan ${formatCurrency(v.income)}" class="rounded-t" style="background:#166534;width:${barWidth}px;height:${h1}px"></div>
-              <div title="Pengeluaran ${formatCurrency(v.expense)}" class="rounded-t" style="background:#9F1239;width:${barWidth}px;height:${h2}px"></div>
+              <div title="${escapeHTML(t('reports.income'))} ${escapeHTML(formatCurrency(v.income))}" class="rounded-t" style="background:#166534;width:${barWidth}px;height:${h1}px"></div>
+              <div title="${escapeHTML(t('reports.expense'))} ${escapeHTML(formatCurrency(v.expense))}" class="rounded-t" style="background:#9F1239;width:${barWidth}px;height:${h2}px"></div>
             </div>
-            <span class="text-xs mt-muted mt-2 whitespace-nowrap">${labelFor(key)}</span>
+            <span class="text-xs mt-muted mt-2 whitespace-nowrap">${escapeHTML(labelFor(key))}</span>
           </div>`;
         })
         .join('')
-    : '<p class="text-xs mt-muted p-4">Belum ada transaksi pada periode ini.</p>';
+    : `<p class="text-xs mt-muted p-4">${escapeHTML(t('reports.noTransactions'))}</p>`;
 
   const cashErrorBanner = cashFetchError
     ? `<div role="alert" class="mt-notice-error p-4 text-xs flex flex-wrap items-center justify-between gap-2">
-        <span>Data kas gagal dimuat: ${escapeHTML(cashFetchError)}</span>
-        <button type="button" data-retry-reports class="mt-btn mt-btn-secondary text-xs">Muat ulang</button>
+        <span>${escapeHTML(t('reports.cashBannerError', { message: cashFetchError }))}</span>
+        <button type="button" data-retry-reports class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('common.reload'))}</button>
       </div>`
     : '';
 
   const chart = `<section class="mt-card p-4 min-w-0">
-    <h3 class="font-bold text-sm mt-text mb-2">Pemasukan vs Pengeluaran</h3>
+    <h3 class="font-bold text-sm mt-text mb-2">${escapeHTML(t('reports.incomeVsExpense'))}</h3>
     <div class="flex gap-4 text-xs mb-2">
-      <span class="mt-success-text font-semibold">Pemasukan</span>
-      <span class="mt-danger-text font-semibold">Pengeluaran</span>
+      <span class="mt-success-text font-semibold">${escapeHTML(t('reports.income'))}</span>
+      <span class="mt-danger-text font-semibold">${escapeHTML(t('reports.expense'))}</span>
     </div>
     <div class="overflow-x-auto">
       <div class="flex items-end gap-1 min-w-full" style="width:${chartWidth}px;min-height:166px">${bars}</div>
     </div>
     <div class="flex justify-between text-xs mt-2 font-mono-code">
-      <b class="mt-success-text">Masuk ${formatCurrency(incomeTotal)}</b>
-      <b class="mt-danger-text">Keluar ${formatCurrency(expenseTotal)}</b>
+      <b class="mt-success-text">${escapeHTML(t('reports.inShort', { amount: formatCurrency(incomeTotal) }))}</b>
+      <b class="mt-danger-text">${escapeHTML(t('reports.outShort', { amount: formatCurrency(expenseTotal) }))}</b>
     </div>
-    <p class="text-xs mt-muted mt-2">${period === 'all' ? 'Dikelompokkan per bulan sepanjang riwayat transaksi.' : 'Dikelompokkan per hari pada periode terpilih.'}</p>
+    <p class="text-xs mt-muted mt-2">${escapeHTML(period === 'all' ? t('reports.groupedByMonth') : t('reports.groupedByDay'))}</p>
   </section>`;
 
-  const cashCharts = `<div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-stretch">${chart}${pie(incomeRows, 'Kategori Pemasukan', ['reparasi', 'custom'])}${pie(expenseRows, 'Kategori Pengeluaran')}</div>`;
+  const cashCharts = `<div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-stretch">${chart}${pie(incomeRows, t('reports.incomeCategories'), ['reparasi', 'custom'])}${pie(expenseRows, t('reports.expenseCategories'))}</div>`;
   const moneyCard = (label, value, sub) =>
     `<article class="mt-card p-4">
-      <p class="text-xs font-semibold mt-muted">${label}</p>
-      <p class="font-mono-code text-xl font-bold mt-text mt-1">${formatCurrency(value)}</p>
-      <p class="text-xs mt-muted mt-1">${sub}</p>
+      <p class="text-xs font-semibold mt-muted">${escapeHTML(label)}</p>
+      <p class="font-mono-code text-xl font-bold mt-text mt-1">${escapeHTML(formatCurrency(value))}</p>
+      <p class="text-xs mt-muted mt-1">${escapeHTML(sub)}</p>
     </article>`;
 
   target.innerHTML = `
     ${cashErrorBanner}
     ${cashCharts}
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-      ${moneyCard('Nilai order', totalSales, `${inRange.length} order dibuat pada periode ini`)}
-      ${moneyCard('Pembayaran tercatat', paidNow, 'Total DP dan pelunasan yang tercatat')}
-      ${moneyCard('Sisa piutang', receivable, `${unpaidOrders.length} order belum lunas`)}
+      ${moneyCard(t('reports.orderValue'), totalSales, t('reports.orderValueSub', { count: inRange.length }))}
+      ${moneyCard(t('reports.recordedPayments'), paidNow, t('reports.recordedPaymentsSub'))}
+      ${moneyCard(t('reports.unpaidReceivables'), receivable, t('reports.unpaidOrdersSub', { count: unpaidOrders.length }))}
     </div>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
       <section class="mt-card p-4">
-        <h3 class="font-bold mt-text mb-3">Order belum lunas</h3>
+        <h3 class="font-bold mt-text mb-3">${escapeHTML(t('reports.unpaidOrdersTitle'))}</h3>
         ${
           unpaidOrders.length
             ? unpaidOrders
@@ -686,30 +768,30 @@ async function renderReports() {
                       <b class="font-mono-code mt-text">${escapeHTML(o.ticket_code || '')}</b>
                       <p class="text-xs mt-muted">${escapeHTML(o.customer_name || '')}</p>
                     </div>
-                    <b class="font-mono-code mt-danger-text">${formatCurrency(Math.max(0, Number(o.total_amount || 0) - Number(o.paid_amount || 0)))}</b>
+                    <b class="font-mono-code mt-danger-text">${escapeHTML(formatCurrency(Math.max(0, Number(o.total_amount || 0) - Number(o.paid_amount || 0))))}</b>
                   </div>`
                 )
                 .join('')
-            : '<p class="text-sm mt-muted">Tidak ada piutang pada periode ini.</p>'
+            : `<p class="text-sm mt-muted">${escapeHTML(t('reports.noReceivables'))}</p>`
         }
       </section>
       <section class="mt-card p-4">
-        <h3 class="font-bold mt-text mb-3">Layanan paling sering dipesan</h3>
+        <h3 class="font-bold mt-text mb-3">${escapeHTML(t('reports.topServicesTitle'))}</h3>
         ${
           top.length
             ? top
                 .map(
                   ([name, count], i) => `<div class="py-2.5 border-b flex justify-between text-sm" style="border-color: var(--mt-border);">
                     <span class="mt-text">${i + 1}. ${escapeHTML(name)}</span>
-                    <b class="font-mono-code mt-text">${count} item</b>
+                    <b class="font-mono-code mt-text">${escapeHTML(t('common.itemCount', { count }))}</b>
                   </div>`
                 )
                 .join('')
-            : '<p class="text-sm mt-muted">Belum ada data layanan pada periode ini.</p>'
+            : `<p class="text-sm mt-muted">${escapeHTML(t('reports.noServiceData'))}</p>`
         }
       </section>
     </div>
-    <p class="text-xs mt-muted">Catatan: laporan mengelompokkan order berdasarkan tanggal dibuat. Pembayaran menampilkan akumulasi terkini dari setiap order, bukan histori kas per tanggal.</p>
+    <p class="text-xs mt-muted">${escapeHTML(t('reports.footnote'))}</p>
   `;
 
   target.querySelector('[data-retry-reports]')?.addEventListener('click', renderReports);
@@ -775,9 +857,9 @@ function workloadLevel(percent, orderCount) {
 function formatWorkloadDuration(minutes) {
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
-  if (hours && mins) return `${hours}j ${mins}m`;
-  if (hours) return `${hours} jam`;
-  return `${mins} menit`;
+  if (hours && mins) return t('duration.hm', { hours, minutes: mins });
+  if (hours) return t('duration.h', { hours });
+  return t('duration.m', { minutes: mins });
 }
 
 function renderWorkloadCalendar() {
@@ -789,9 +871,10 @@ function renderWorkloadCalendar() {
   const selectedProgress = document.getElementById('workload-selected-progress');
   const selectedNote = document.getElementById('workload-selected-note');
 
+  const intlLoc = getIntlLocale();
   const year = workloadViewMonth.getFullYear();
   const month = workloadViewMonth.getMonth();
-  monthLabel.textContent = new Intl.DateTimeFormat('id-ID', { month: 'long', year: 'numeric' }).format(workloadViewMonth);
+  monthLabel.textContent = new Intl.DateTimeFormat(intlLoc, { month: 'long', year: 'numeric' }).format(workloadViewMonth);
 
   const firstDay = new Date(year, month, 1);
   const mondayOffset = (firstDay.getDay() + 6) % 7;
@@ -810,14 +893,15 @@ function renderWorkloadCalendar() {
       : { orders: [], minutes: 0, capacity: Number(workshopSettings.DAILY_CAPACITY_MINUTES || 480), percent: 0 };
     const level = workloadLevel(workload.percent, workload.orders.length);
     const selected = key === workloadSelectedDate;
+    const orderCountLabel = t('common.orderCount', { count: workload.orders.length });
     markup += `
       <button type="button" class="mt-calendar-day ${inMonth ? '' : 'is-outside'} ${workload.orders.length ? level : 'workload-empty'} ${selected ? 'is-selected' : ''} ${key === todayKey ? 'is-today' : ''}"
-        data-workload-date="${key}" ${inMonth ? '' : 'disabled'} aria-pressed="${selected}" aria-label="${formatDateID(key)}, ${workload.orders.length} order">
+        data-workload-date="${key}" ${inMonth ? '' : 'disabled'} aria-pressed="${selected}" aria-label="${escapeHTML(formatDateID(key))}, ${escapeHTML(orderCountLabel)}">
         <span class="mt-calendar-day-number">${date.getDate()}</span>
         ${
           inMonth && workload.orders.length
-            ? `<span class="mt-calendar-day-count">${workload.orders.length} order</span>
-               <span class="mt-calendar-day-percent font-mono-code">${workload.percent > 100 ? 'Over' : `${Math.round(workload.percent)}%`}</span>`
+            ? `<span class="mt-calendar-day-count">${escapeHTML(orderCountLabel)}</span>
+               <span class="mt-calendar-day-percent font-mono-code">${workload.percent > 100 ? escapeHTML(t('workload.overShort')) : `${Math.round(workload.percent)}%`}</span>`
             : `<span class="mt-calendar-day-empty">${inMonth ? '-' : ''}</span>`
         }
       </button>`;
@@ -827,16 +911,16 @@ function renderWorkloadCalendar() {
   const selected = getWorkloadForDate(workloadSelectedDate);
   const selectedDate = parseLocalDateKey(workloadSelectedDate);
   selectedDateEl.textContent = selectedDate
-    ? new Intl.DateTimeFormat('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(selectedDate)
+    ? new Intl.DateTimeFormat(intlLoc, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(selectedDate)
     : '-';
   selectedLoadEl.textContent = `${formatWorkloadDuration(selected.minutes)} / ${formatWorkloadDuration(selected.capacity)}`;
   selectedProgress.style.width = `${Math.min(100, Math.round(selected.percent))}%`;
   selectedProgress.className = `mt-calendar-progress-fill ${workloadLevel(selected.percent, selected.orders.length)}`;
   selectedNote.textContent = selected.unknownItems
-    ? `${selected.orders.length} order terjadwal. ${selected.unknownItems} item belum memiliki estimasi layanan di katalog, sehingga belum masuk hitungan durasi.`
+    ? t('workload.noteUnknownItems', { orders: selected.orders.length, unknown: selected.unknownItems })
     : selected.orders.length
-      ? `${selected.orders.length} order terjadwal pada tanggal ini. Order Siap Diambil dan Selesai tidak dihitung.`
-      : 'Tidak ada order aktif yang dijadwalkan selesai pada tanggal ini.';
+      ? t('workload.noteScheduled', { orders: selected.orders.length })
+      : t('workload.noteEmpty');
 }
 
 async function loadWorkloadServices() {
@@ -896,13 +980,18 @@ function consumeAuthRedirectError() {
   window.history.replaceState({}, '', cleanUrl);
 
   if (errCode === 'access_denied') {
-    return 'Login Google dibatalkan. Silakan coba lagi atau masuk dengan email.';
+    return t('admin.googleCancelled');
   }
-  return errDesc || 'Gagal menyelesaikan autentikasi Google. Silakan coba kembali.';
+  return errDesc || t('admin.googleAuthError');
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  setLocale(detectPreferredLocale());
+  populateRegionalSelects();
   mountSeparatedManagementPages();
+  applyTranslations(document);
+  syncCurrencyInputs(document);
+  document.title = t('admin.titleDefault');
   applyStoreSettings();
   if (window.lucide) window.lucide.createIcons();
   initConnectionMonitor('connection-badge');
@@ -910,7 +999,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (!isSupabaseConfigured) {
     showAuthScreen('login');
-    showAuthError('Kredensial Supabase belum diisi di js/config.js. Lengkapi URL dan Anon Key terlebih dahulu.');
+    showAuthError(t('admin.configMissingError'));
     return;
   }
 
@@ -943,6 +1032,7 @@ function clearAuthNotices() {
 }
 
 function setAuthMode(mode = 'login') {
+  currentAuthMode = mode;
   clearAuthNotices();
   const isLogin = mode === 'login';
   const isSignup = mode === 'signup';
@@ -955,7 +1045,7 @@ function setAuthMode(mode = 'login') {
   verifyEmailPanel?.classList.toggle('hidden', !isVerify);
 
   if (googleSsoLabel) {
-    googleSsoLabel.textContent = isSignup ? 'Daftar dengan Google' : 'Lanjutkan dengan Google';
+    googleSsoLabel.textContent = isSignup ? t('admin.googleSignup') : t('admin.googleContinue');
   }
 
   if (authTabLogin) {
@@ -972,17 +1062,17 @@ function setAuthMode(mode = 'login') {
   const subheading = document.getElementById('auth-subheading');
   if (subheading) {
     subheading.textContent = isVerify
-      ? 'Konfirmasi alamat email untuk mengaktifkan akun'
+      ? t('admin.authSubVerify')
       : isSignup
-        ? 'Daftarkan akun pemilik workshop baru'
-        : 'Masuk ke ruang kerja admin workshop';
+        ? t('admin.authSubSignup')
+        : t('admin.authSubLogin');
   }
   if (adminDocHeading) {
     adminDocHeading.textContent = isVerify
-      ? 'MendTrack Admin - Verifikasi email'
+      ? t('admin.docHeadingVerify')
       : isSignup
-        ? 'MendTrack Admin - Daftar workshop'
-        : 'MendTrack Admin - Masuk';
+        ? t('admin.docHeadingSignup')
+        : t('admin.docHeadingLogin');
   }
   if (window.lucide) window.lucide.createIcons();
 }
@@ -992,6 +1082,8 @@ function showAuthScreen(mode = 'login') {
   authScreen?.classList.remove('hidden');
   onboardingScreen?.classList.add('hidden');
   adminWorkspace?.classList.add('hidden');
+  document.title = t('admin.titleDefault');
+  applyTranslations(document);
   setAuthMode(mode);
 }
 
@@ -1007,7 +1099,7 @@ function updateOnboardingSlugPreview() {
   const previewEl = document.getElementById('onboard-slug-preview');
   if (!slugInput || !previewEl) return;
   const slug = slugInput.value.trim().toLowerCase();
-  previewEl.textContent = `${window.location.origin}/t/${slug || 'nama-workshop'}`;
+  previewEl.textContent = `${window.location.origin}/t/${slug || t('landing.slugPlaceholder')}`;
 }
 
 function showOnboardingScreen(userEmail = '') {
@@ -1017,9 +1109,26 @@ function showOnboardingScreen(userEmail = '') {
   onboardingScreen?.classList.remove('hidden');
   onboardingErrorBox?.classList.add('hidden');
   onboardingSlugTouched = false;
-  if (adminDocHeading) adminDocHeading.textContent = 'MendTrack Admin - Buat ruang kerja workshop';
+  onboardingHoursTouched = false;
+  populateRegionalSelects();
+
+  const activeLoc = getLocale();
+  const onboardLocale = document.getElementById('onboard-locale');
+  if (onboardLocale) onboardLocale.value = activeLoc;
+  const onboardCurrency = document.getElementById('onboard-currency');
+  if (onboardCurrency) onboardCurrency.value = activeLoc === 'en' ? 'USD' : 'IDR';
+  const onboardTimezone = document.getElementById('onboard-timezone');
+  if (onboardTimezone) onboardTimezone.value = detectBrowserTimezone();
+  const onboardPrefix = document.getElementById('onboard-ticket-prefix');
+  if (onboardPrefix && !onboardPrefix.value) onboardPrefix.value = 'MND';
+  const onboardHours = document.getElementById('onboard-hours');
+  if (onboardHours) onboardHours.value = t('common.defaultHours');
+
+  if (adminDocHeading) adminDocHeading.textContent = t('admin.docHeadingOnboarding');
+  document.title = t('admin.titleDefault');
   const emailEl = document.getElementById('onboarding-user-email');
   if (emailEl) emailEl.textContent = userEmail || '-';
+  applyTranslations(document);
   updateOnboardingSlugPreview();
   if (window.lucide) window.lucide.createIcons();
 }
@@ -1045,7 +1154,13 @@ function resetTenantState() {
   searchQuery = '';
   orderStatusFilter = 'all';
   workshopSettings = { ...DEFAULT_STORE_SETTINGS };
+  setLocale(detectPreferredLocale());
+  setCurrency('IDR');
+  setTimezone('Asia/Jakarta');
+  applyTranslations(document);
+  syncCurrencyInputs(document);
   applyStoreSettings();
+  document.title = t('admin.titleDefault');
 
   draftBanner?.classList.add('hidden');
   waReadyToast?.classList.add('hidden');
@@ -1108,7 +1223,7 @@ async function resolveAuthSession(session) {
     console.error('Gagal memeriksa keanggotaan workshop:', err);
     resetTenantState();
     showAuthScreen('login');
-    showAuthError('Gagal memuat data workshop: ' + (err.message || 'Coba masuk kembali.'));
+    showAuthError(t('admin.loadTenantFailed', { message: err.message || t('admin.retrySignIn') }));
   }
 }
 
@@ -1117,13 +1232,18 @@ async function enterWorkspace(tenant) {
   const switchedTenant = activeTenant?.id !== tenant.id;
   activeTenant = tenant;
   workshopSettings = mapTenantToSettings(tenant);
+  setLocale(workshopSettings.LOCALE);
+  setCurrency(workshopSettings.CURRENCY);
+  setTimezone(workshopSettings.TIMEZONE);
+  applyTranslations(document);
+  syncCurrencyInputs(document);
   applyStoreSettings();
 
   authLoadingScreen?.classList.add('hidden');
   authScreen?.classList.add('hidden');
   onboardingScreen?.classList.add('hidden');
   adminWorkspace?.classList.remove('hidden');
-  if (adminDocHeading) adminDocHeading.textContent = `${workshopSettings.NAME} - Ruang kerja admin`;
+  if (adminDocHeading) adminDocHeading.textContent = t('admin.docHeadingWorkspace', { name: workshopSettings.NAME });
 
   if (switchedTenant) {
     allOrders = [];
@@ -1131,6 +1251,8 @@ async function enterWorkspace(tenant) {
     workloadServices = [];
     activeServiceCatalog = [];
     showAppPage('orders');
+  } else {
+    applyWorkspaceLocalization();
   }
 
   checkSavedDraftBanner();
@@ -1161,7 +1283,7 @@ function renderOrderDatePicker() {
   if (!grid) return;
   const y = orderDatePickerMonth.getFullYear();
   const m = orderDatePickerMonth.getMonth();
-  document.getElementById('order-date-month').textContent = new Intl.DateTimeFormat('id-ID', {
+  document.getElementById('order-date-month').textContent = new Intl.DateTimeFormat(getIntlLocale(), {
     month: 'long',
     year: 'numeric',
   }).format(orderDatePickerMonth);
@@ -1177,7 +1299,7 @@ function renderOrderDatePicker() {
     const today = key === toLocalDateKey(new Date());
     const level = workloadLevel(workload.percent, workload.orders.length);
     const isSelected = selected === key;
-    html += `<button type="button" data-order-date="${key}" aria-pressed="${isSelected}" aria-label="${formatDateID(key)}" class="order-date-day ${level} ${isSelected ? 'is-selected' : ''} ${today ? 'is-today' : ''}"><span>${d}</span></button>`;
+    html += `<button type="button" data-order-date="${key}" aria-pressed="${isSelected}" aria-label="${escapeHTML(formatDateID(key))}" class="order-date-day ${level} ${isSelected ? 'is-selected' : ''} ${today ? 'is-today' : ''}"><span>${d}</span></button>`;
   }
   grid.innerHTML = html;
 
@@ -1189,7 +1311,7 @@ function renderOrderDatePicker() {
     const fillLevel = workloadLevel(selectedWorkload.percent, selectedWorkload.orders.length);
     progress.innerHTML = `
       <div class="flex items-center justify-between gap-2 mb-1.5">
-        <span class="text-xs font-medium mt-muted">Kapasitas · ${escapeHTML(formatDateID(selected))}</span>
+        <span class="text-xs font-medium mt-muted">${escapeHTML(t('workload.capacityDate', { date: formatDateID(selected) }))}</span>
         <strong class="text-sm font-bold font-mono-code mt-text">${selectedPercent}%</strong>
       </div>
       <div class="mt-calendar-progress-track">
@@ -1330,7 +1452,7 @@ function closeReceiptModal() {
 function closeCustomerDetailModal() {
   document.getElementById('customer-detail-modal')?.classList.add('hidden');
   const heading = document.getElementById('customer-detail-title');
-  if (heading) heading.textContent = 'Detail Pelanggan';
+  if (heading) heading.textContent = t('customers.detailTitle');
   restoreTriggerFocus();
 }
 
@@ -1348,6 +1470,26 @@ function resetOrderFilters() {
 function bindGlobalEvents() {
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') closeActiveDialogOnEscape();
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('[data-mt-lang-toggle]')) return;
+    if (activeTenant) return;
+    const next = getLocale() === 'en' ? 'id' : 'en';
+    setLocale(next, { persist: true, storageKey: LOCALE_STORAGE_KEY });
+    applyTranslations(document);
+    document.title = t('admin.titleDefault');
+    if (authScreen && !authScreen.classList.contains('hidden')) {
+      setAuthMode(currentAuthMode);
+    }
+    if (onboardingScreen && !onboardingScreen.classList.contains('hidden')) {
+      const onboardLocale = document.getElementById('onboard-locale');
+      if (onboardLocale) onboardLocale.value = next;
+      const onboardHours = document.getElementById('onboard-hours');
+      if (onboardHours && !onboardingHoursTouched) onboardHours.value = t('common.defaultHours');
+      if (adminDocHeading) adminDocHeading.textContent = t('admin.docHeadingOnboarding');
+      updateOnboardingSlugPreview();
+    }
   });
 
   document.querySelectorAll('[data-app-page]').forEach((button) =>
@@ -1396,9 +1538,9 @@ function bindGlobalEvents() {
 
   googleSsoBtn?.addEventListener('click', async () => {
     clearAuthNotices();
-    const prevLabel = googleSsoLabel?.textContent || 'Lanjutkan dengan Google';
+    const prevLabel = googleSsoLabel?.textContent || t('admin.googleContinue');
     googleSsoBtn.disabled = true;
-    if (googleSsoLabel) googleSsoLabel.textContent = 'Mengarahkan ke Google...';
+    if (googleSsoLabel) googleSsoLabel.textContent = t('admin.googleRedirecting');
 
     try {
       const { error } = await supabase.auth.signInWithOAuth({
@@ -1412,10 +1554,7 @@ function bindGlobalEvents() {
       });
       if (error) throw error;
     } catch (err) {
-      showAuthError(
-        err.message ||
-          'Gagal membuka login Google. Pastikan provider Google sudah diaktifkan di Supabase Auth.'
-      );
+      showAuthError(err.message || t('admin.googleFailed'));
       googleSsoBtn.disabled = false;
       if (googleSsoLabel) googleSsoLabel.textContent = prevLabel;
     }
@@ -1427,13 +1566,13 @@ function bindGlobalEvents() {
       await navigator.clipboard.writeText(url);
       const btn = document.getElementById('copy-store-track-url-btn');
       if (btn) {
-        btn.textContent = 'Tersalin';
+        btn.textContent = t('common.copied');
         setTimeout(() => {
-          btn.textContent = 'Salin';
+          btn.textContent = t('common.copy');
         }, 1500);
       }
     } catch (_) {
-      alert(`Salin tautan pelacakan:\n${url}`);
+      alert(t('settings.copyUrlAlert', { url }));
     }
   });
 
@@ -1445,7 +1584,7 @@ function bindGlobalEvents() {
     const submitBtn = document.getElementById('login-submit-btn');
 
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<span>Memverifikasi...</span>';
+    submitBtn.innerHTML = `<span>${escapeHTML(t('admin.loginVerifying'))}</span>`;
 
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
@@ -1457,10 +1596,10 @@ function bindGlobalEvents() {
         throw error;
       }
     } catch (err) {
-      showAuthError(err.message || 'Gagal masuk. Periksa email dan kata sandi.');
+      showAuthError(err.message || t('admin.loginFailed'));
     } finally {
       submitBtn.disabled = false;
-      submitBtn.innerHTML = '<i data-lucide="log-in" class="w-4 h-4" aria-hidden="true"></i><span>Masuk ke Workshop</span>';
+      submitBtn.innerHTML = `<i data-lucide="log-in" class="w-4 h-4" aria-hidden="true"></i><span>${escapeHTML(t('admin.loginSubmitBtn'))}</span>`;
       if (window.lucide) window.lucide.createIcons();
     }
   });
@@ -1473,12 +1612,12 @@ function bindGlobalEvents() {
     const confirmPassword = document.getElementById('signup-password-confirm')?.value || '';
     const submitBtn = document.getElementById('signup-submit-btn');
 
-    if (!email) return showAuthError('Email wajib diisi.');
-    if (password.length < 8) return showAuthError('Kata sandi minimal 8 karakter.');
-    if (password !== confirmPassword) return showAuthError('Konfirmasi kata sandi tidak cocok.');
+    if (!email) return showAuthError(t('admin.signupEmailRequired'));
+    if (password.length < 8) return showAuthError(t('admin.signupPasswordMin'));
+    if (password !== confirmPassword) return showAuthError(t('admin.signupPasswordMismatch'));
 
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<span>Mendaftarkan...</span>';
+    submitBtn.innerHTML = `<span>${escapeHTML(t('admin.signupSubmitting'))}</span>`;
 
     try {
       const { data, error } = await supabase.auth.signUp({
@@ -1496,10 +1635,10 @@ function bindGlobalEvents() {
       signupForm.reset();
       showVerifyEmailPanel(email);
     } catch (err) {
-      showAuthError(err.message || 'Gagal mendaftar. Coba beberapa saat lagi.');
+      showAuthError(err.message || t('admin.signupFailed'));
     } finally {
       submitBtn.disabled = false;
-      submitBtn.innerHTML = '<i data-lucide="user-plus" class="w-4 h-4" aria-hidden="true"></i><span>Daftar &amp; Kirim Verifikasi Email</span>';
+      submitBtn.innerHTML = `<i data-lucide="user-plus" class="w-4 h-4" aria-hidden="true"></i><span>${escapeHTML(t('admin.signupSubmitBtn'))}</span>`;
       if (window.lucide) window.lucide.createIcons();
     }
   });
@@ -1508,7 +1647,7 @@ function bindGlobalEvents() {
     const btn = event.currentTarget;
     const targetEmail = pendingVerifyEmail || document.getElementById('login-email')?.value.trim() || '';
     if (!targetEmail) {
-      showAuthError('Alamat email tidak tersedia. Kembali ke form Masuk untuk mengisi email.');
+      showAuthError(t('admin.verifyResendMissing'));
       return;
     }
     btn.disabled = true;
@@ -1521,9 +1660,9 @@ function bindGlobalEvents() {
         },
       });
       if (error) throw error;
-      showAuthInfo(`Email verifikasi telah dikirim ulang ke ${targetEmail}.`);
+      showAuthInfo(t('admin.verifyResendSuccess', { email: targetEmail }));
     } catch (err) {
-      showAuthError(err.message || 'Gagal mengirim ulang email verifikasi.');
+      showAuthError(err.message || t('admin.verifyResendFailed'));
     } finally {
       btn.disabled = false;
     }
@@ -1544,6 +1683,27 @@ function bindGlobalEvents() {
     updateOnboardingSlugPreview();
   });
 
+  document.getElementById('onboard-hours')?.addEventListener('input', () => {
+    onboardingHoursTouched = true;
+  });
+
+  document.getElementById('onboard-locale')?.addEventListener('change', (event) => {
+    const chosen = event.target.value === 'en' ? 'en' : 'id';
+    setLocale(chosen, { persist: true, storageKey: LOCALE_STORAGE_KEY });
+    applyTranslations(document);
+    const hoursEl = document.getElementById('onboard-hours');
+    if (hoursEl && !onboardingHoursTouched) hoursEl.value = t('common.defaultHours');
+    updateOnboardingSlugPreview();
+  });
+
+  document.getElementById('onboard-ticket-prefix')?.addEventListener('input', (event) => {
+    event.target.value = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+  });
+
+  document.getElementById('store-ticket-prefix-input')?.addEventListener('input', (event) => {
+    event.target.value = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+  });
+
   document.getElementById('onboarding-logout-btn')?.addEventListener('click', async () => {
     await supabase.auth.signOut();
     resetTenantState();
@@ -1559,15 +1719,22 @@ function bindGlobalEvents() {
     const address = document.getElementById('onboard-address')?.value.trim() || '';
     const openingHours = document.getElementById('onboard-hours')?.value.trim() || '';
     const tagline = document.getElementById('onboard-tagline')?.value.trim() || '';
+    const locale = document.getElementById('onboard-locale')?.value === 'en' ? 'en' : 'id';
+    const currency = (document.getElementById('onboard-currency')?.value || 'IDR').trim().toUpperCase();
+    const timezone = (document.getElementById('onboard-timezone')?.value || 'Asia/Jakarta').trim();
+    const ticketPrefix = (document.getElementById('onboard-ticket-prefix')?.value || 'MND').trim().toUpperCase();
     const submitBtn = document.getElementById('onboard-submit-btn');
 
-    if (!name) return showOnboardingError('Nama workshop wajib diisi.');
+    if (!name) return showOnboardingError(t('admin.onboardNameRequired'));
     if (!isValidWorkshopSlug(slug)) {
-      return showOnboardingError('Slug harus 3-48 karakter huruf kecil, angka, atau tanda hubung (-) tanpa tanda hubung di awal/akhir.');
+      return showOnboardingError(t('admin.onboardSlugInvalid'));
+    }
+    if (!/^[A-Z0-9]{2,8}$/.test(ticketPrefix)) {
+      return showOnboardingError(t('admin.onboardPrefixInvalid'));
     }
 
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '<span>Membuat workshop...</span>';
+    submitBtn.innerHTML = `<span>${escapeHTML(t('admin.onboardSubmitting'))}</span>`;
 
     try {
       const { data: createdTenant, error } = await supabase.rpc('create_tenant_workspace', {
@@ -1578,16 +1745,20 @@ function bindGlobalEvents() {
         p_opening_hours: openingHours,
         p_tagline: tagline,
         p_daily_capacity_minutes: 480,
+        p_locale: locale,
+        p_currency: currency,
+        p_timezone: timezone,
+        p_ticket_prefix: ticketPrefix,
       });
       if (error) throw error;
-      if (!createdTenant?.id) throw new Error('Data workshop gagal dikembalikan oleh server.');
+      if (!createdTenant?.id) throw new Error(t('admin.onboardNoTenantReturned'));
       onboardingForm.reset();
       await enterWorkspace(createdTenant);
     } catch (err) {
-      showOnboardingError(err.message || 'Gagal membuat workshop.');
+      showOnboardingError(err.message || t('admin.onboardCreateFailed'));
     } finally {
       submitBtn.disabled = false;
-      submitBtn.innerHTML = '<i data-lucide="store" class="w-4 h-4" aria-hidden="true"></i><span>Buat Workshop &amp; Masuk Ruang Kerja</span>';
+      submitBtn.innerHTML = `<i data-lucide="store" class="w-4 h-4" aria-hidden="true"></i><span>${escapeHTML(t('admin.onboardSubmitBtn'))}</span>`;
       if (window.lucide) window.lucide.createIcons();
     }
   });
@@ -1607,7 +1778,7 @@ function bindGlobalEvents() {
       document.getElementById('store-settings-modal').dataset.pendingLogo = dataUrl;
       renderStoreLogoPreview(dataUrl);
     } catch (error) {
-      alert(error.message || 'Logo gagal dibaca.');
+      alert(error.message || t('settings.logoReadFailed'));
       event.target.value = '';
     }
   });
@@ -1620,12 +1791,17 @@ function bindGlobalEvents() {
   document.getElementById('store-settings-form')?.addEventListener('submit', async (event) => {
     event.preventDefault();
     const modal = document.getElementById('store-settings-modal');
+    const ticketPrefix = (document.getElementById('store-ticket-prefix-input')?.value || '').trim().toUpperCase();
     const settings = {
       NAME: document.getElementById('store-name-input').value.trim(),
       ADDRESS: document.getElementById('store-address-input').value.trim(),
       ADMIN_PHONE: normalizePhone(document.getElementById('store-phone-input').value),
       TAGLINE: document.getElementById('store-tagline-input').value.trim(),
       OPENING_HOURS: document.getElementById('store-hours-input').value.trim(),
+      LOCALE: document.getElementById('store-locale-input')?.value === 'en' ? 'en' : 'id',
+      CURRENCY: (document.getElementById('store-currency-input')?.value || 'IDR').trim().toUpperCase(),
+      TIMEZONE: (document.getElementById('store-timezone-input')?.value || 'Asia/Jakarta').trim(),
+      TICKET_PREFIX: ticketPrefix,
       DAILY_CAPACITY_MINUTES:
         Number(document.getElementById('daily-capacity-hours').value || 0) * 60 +
         Number(document.getElementById('daily-capacity-minutes').value || 0),
@@ -1634,16 +1810,21 @@ function bindGlobalEvents() {
         : workshopSettings.LOGO,
     };
     if (!settings.NAME) {
-      alert('Nama toko wajib diisi.');
+      alert(t('settings.nameRequired'));
+      return;
+    }
+    if (!/^[A-Z0-9]{2,8}$/.test(settings.TICKET_PREFIX)) {
+      alert(t('settings.prefixInvalid'));
+      document.getElementById('store-ticket-prefix-input')?.focus();
       return;
     }
     if (!Number.isInteger(settings.DAILY_CAPACITY_MINUTES) || settings.DAILY_CAPACITY_MINUTES <= 0) {
-      alert('Kapasitas harian harus lebih dari 0 menit.');
+      alert(t('settings.capacityInvalid'));
       return;
     }
     try {
       const tenantId = getActiveTenantId();
-      if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+      if (!tenantId) throw new Error(t('common.noActiveTenant'));
       await persistStoreSettings(tenantId, settings);
       workshopSettings = await fetchStoreSettings(tenantId);
       if (activeTenant) {
@@ -1656,15 +1837,22 @@ function bindGlobalEvents() {
           opening_hours: workshopSettings.OPENING_HOURS,
           logo_data_url: workshopSettings.LOGO || null,
           daily_capacity_minutes: workshopSettings.DAILY_CAPACITY_MINUTES,
+          locale: workshopSettings.LOCALE,
+          currency: workshopSettings.CURRENCY,
+          timezone: workshopSettings.TIMEZONE,
+          ticket_prefix: workshopSettings.TICKET_PREFIX,
         };
       }
+      setLocale(workshopSettings.LOCALE);
+      setCurrency(workshopSettings.CURRENCY);
+      setTimezone(workshopSettings.TIMEZONE);
       applyStoreSettings();
-      renderWorkloadCalendar();
+      applyWorkspaceLocalization();
       delete modal.dataset.pendingLogo;
       closeStoreSettings();
-      alert('Pengaturan toko berhasil disimpan.');
+      alert(t('settings.savedSuccess'));
     } catch (error) {
-      alert('Gagal menyimpan pengaturan: ' + (error.message || 'Periksa tabel, kebijakan akses, dan koneksi.'));
+      alert(t('settings.saveFailed', { message: error.message || t('settings.saveFailedHint') }));
     }
   });
 
@@ -1680,19 +1868,19 @@ function bindGlobalEvents() {
     const name = nameInput.value.trim();
     const category = categoryInput?.value === 'custom' ? 'custom' : 'reparasi';
     if (!name) {
-      alert('Masukkan nama layanan.');
+      alert(t('services.nameRequired'));
       nameInput.focus();
       return;
     }
     if (!Number.isInteger(hours) || hours < 0 || !Number.isInteger(minutes) || minutes < 0 || minutes > 59 || total <= 0) {
-      alert('Estimasi layanan harus lebih dari 0 menit.');
+      alert(t('services.durationInvalid'));
       return;
     }
     button.disabled = true;
-    button.textContent = 'Menyimpan...';
+    button.textContent = t('common.saving');
     try {
       const tenantId = getActiveTenantId();
-      if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+      if (!tenantId) throw new Error(t('common.noActiveTenant'));
       await createService(tenantId, name, total, category);
       nameInput.value = '';
       if (categoryInput) categoryInput.value = 'reparasi';
@@ -1703,10 +1891,10 @@ function bindGlobalEvents() {
       renderWorkloadCalendar();
     } catch (error) {
       console.error('Gagal menambah layanan:', error);
-      alert('Gagal menambah layanan: ' + (error.message || 'Periksa hak akses tabel services.'));
+      alert(t('services.addFailed', { message: error.message || t('services.addFailedHint') }));
     } finally {
       button.disabled = false;
-      button.textContent = 'Tambah Layanan';
+      button.textContent = t('services.addBtn');
     }
   });
 
@@ -1728,14 +1916,14 @@ function bindGlobalEvents() {
       const current = (await fetchServices(tenantId)).find((item) => item.id === id);
       if (current) openServiceEditModal(current);
     }
-    if (disableButton && confirm('Nonaktifkan layanan ini? Riwayat order tidak akan dihapus.')) {
+    if (disableButton && confirm(t('services.disableConfirm'))) {
       try {
         await deactivateService(tenantId, disableButton.dataset.disableService);
         await renderServicesList();
         await loadWorkloadServices();
         renderWorkloadCalendar();
       } catch (error) {
-        alert('Gagal menonaktifkan layanan: ' + error.message);
+        alert(t('services.disableFailed', { message: error.message }));
       }
     }
     if (activateButton) {
@@ -1745,7 +1933,7 @@ function bindGlobalEvents() {
         await loadWorkloadServices();
         renderWorkloadCalendar();
       } catch (error) {
-        alert('Gagal mengaktifkan layanan: ' + error.message);
+        alert(t('services.activateFailed', { message: error.message }));
       }
     }
   });
@@ -1863,7 +2051,7 @@ function bindGlobalEvents() {
 async function fetchCustomers() {
   const tenantId = getActiveTenantId();
   if (!customersList || !tenantId) return;
-  customersList.innerHTML = '<p class="py-5 text-center text-sm mt-muted" role="status">Memuat pelanggan...</p>';
+  customersList.innerHTML = `<p class="py-5 text-center text-sm mt-muted" role="status">${escapeHTML(t('customers.loading'))}</p>`;
   const { data, error } = await supabase
     .from('customers')
     .select('id, name, phone, created_at, updated_at')
@@ -1871,8 +2059,8 @@ async function fetchCustomers() {
     .order('name', { ascending: true });
   if (error) {
     customersList.innerHTML = `<div role="alert" class="py-4 text-sm mt-danger-text flex items-center justify-between gap-2">
-      <span>Gagal memuat pelanggan: ${escapeHTML(error.message)}</span>
-      <button type="button" data-retry-customers class="mt-btn mt-btn-secondary text-xs">Muat ulang</button>
+      <span>${escapeHTML(t('customers.loadFailed', { message: error.message }))}</span>
+      <button type="button" data-retry-customers class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('common.reload'))}</button>
     </div>`;
     customersList.querySelector('[data-retry-customers]')?.addEventListener('click', fetchCustomers);
     return;
@@ -1888,11 +2076,11 @@ function renderCustomersList() {
     `${customer.name} ${customer.phone}`.toLowerCase().includes(query)
   );
   const count = document.getElementById('customers-count');
-  if (count) count.textContent = `${customerRecords.length} pelanggan terdaftar`;
+  if (count) count.textContent = t('customers.count', { count: customerRecords.length });
   if (!filtered.length) {
     customersList.innerHTML = query
-      ? '<p class="py-6 text-center text-sm mt-muted">Tidak ada pelanggan yang cocok dengan kata kunci tersebut.</p>'
-      : '<p class="py-6 text-center text-sm mt-muted">Belum ada pelanggan terdaftar. Gunakan tombol Tambah Pelanggan di atas.</p>';
+      ? `<p class="py-6 text-center text-sm mt-muted">${escapeHTML(t('customers.emptySearch'))}</p>`
+      : `<p class="py-6 text-center text-sm mt-muted">${escapeHTML(t('customers.emptyList'))}</p>`;
     return;
   }
   customersList.innerHTML = filtered
@@ -1904,10 +2092,10 @@ function renderCustomersList() {
         <span class="block text-xs mt-muted font-mono-code truncate">${escapeHTML(customer.phone)}</span>
       </div>
       <div class="flex items-center gap-2 shrink-0">
-        <button type="button" data-customer-edit="${customer.id}" class="mt-btn-icon mt-btn-secondary" title="Edit pelanggan" aria-label="Edit pelanggan ${escapeHTML(customer.name)}">
+        <button type="button" data-customer-edit="${customer.id}" class="mt-btn-icon mt-btn-secondary" title="${escapeHTML(t('customers.editTitle'))}" aria-label="${escapeHTML(t('customers.editAria', { name: customer.name }))}">
           <i data-lucide="pencil" class="w-4 h-4" aria-hidden="true"></i>
         </button>
-        <button type="button" data-customer-order="${customer.id}" class="mt-btn-icon mt-btn-primary" title="Tambah order" aria-label="Tambah order untuk ${escapeHTML(customer.name)}">
+        <button type="button" data-customer-order="${customer.id}" class="mt-btn-icon mt-btn-primary" title="${escapeHTML(t('customers.addOrderTitle'))}" aria-label="${escapeHTML(t('customers.addOrderAria', { name: customer.name }))}">
           <i data-lucide="plus" class="w-5 h-5" aria-hidden="true"></i>
         </button>
       </div>
@@ -1953,19 +2141,19 @@ async function handleCustomerCreateSubmit(event) {
   const name = document.getElementById('new-customer-name')?.value.trim() || '';
   const phone = normalizePhone(document.getElementById('new-customer-phone')?.value || '');
 
-  if (!name) return alert('Nama pelanggan wajib diisi.');
-  if (!phone || phone.length < 10) return alert('Nomor HP tidak valid. Masukkan minimal 10 digit.');
+  if (!name) return alert(t('customers.nameRequired'));
+  if (!phone || phone.length < 10) return alert(t('customers.phoneInvalid'));
 
   submit.disabled = true;
-  submit.textContent = 'Menyimpan...';
+  submit.textContent = t('common.saving');
   try {
     const existing = await findCustomerByPhone(phone);
     if (existing) {
-      throw new Error(`Nomor HP sudah terdaftar atas nama ${existing.name}. Gunakan data pelanggan yang sudah ada.`);
+      throw new Error(t('customers.duplicatePhone', { name: existing.name }));
     }
 
     const tenantId = getActiveTenantId();
-    if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+    if (!tenantId) throw new Error(t('common.noActiveTenant'));
 
     const { data, error } = await supabase
       .from('customers')
@@ -1976,17 +2164,17 @@ async function handleCustomerCreateSubmit(event) {
 
     if (data) {
       customerRecords = [...customerRecords.filter((item) => item.id !== data.id), data].sort((a, b) =>
-        a.name.localeCompare(b.name, 'id')
+        a.name.localeCompare(b.name, getLocale())
       );
     }
     closeCustomerCreateForm();
     await fetchCustomers();
-    alert('Pelanggan berhasil ditambahkan.');
+    alert(t('customers.createdSuccess'));
   } catch (error) {
-    alert(`Gagal menambahkan pelanggan: ${error.message || 'Terjadi kesalahan.'}`);
+    alert(t('customers.createFailed', { message: error.message || t('common.genericError') }));
   } finally {
     submit.disabled = false;
-    submit.textContent = 'Simpan Pelanggan';
+    submit.textContent = t('customers.saveBtn');
   }
 }
 
@@ -2036,15 +2224,15 @@ function openCustomerEdit(customer = activeCustomerDetail) {
   activeCustomerDetail = customer;
   const content = document.getElementById('customer-detail-content');
   const heading = document.getElementById('customer-detail-title');
-  if (heading) heading.textContent = 'Edit Pelanggan';
+  if (heading) heading.textContent = t('customers.editHeading');
   content.innerHTML = `
     <form id="customer-edit-form" class="space-y-4">
       <div>
-        <label for="edit-customer-name" class="block text-xs font-semibold mt-text mb-1">Nama pelanggan</label>
+        <label for="edit-customer-name" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('customers.nameLabelOpt'))}</label>
         <input id="edit-customer-name" type="text" required maxlength="120" value="${escapeHTML(customer.name)}" class="mt-input" />
       </div>
       <div>
-        <label for="edit-customer-phone" class="block text-xs font-semibold mt-text mb-1">Nomor WhatsApp</label>
+        <label for="edit-customer-phone" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('customers.phoneLabelWa'))}</label>
         <input id="edit-customer-phone" type="tel" inputmode="tel" required value="${escapeHTML(customer.phone)}" class="mt-input font-mono-code" />
       </div>
       <div class="grid grid-cols-1 gap-3 pt-1">
@@ -2053,8 +2241,8 @@ function openCustomerEdit(customer = activeCustomerDetail) {
             <i data-lucide="ruler" class="w-5 h-5 mt-text"></i>
           </span>
           <span>
-            <strong class="block text-sm mt-text">Daftar Ukuran</strong>
-            <small class="text-xs mt-muted">Lihat, tambah, dan edit ukuran pelanggan</small>
+            <strong class="block text-sm mt-text">${escapeHTML(t('customers.measurementsBtnTitle'))}</strong>
+            <small class="text-xs mt-muted">${escapeHTML(t('customers.measurementsBtnDesc'))}</small>
           </span>
           <i data-lucide="chevron-right" class="w-4 h-4 ml-auto mt-muted" aria-hidden="true"></i>
         </button>
@@ -2063,15 +2251,15 @@ function openCustomerEdit(customer = activeCustomerDetail) {
             <i data-lucide="clipboard-list" class="w-5 h-5 mt-text"></i>
           </span>
           <span>
-            <strong class="block text-sm mt-text">Riwayat Order</strong>
-            <small class="text-xs mt-muted">Lihat semua pesanan pelanggan</small>
+            <strong class="block text-sm mt-text">${escapeHTML(t('customers.ordersBtnTitle'))}</strong>
+            <small class="text-xs mt-muted">${escapeHTML(t('customers.ordersBtnDesc'))}</small>
           </span>
           <i data-lucide="chevron-right" class="w-4 h-4 ml-auto mt-muted" aria-hidden="true"></i>
         </button>
       </div>
       <div class="flex gap-2 pt-2">
-        <button type="button" data-customer-detail-close class="mt-btn mt-btn-secondary flex-1">Tutup</button>
-        <button type="submit" class="mt-btn mt-btn-primary flex-1">Simpan Perubahan</button>
+        <button type="button" data-customer-detail-close class="mt-btn mt-btn-secondary flex-1">${escapeHTML(t('common.close'))}</button>
+        <button type="submit" class="mt-btn mt-btn-primary flex-1">${escapeHTML(t('common.saveChanges'))}</button>
       </div>
     </form>`;
   modal?.classList.remove('hidden');
@@ -2084,17 +2272,17 @@ async function handleCustomerEditSubmit(event) {
   event.preventDefault();
   const name = document.getElementById('edit-customer-name')?.value.trim() || '';
   const phone = normalizePhone(document.getElementById('edit-customer-phone')?.value || '');
-  if (!name) return alert('Nama pelanggan wajib diisi.');
-  if (!phone || phone.length < 10) return alert('Nomor WhatsApp tidak valid.');
+  if (!name) return alert(t('customers.nameRequired'));
+  if (!phone || phone.length < 10) return alert(t('customers.phoneInvalidWa'));
   const duplicate = customerRecords.find((item) => item.id !== activeCustomerDetail.id && item.phone === phone);
-  if (duplicate) return alert(`Nomor ini sudah terdaftar atas nama ${duplicate.name}.`);
+  if (duplicate) return alert(t('customers.duplicatePhoneShort', { name: duplicate.name }));
   const submit = event.target.querySelector('button[type="submit"]');
   if (submit) {
     submit.disabled = true;
-    submit.textContent = 'Menyimpan...';
+    submit.textContent = t('common.saving');
   }
   const tenantId = getActiveTenantId();
-  if (!tenantId) return alert('Workshop aktif tidak ditemukan.');
+  if (!tenantId) return alert(t('common.noActiveTenant'));
   const { data, error } = await supabase
     .from('customers')
     .update({ name, phone, updated_at: new Date().toISOString() })
@@ -2105,14 +2293,14 @@ async function handleCustomerEditSubmit(event) {
   if (error) {
     if (submit) {
       submit.disabled = false;
-      submit.textContent = 'Simpan Perubahan';
+      submit.textContent = t('common.saveChanges');
     }
-    return alert(`Gagal memperbarui pelanggan: ${error.message}`);
+    return alert(t('customers.updateFailed', { message: error.message }));
   }
   activeCustomerDetail = data;
   await fetchCustomers();
   openCustomerEdit(data);
-  alert('Data pelanggan berhasil diperbarui.');
+  alert(t('customers.updatedSuccess'));
 }
 
 async function handleCustomerDetailAction(event) {
@@ -2135,14 +2323,14 @@ async function handleCustomerDetailAction(event) {
     const tenantId = getActiveTenantId();
     if (!tenantId) return;
     const id = deleteButton.dataset.deleteCustomerMeasurement;
-    if (!confirm('Hapus catatan ukuran ini?')) return;
+    if (!confirm(t('measure.deleteConfirm'))) return;
     const { error } = await supabase
       .from('customer_measurements')
       .delete()
       .eq('id', id)
       .eq('customer_id', activeCustomerDetail.id)
       .eq('tenant_id', tenantId);
-    if (error) return alert(`Gagal menghapus ukuran: ${error.message}`);
+    if (error) return alert(t('measure.deleteFailed', { message: error.message }));
     await renderCustomerMeasurements();
   }
   const orderButton = event.target.closest('[data-customer-open-order]');
@@ -2159,21 +2347,21 @@ async function handleCustomerDetailAction(event) {
 async function renderCustomerMeasurements() {
   const content = document.getElementById('customer-detail-content');
   const modalHeading = document.getElementById('customer-detail-title');
-  if (modalHeading) modalHeading.textContent = 'Daftar Ukuran';
-  content.innerHTML = '<p class="py-6 text-center text-sm mt-muted" role="status">Memuat daftar ukuran...</p>';
+  if (modalHeading) modalHeading.textContent = t('measure.listTitle');
+  content.innerHTML = `<p class="py-6 text-center text-sm mt-muted" role="status">${escapeHTML(t('measure.loadingList'))}</p>`;
   try {
     await Promise.all([fetchCustomerMeasurements(activeCustomerDetail.id), fetchMeasurementTemplates()]);
     content.innerHTML = `
       <div class="flex items-center justify-between gap-2">
         <div>
-          <h3 class="font-bold mt-text">Daftar Ukuran</h3>
+          <h3 class="font-bold mt-text">${escapeHTML(t('measure.listTitle'))}</h3>
           <p class="text-xs mt-muted">${escapeHTML(activeCustomerDetail.name)}</p>
         </div>
-        <button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary text-xs">Kembali</button>
+        <button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('common.back'))}</button>
       </div>
       <button type="button" data-add-customer-measurement class="mt-btn mt-btn-primary w-full">
         <i data-lucide="plus" class="w-4 h-4" aria-hidden="true"></i>
-        <span>Tambah Ukuran</span>
+        <span>${escapeHTML(t('measure.addBtn'))}</span>
       </button>
       <div class="space-y-2.5">
         ${
@@ -2194,33 +2382,33 @@ async function renderCustomerMeasurements() {
                     <div class="flex items-start justify-between gap-2">
                       <div class="min-w-0">
                         <p class="text-sm font-bold mt-text">${escapeHTML(record.garment_type)}${record.model ? ` · ${escapeHTML(record.model)}` : ''}</p>
-                        <p class="text-xs mt-muted mt-0.5">${escapeHTML(record.description || 'Tanpa keterangan')}</p>
+                        <p class="text-xs mt-muted mt-0.5">${escapeHTML(record.description || t('measure.noDesc'))}</p>
                       </div>
                       <div class="flex gap-1.5 shrink-0">
-                        <button type="button" data-edit-customer-measurement="${record.id}" class="mt-btn-icon mt-btn-secondary" aria-label="Edit ukuran ${escapeHTML(record.garment_type)}">
+                        <button type="button" data-edit-customer-measurement="${record.id}" class="mt-btn-icon mt-btn-secondary" aria-label="${escapeHTML(t('measure.editAria', { type: record.garment_type }))}">
                           <i data-lucide="pencil" class="w-4 h-4" aria-hidden="true"></i>
                         </button>
-                        <button type="button" data-delete-customer-measurement="${record.id}" class="mt-btn-icon mt-btn-danger-ghost" aria-label="Hapus ukuran ${escapeHTML(record.garment_type)}">
+                        <button type="button" data-delete-customer-measurement="${record.id}" class="mt-btn-icon mt-btn-danger-ghost" aria-label="${escapeHTML(t('measure.deleteAria', { type: record.garment_type }))}">
                           <i data-lucide="trash-2" class="w-4 h-4" aria-hidden="true"></i>
                         </button>
                       </div>
                     </div>
-                    <div class="mt-2">${values || '<span class="text-xs mt-muted">Belum ada nilai ukuran.</span>'}</div>
+                    <div class="mt-2">${values || `<span class="text-xs mt-muted">${escapeHTML(t('measure.noValues'))}</span>`}</div>
                   </article>`;
                 })
                 .join('')
-            : '<p class="py-6 text-center text-sm mt-muted mt-card-muted">Belum ada ukuran tersimpan.</p>'
+            : `<p class="py-6 text-center text-sm mt-muted mt-card-muted">${escapeHTML(t('measure.emptyList'))}</p>`
         }
       </div>`;
     if (window.lucide) window.lucide.createIcons();
   } catch (error) {
-    content.innerHTML = `<p class="text-sm mt-danger-text">Gagal memuat ukuran: ${escapeHTML(error.message || '')}</p><button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary mt-3 text-xs">Kembali</button>`;
+    content.innerHTML = `<p class="text-sm mt-danger-text">${escapeHTML(t('measure.loadFailed', { message: error.message || '' }))}</p><button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary mt-3 text-xs">${escapeHTML(t('common.back'))}</button>`;
   }
 }
 
 function renderCustomerOrderHistory() {
   const modalHeading = document.getElementById('customer-detail-title');
-  if (modalHeading) modalHeading.textContent = 'Riwayat Order';
+  if (modalHeading) modalHeading.textContent = t('customers.ordersBtnTitle');
   const content = document.getElementById('customer-detail-content');
   const transactions = allOrders
     .filter((order) => order.customer_id === activeCustomerDetail.id || normalizePhone(order.customer_phone) === activeCustomerDetail.phone)
@@ -2228,29 +2416,29 @@ function renderCustomerOrderHistory() {
   content.innerHTML = `
     <div class="flex items-center justify-between gap-2">
       <div>
-        <h3 class="font-bold mt-text">Riwayat Order</h3>
-        <p class="text-xs mt-muted">${transactions.length} transaksi</p>
+        <h3 class="font-bold mt-text">${escapeHTML(t('customers.ordersBtnTitle'))}</h3>
+        <p class="text-xs mt-muted">${escapeHTML(t('customers.transactionsCount', { count: transactions.length }))}</p>
       </div>
-      <button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary text-xs">Kembali</button>
+      <button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('common.back'))}</button>
     </div>
     ${
       transactions.length
         ? `<div class="space-y-2">${transactions
             .map((order) => {
-              const meta = STATUS_META[order.status] || STATUS_META.received;
+              const meta = getStatusMeta(order.status);
               return `<button type="button" data-customer-open-order="${order.id}" class="w-full text-left mt-card p-3.5 hover:border-[var(--mt-accent)]">
                 <div class="flex items-center justify-between gap-2">
                   <span class="font-mono-code text-sm font-bold mt-text">${escapeHTML(order.ticket_code)}</span>
                   <span class="${meta.badgeClass}">${escapeHTML(meta.label)}</span>
                 </div>
                 <div class="flex items-center justify-between gap-2 mt-1.5">
-                  <span class="text-xs mt-muted">${formatDateID(order.created_at)}</span>
-                  <span class="text-sm font-mono-code font-semibold mt-text">${formatCurrency(order.total_amount)}</span>
+                  <span class="text-xs mt-muted">${escapeHTML(formatDateID(order.created_at))}</span>
+                  <span class="text-sm font-mono-code font-semibold mt-text">${escapeHTML(formatCurrency(order.total_amount))}</span>
                 </div>
               </button>`;
             })
             .join('')}</div>`
-        : '<p class="text-xs mt-muted py-6 text-center mt-card-muted">Belum ada riwayat order.</p>'
+        : `<p class="text-xs mt-muted py-6 text-center mt-card-muted">${escapeHTML(t('customers.noOrderHistory'))}</p>`
     }`;
 }
 
@@ -2277,7 +2465,7 @@ function convertMeasurementValue(value, fromUnit, toUnit) {
 
 function renderMeasurementFields(fields, values = {}) {
   if (!fields.length) {
-    return '<p class="text-xs mt-muted mt-card-muted p-3">Belum ada komponen ukuran pada template ini. Tambahkan melalui menu Template Ukuran.</p>';
+    return `<p class="text-xs mt-muted mt-card-muted p-3">${escapeHTML(t('measure.noFieldsInTemplate'))}</p>`;
   }
   const displayUnit = getMeasurementDisplayUnit();
   return fields
@@ -2309,21 +2497,21 @@ async function openCustomerMeasurementForm(record = null) {
       activeTemplates.find((item) => item.garment_type === record?.garment_type) ||
       activeTemplates[0];
     if (!initialTemplate) {
-      throw new Error('Template ukuran belum tersedia. Tambahkan melalui menu Template Ukuran.');
+      throw new Error(t('measure.noTemplateError'));
     }
     const snapshotFields = record?.template_snapshot?.length ? record.template_snapshot : null;
     const fields = snapshotFields || getActiveTemplateFields(initialTemplate.id);
     content.innerHTML = `
       <div class="flex items-center justify-between gap-2">
         <div>
-          <h3 class="font-bold mt-text">${record ? 'Edit Ukuran' : 'Tambah Ukuran'}</h3>
+          <h3 class="font-bold mt-text">${escapeHTML(record ? t('measure.editTitle') : t('measure.addBtn'))}</h3>
           <p class="text-xs mt-muted">${escapeHTML(activeCustomerDetail.name)}</p>
         </div>
-        <button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary text-xs">Batal</button>
+        <button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('common.cancel'))}</button>
       </div>
       <form id="customer-measurement-form" class="space-y-3" data-edit-id="${record?.id || ''}">
         <div>
-          <label for="measurement-garment-type" class="block text-xs font-semibold mt-text mb-1">Jenis pakaian</label>
+          <label for="measurement-garment-type" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('measure.garmentTypeLabel'))}</label>
           <select id="measurement-garment-type" required class="mt-select">
             ${activeTemplates
               .map((item) => `<option value="${item.id}" ${item.id === initialTemplate.id ? 'selected' : ''}>${escapeHTML(item.garment_type)}</option>`)
@@ -2331,28 +2519,28 @@ async function openCustomerMeasurementForm(record = null) {
           </select>
         </div>
         <div>
-          <label for="measurement-model" class="block text-xs font-semibold mt-text mb-1">Model</label>
-          <input id="measurement-model" type="text" maxlength="100" value="${escapeHTML(record?.model || '')}" placeholder="Contoh: Slim Fit, Trucker" class="mt-input" />
+          <label for="measurement-model" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('measure.modelLabel'))}</label>
+          <input id="measurement-model" type="text" maxlength="100" value="${escapeHTML(record?.model || '')}" placeholder="${escapeHTML(t('measure.modelPlaceholder'))}" class="mt-input" />
         </div>
         <div>
-          <label for="measurement-description" class="block text-xs font-semibold mt-text mb-1">Keterangan / pemakai</label>
-          <input id="measurement-description" type="text" maxlength="160" value="${escapeHTML(record?.description || '')}" placeholder="Nama pemakai atau catatan fitting" class="mt-input" />
+          <label for="measurement-description" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('measure.descLabel'))}</label>
+          <input id="measurement-description" type="text" maxlength="160" value="${escapeHTML(record?.description || '')}" placeholder="${escapeHTML(t('measure.descPlaceholder'))}" class="mt-input" />
         </div>
         <div class="pt-3 mt-seam-t">
-          <h4 class="text-sm font-bold mt-text mb-3">Data ukuran</h4>
+          <h4 class="text-sm font-bold mt-text mb-3">${escapeHTML(t('measure.dataHeading'))}</h4>
           <div id="measurement-fields-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">${renderMeasurementFields(fields, record?.measurement_data || {})}</div>
         </div>
         <p id="measurement-form-error" class="hidden text-xs mt-danger-text"></p>
         <div class="flex gap-2">
-          <button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary flex-1">Batal</button>
-          <button type="submit" class="mt-btn mt-btn-primary flex-1">Simpan Ukuran</button>
+          <button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary flex-1">${escapeHTML(t('common.cancel'))}</button>
+          <button type="submit" class="mt-btn mt-btn-primary flex-1">${escapeHTML(t('measure.saveBtn'))}</button>
         </div>
       </form>`;
     const form = document.getElementById('customer-measurement-form');
     form.dataset.snapshot = JSON.stringify(fields);
     form.addEventListener('submit', saveCustomerMeasurement);
   } catch (error) {
-    content.innerHTML = `<p class="text-sm mt-danger-text">${escapeHTML(error.message || 'Gagal membuka formulir ukuran.')}</p><button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary mt-3 text-xs">Kembali</button>`;
+    content.innerHTML = `<p class="text-sm mt-danger-text">${escapeHTML(error.message || t('measure.openFormFailed'))}</p><button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary mt-3 text-xs">${escapeHTML(t('common.back'))}</button>`;
   }
 }
 
@@ -2384,7 +2572,7 @@ async function saveCustomerMeasurement(event) {
   const template = activeMeasurementTemplates.find(
     (item) => item.id === document.getElementById('measurement-garment-type').value
   );
-  if (!template) return alert('Template ukuran tidak ditemukan.');
+  if (!template) return alert(t('measure.templateNotFound'));
   const fields = JSON.parse(form.dataset.snapshot || '[]');
   const values = {};
   for (const input of form.querySelectorAll('[data-measurement-value]')) {
@@ -2404,7 +2592,7 @@ async function saveCustomerMeasurement(event) {
     sort_order: field.sort_order,
   }));
   const tenantId = getActiveTenantId();
-  if (!tenantId) return alert('Workshop aktif tidak ditemukan.');
+  if (!tenantId) return alert(t('common.noActiveTenant'));
   const payload = {
     tenant_id: tenantId,
     customer_id: activeCustomerDetail.id,
@@ -2425,7 +2613,7 @@ async function saveCustomerMeasurement(event) {
         .eq('customer_id', activeCustomerDetail.id)
         .eq('tenant_id', tenantId)
     : await supabase.from('customer_measurements').insert(payload);
-  if (result.error) return alert(`Gagal menyimpan ukuran: ${result.error.message}`);
+  if (result.error) return alert(t('measure.saveFailed', { message: result.error.message }));
   await renderCustomerMeasurements();
 }
 
@@ -2434,16 +2622,16 @@ const measurementTemplateEditModes = new Set();
 async function renderMeasurementTemplateSettings() {
   const container = document.getElementById('measurement-templates-list');
   if (!container) return;
-  container.innerHTML = '<p class="text-xs mt-muted" role="status">Memuat template ukuran...</p>';
+  container.innerHTML = `<p class="text-xs mt-muted" role="status">${escapeHTML(t('templates.loading'))}</p>`;
   try {
     await fetchMeasurementTemplates();
     const unit = getMeasurementDisplayUnit();
     const header = `<div class="flex flex-wrap items-center justify-between gap-3 mb-3">
       <div>
-        <p class="text-xs font-semibold mt-text">Satuan ukuran</p>
-        <p class="text-xs mt-muted">Berlaku untuk input dan tampilan ukuran pelanggan</p>
+        <p class="text-xs font-semibold mt-text">${escapeHTML(t('templates.unitLabel'))}</p>
+        <p class="text-xs mt-muted">${escapeHTML(t('templates.unitDesc'))}</p>
       </div>
-      <div class="inline-flex gap-1.5" role="group" aria-label="Satuan ukuran">
+      <div class="inline-flex gap-1.5" role="group" aria-label="${escapeHTML(t('templates.unitLabel'))}">
         <button type="button" data-measurement-unit="cm" aria-pressed="${unit === 'cm'}" class="mt-btn text-xs ${unit === 'cm' ? 'mt-btn-primary' : 'mt-btn-secondary'}">CM</button>
         <button type="button" data-measurement-unit="inch" aria-pressed="${unit === 'inch'}" class="mt-btn text-xs ${unit === 'inch' ? 'mt-btn-primary' : 'mt-btn-secondary'}">INCH</button>
       </div>
@@ -2459,9 +2647,9 @@ async function renderMeasurementTemplateSettings() {
           <div class="flex items-center justify-between gap-2 mb-2.5">
             <div class="min-w-0">
               <p class="text-sm font-bold mt-text">${escapeHTML(template.garment_type)}</p>
-              <p class="text-xs mt-muted">${fields.length} komponen</p>
+              <p class="text-xs mt-muted">${escapeHTML(t('templates.fieldCount', { count: fields.length }))}</p>
             </div>
-            ${!template.is_active ? '<span class="mt-badge mt-badge-received">Nonaktif</span>' : ''}
+            ${!template.is_active ? `<span class="mt-badge mt-badge-received">${escapeHTML(t('common.inactive'))}</span>` : ''}
           </div>
           <div class="measurement-template-fields space-y-1.5" data-template-fields="${template.id}">
             ${fields
@@ -2469,17 +2657,17 @@ async function renderMeasurementTemplateSettings() {
                 (field, idx) => `<div class="measurement-template-field flex items-center gap-2 min-h-11 rounded-lg px-1.5" data-field-row="${field.id}" data-template-id="${template.id}">
                   ${
                     isEditing
-                      ? `<button type="button" data-field-move-up="${field.id}" data-template-id="${template.id}" ${idx === 0 ? 'disabled' : ''} aria-label="Geser ${escapeHTML(field.field_label)} ke atas" title="Geser ke atas" class="mt-btn-icon mt-btn-secondary shrink-0">
+                      ? `<button type="button" data-field-move-up="${field.id}" data-template-id="${template.id}" ${idx === 0 ? 'disabled' : ''} aria-label="${escapeHTML(t('templates.moveUpAria', { label: field.field_label }))}" title="${escapeHTML(t('templates.moveUpTitle'))}" class="mt-btn-icon mt-btn-secondary shrink-0">
                            <i data-lucide="chevron-up" class="w-4 h-4" aria-hidden="true"></i>
                          </button>
-                         <button type="button" data-field-move-down="${field.id}" data-template-id="${template.id}" ${idx === fields.length - 1 ? 'disabled' : ''} aria-label="Geser ${escapeHTML(field.field_label)} ke bawah" title="Geser ke bawah" class="mt-btn-icon mt-btn-secondary shrink-0">
+                         <button type="button" data-field-move-down="${field.id}" data-template-id="${template.id}" ${idx === fields.length - 1 ? 'disabled' : ''} aria-label="${escapeHTML(t('templates.moveDownAria', { label: field.field_label }))}" title="${escapeHTML(t('templates.moveDownTitle'))}" class="mt-btn-icon mt-btn-secondary shrink-0">
                            <i data-lucide="chevron-down" class="w-4 h-4" aria-hidden="true"></i>
                          </button>
-                         <input type="text" maxlength="100" aria-label="Nama komponen ${escapeHTML(field.field_label)}" data-field-label-input="${field.id}" value="${escapeHTML(field.field_label)}" class="mt-input min-w-0 flex-1" />
-                         <button type="button" data-field-delete="${field.id}" title="Hapus komponen" aria-label="Hapus komponen ${escapeHTML(field.field_label)}" class="mt-btn-icon mt-btn-danger-ghost shrink-0">
+                         <input type="text" maxlength="100" aria-label="${escapeHTML(t('templates.fieldNameAria', { label: field.field_label }))}" data-field-label-input="${field.id}" value="${escapeHTML(field.field_label)}" class="mt-input min-w-0 flex-1" />
+                         <button type="button" data-field-delete="${field.id}" title="${escapeHTML(t('templates.deleteFieldTitle'))}" aria-label="${escapeHTML(t('templates.deleteFieldAria', { label: field.field_label }))}" class="mt-btn-icon mt-btn-danger-ghost shrink-0">
                            <i data-lucide="trash-2" class="w-4 h-4" aria-hidden="true"></i>
                          </button>`
-                      : `<span class="measurement-drag-handle mt-muted shrink-0 cursor-grab touch-none p-2" data-drag-handle="${field.id}" title="Tekan agak lama lalu geser, atau klik tombol Edit untuk urutkan dengan keyboard" aria-hidden="true">
+                      : `<span class="measurement-drag-handle mt-muted shrink-0 cursor-grab touch-none p-2" data-drag-handle="${field.id}" title="${escapeHTML(t('templates.dragHint'))}" aria-hidden="true">
                            <i data-lucide="grip-vertical" class="w-4 h-4"></i>
                          </span>
                          <span class="flex-1 text-sm mt-text">${escapeHTML(field.field_label)}</span>`
@@ -2487,16 +2675,16 @@ async function renderMeasurementTemplateSettings() {
                 </div>`
               )
               .join('')}
-            ${fields.length ? '' : '<p class="text-xs mt-muted py-2">Belum ada komponen ukuran.</p>'}
+            ${fields.length ? '' : `<p class="text-xs mt-muted py-2">${escapeHTML(t('templates.emptyFields'))}</p>`}
           </div>
           <div class="flex items-center justify-end gap-2 mt-seam-t mt-3 pt-3">
-            <button type="button" data-template-edit="${template.id}" aria-label="${isEditing ? 'Selesai edit template' : 'Edit dan urutkan komponen'}" class="mt-btn text-xs ${isEditing ? 'mt-btn-success' : 'mt-btn-secondary'}">
+            <button type="button" data-template-edit="${template.id}" aria-label="${escapeHTML(isEditing ? t('templates.finishEditAria') : t('templates.startEditAria'))}" class="mt-btn text-xs ${isEditing ? 'mt-btn-success' : 'mt-btn-secondary'}">
               <i data-lucide="${isEditing ? 'check' : 'pencil'}" class="w-4 h-4" aria-hidden="true"></i>
-              <span>${isEditing ? 'Selesai' : 'Edit & Urutkan'}</span>
+              <span>${escapeHTML(isEditing ? t('common.done') : t('templates.editOrderBtn'))}</span>
             </button>
-            <button type="button" data-field-add="${template.id}" aria-label="Tambah komponen untuk ${escapeHTML(template.garment_type)}" class="mt-btn mt-btn-primary text-xs">
+            <button type="button" data-field-add="${template.id}" aria-label="${escapeHTML(t('templates.addFieldAria', { type: template.garment_type }))}" class="mt-btn mt-btn-primary text-xs">
               <i data-lucide="plus" class="w-4 h-4" aria-hidden="true"></i>
-              <span>Komponen</span>
+              <span>${escapeHTML(t('templates.addFieldBtn'))}</span>
             </button>
           </div>
         </section>`;
@@ -2507,7 +2695,7 @@ async function renderMeasurementTemplateSettings() {
     bindMeasurementTemplateReorder(container);
     if (window.lucide) window.lucide.createIcons();
   } catch (error) {
-    container.innerHTML = `<p class="text-xs mt-danger-text">Gagal memuat template: ${escapeHTML(error.message || '')}</p>`;
+    container.innerHTML = `<p class="text-xs mt-danger-text">${escapeHTML(t('templates.loadFailed', { message: error.message || '' }))}</p>`;
   }
 }
 
@@ -2569,7 +2757,7 @@ function bindMeasurementTemplateReorder(container) {
       );
       const results = await Promise.all(updates);
       const failed = results.find((result) => result.error);
-      if (failed) alert(`Gagal menyimpan urutan komponen: ${failed.error.message}`);
+      if (failed) alert(t('templates.reorderFailed', { message: failed.error.message }));
       await renderMeasurementTemplateSettings();
     }
     activeRow = null;
@@ -2584,13 +2772,13 @@ function bindMeasurementTemplateReorder(container) {
     const tenantId = getActiveTenantId();
     if (!tenantId) return;
     const label = input.value.trim();
-    if (!label) return alert('Nama komponen wajib diisi.');
+    if (!label) return alert(t('templates.fieldNameRequired'));
     const { error } = await supabase
       .from('measurement_template_fields')
       .update({ field_label: label })
       .eq('id', input.dataset.fieldLabelInput)
       .eq('tenant_id', tenantId);
-    if (error) return alert(`Gagal mengubah komponen: ${error.message}`);
+    if (error) return alert(t('templates.fieldUpdateFailed', { message: error.message }));
     await renderMeasurementTemplateSettings();
   });
 }
@@ -2607,14 +2795,14 @@ function makeMeasurementFieldKey(label) {
 
 async function addMeasurementTemplate() {
   const tenantId = getActiveTenantId();
-  if (!tenantId) return alert('Workshop aktif tidak ditemukan.');
-  const name = prompt('Nama jenis pakaian baru:');
+  if (!tenantId) return alert(t('common.noActiveTenant'));
+  const name = prompt(t('templates.promptNewType'));
   if (name === null) return;
-  if (!name.trim()) return alert('Nama jenis pakaian wajib diisi.');
+  if (!name.trim()) return alert(t('templates.typeNameRequired'));
   const { error } = await supabase
     .from('measurement_templates')
-    .insert({ tenant_id: tenantId, garment_type: name.trim(), description: `Template ukuran ${name.trim()}` });
-  if (error) return alert(`Gagal menambahkan jenis pakaian: ${error.message}`);
+    .insert({ tenant_id: tenantId, garment_type: name.trim(), description: t('templates.typeDefaultDesc', { name: name.trim() }) });
+  if (error) return alert(t('templates.typeAddFailed', { message: error.message }));
   await renderMeasurementTemplateSettings();
 }
 
@@ -2637,7 +2825,7 @@ async function moveMeasurementField(templateId, fieldId, direction) {
     )
   );
   const failed = results.find((r) => r.error);
-  if (failed) alert(`Gagal memindahkan urutan komponen: ${failed.error.message}`);
+  if (failed) alert(t('templates.moveFailed', { message: failed.error.message }));
   await renderMeasurementTemplateSettings();
 }
 
@@ -2672,7 +2860,7 @@ async function handleMeasurementTemplateAction(event) {
     if (!tenantId) return;
     const field = activeMeasurementTemplateFields.find((item) => item.id === deleteField.dataset.fieldDelete);
     if (!field) return;
-    if (!confirm(`Yakin ingin menghapus komponen "${field.field_label}"? Data ukuran pelanggan yang sudah tersimpan tidak akan diubah.`)) {
+    if (!confirm(t('templates.deleteFieldConfirm', { label: field.field_label }))) {
       return;
     }
     const { error } = await supabase
@@ -2680,7 +2868,7 @@ async function handleMeasurementTemplateAction(event) {
       .delete()
       .eq('id', field.id)
       .eq('tenant_id', tenantId);
-    if (error) return alert(`Gagal menghapus komponen: ${error.message}`);
+    if (error) return alert(t('templates.deleteFieldFailed', { message: error.message }));
     await renderMeasurementTemplateSettings();
     return;
   }
@@ -2688,11 +2876,11 @@ async function handleMeasurementTemplateAction(event) {
     if (!tenantId) return;
     const template = activeMeasurementTemplates.find((item) => item.id === addField.dataset.fieldAdd);
     if (!template) return;
-    const label = prompt(`Nama komponen ukuran untuk ${template.garment_type}:`);
+    const label = prompt(t('templates.promptNewField', { type: template.garment_type }));
     if (label === null) return;
-    if (!label.trim()) return alert('Nama komponen wajib diisi.');
+    if (!label.trim()) return alert(t('templates.fieldNameRequired'));
     const key = makeMeasurementFieldKey(label);
-    if (!key) return alert('Nama komponen tidak valid.');
+    if (!key) return alert(t('templates.fieldNameInvalid'));
     const maxOrder = Math.max(
       0,
       ...activeMeasurementTemplateFields
@@ -2709,7 +2897,7 @@ async function handleMeasurementTemplateAction(event) {
       is_active: true,
       sort_order: maxOrder + 1,
     });
-    if (error) return alert(`Gagal menambahkan komponen: ${error.message}`);
+    if (error) return alert(t('templates.fieldAddFailed', { message: error.message }));
     await renderMeasurementTemplateSettings();
   }
 }
@@ -2719,7 +2907,7 @@ async function fetchOrders() {
   if (!ordersListContainer || !tenantId) return;
   ordersListContainer.innerHTML = `
     <div class="mt-card p-8 text-center text-sm mt-muted" role="status">
-      Memuat daftar order workshop...
+      ${escapeHTML(t('orders.loading'))}
     </div>
   `;
 
@@ -2740,8 +2928,8 @@ async function fetchOrders() {
     console.error('Fetch orders failed:', err);
     ordersListContainer.innerHTML = `
       <div role="alert" class="mt-notice-error p-5 text-sm flex flex-wrap items-center justify-between gap-3">
-        <span>Gagal memuat order: ${escapeHTML(err.message)}</span>
-        <button type="button" id="retry-fetch-orders-btn" class="mt-btn mt-btn-secondary text-xs">Muat ulang</button>
+        <span>${escapeHTML(t('orders.loadFailed', { message: err.message }))}</span>
+        <button type="button" id="retry-fetch-orders-btn" class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('common.reload'))}</button>
       </div>
     `;
     document.getElementById('retry-fetch-orders-btn')?.addEventListener('click', fetchOrders);
@@ -2783,7 +2971,7 @@ function updateDashboardMetrics() {
       nearestDeadlineEl.textContent = '-';
       nearestDeadlineEl.className = 'text-xl sm:text-2xl font-extrabold mt-text mt-1';
     }
-    if (nearestTicketEl) nearestTicketEl.textContent = 'Tidak ada antrean mendesak';
+    if (nearestTicketEl) nearestTicketEl.textContent = t('metrics.noUrgentQueue');
   }
 }
 
@@ -2802,24 +2990,24 @@ function renderOrdersList() {
   });
 
   const filterCount = document.getElementById('order-filter-count');
-  if (filterCount) filterCount.textContent = `${filtered.length} order ditampilkan`;
+  if (filterCount) filterCount.textContent = t('orders.shownCount', { count: filtered.length });
 
   if (filtered.length === 0) {
     if (activePool.length === 0) {
       ordersListContainer.innerHTML = `
         <div class="mt-card p-8 text-center space-y-3">
-          <p class="font-bold mt-text text-sm">Belum ada order aktif</p>
-          <p class="text-xs mt-muted">Catat pesanan pertama workshop untuk mulai memantau antrean dan beban kerja.</p>
-          <button type="button" data-empty-new-order class="mt-btn mt-btn-primary text-xs">Tambah Order Pertama</button>
+          <p class="font-bold mt-text text-sm">${escapeHTML(t('orders.emptyActiveTitle'))}</p>
+          <p class="text-xs mt-muted">${escapeHTML(t('orders.emptyActiveDesc'))}</p>
+          <button type="button" data-empty-new-order class="mt-btn mt-btn-primary text-xs">${escapeHTML(t('orders.addFirstBtn'))}</button>
         </div>
       `;
       ordersListContainer.querySelector('[data-empty-new-order]')?.addEventListener('click', () => openOrderModal(null));
     } else {
       ordersListContainer.innerHTML = `
         <div class="mt-card p-8 text-center space-y-3">
-          <p class="font-bold mt-text text-sm">Tidak ada order yang cocok dengan filter</p>
-          <p class="text-xs mt-muted">Ubah kata kunci pencarian, status proses, atau bersihkan filter aktif.</p>
-          <button type="button" data-empty-reset-filter class="mt-btn mt-btn-secondary text-xs">Reset Filter</button>
+          <p class="font-bold mt-text text-sm">${escapeHTML(t('orders.emptyFilterTitle'))}</p>
+          <p class="text-xs mt-muted">${escapeHTML(t('orders.emptyFilterDesc'))}</p>
+          <button type="button" data-empty-reset-filter class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('orders.resetFilter'))}</button>
         </div>
       `;
       ordersListContainer.querySelector('[data-empty-reset-filter]')?.addEventListener('click', resetOrderFilters);
@@ -2828,17 +3016,17 @@ function renderOrdersList() {
   }
 
   const nextStatusMap = {
-    received: { next: 'queued', label: 'Masuk Antrean' },
-    queued: { next: 'in_progress', label: 'Mulai Kerjakan' },
-    in_progress: { next: 'qc', label: 'Lanjut QC' },
-    qc: { next: 'ready', label: 'Tandai Siap Diambil' },
-    ready: { next: 'completed', label: 'Selesai / Diambil' },
+    received: { next: 'queued', label: t('orders.next.received') },
+    queued: { next: 'in_progress', label: t('orders.next.queued') },
+    in_progress: { next: 'qc', label: t('orders.next.in_progress') },
+    qc: { next: 'ready', label: t('orders.next.qc') },
+    ready: { next: 'completed', label: t('orders.next.ready') },
   };
 
   ordersListContainer.innerHTML = filtered
     .map((order) => {
-      const statusMeta = STATUS_META[order.status] || STATUS_META.received;
-      const payMeta = PAYMENT_STATUS_META[order.payment_status] || PAYMENT_STATUS_META.unpaid;
+      const statusMeta = getStatusMeta(order.status);
+      const payMeta = getPaymentStatusMeta(order.payment_status);
       const items = order.order_items || [];
       const remaining = Math.max(0, Number(order.total_amount) - Number(order.paid_amount));
       const deadline = getDeadlineStatus(order.estimated_done_date);
@@ -2854,7 +3042,7 @@ function renderOrdersList() {
                   )} · <strong class="ml-1">${escapeHTML(it.service_type)}</strong></span>`
               )
               .join(' ')
-          : '<span class="text-xs mt-muted">Belum ada item</span>';
+          : `<span class="text-xs mt-muted">${escapeHTML(t('orders.noItems'))}</span>`;
 
       return `
         <article class="mt-card p-4 sm:p-5 space-y-3.5">
@@ -2879,7 +3067,11 @@ function renderOrdersList() {
                 <span aria-hidden="true">·</span>
                 <a href="${buildWhatsAppLink(
                   order.customer_phone,
-                  `Halo ${order.customer_name}, update order ${order.ticket_code} dari ${workshopSettings.NAME}:`
+                  t('orders.waFollowUp', {
+                    customer: order.customer_name,
+                    ticket: order.ticket_code,
+                    store: workshopSettings.NAME,
+                  })
                 )}" target="_blank" rel="noopener noreferrer" class="mt-success-text hover:underline font-mono-code text-xs">
                   +${escapeHTML(order.customer_phone)}
                 </a>
@@ -2887,11 +3079,11 @@ function renderOrdersList() {
             </div>
 
             <div class="sm:text-right shrink-0">
-              <p class="font-mono-code font-bold text-sm sm:text-base mt-text">${formatCurrency(order.total_amount)}</p>
+              <p class="font-mono-code font-bold text-sm sm:text-base mt-text">${escapeHTML(formatCurrency(order.total_amount))}</p>
               ${
                 remaining > 0
-                  ? `<p class="text-xs font-mono-code font-semibold mt-accent">Sisa: ${formatCurrency(remaining)}</p>`
-                  : '<p class="text-xs font-semibold mt-success-text">Lunas</p>'
+                  ? `<p class="text-xs font-mono-code font-semibold mt-accent">${escapeHTML(t('orders.remainingPrefix', { amount: formatCurrency(remaining) }))}</p>`
+                  : `<p class="text-xs font-semibold mt-success-text">${escapeHTML(t('paymentStatus.paid'))}</p>`
               }
             </div>
           </div>
@@ -2901,7 +3093,7 @@ function renderOrdersList() {
             <div class="text-xs shrink-0 font-mono-code ${
               deadline.isUrgent && !['ready', 'completed'].includes(order.status) ? 'mt-danger-text font-semibold' : 'mt-muted'
             }">
-              ${deadline.isOverdue && !['ready', 'completed'].includes(order.status) ? 'Terlambat: ' : 'Target: '}${formatDateID(order.estimated_done_date)}
+              ${escapeHTML(deadline.isOverdue && !['ready', 'completed'].includes(order.status) ? t('orders.overduePrefix') : t('orders.targetPrefix'))}${escapeHTML(formatDateID(order.estimated_done_date))}
             </div>
           </div>
 
@@ -2922,19 +3114,19 @@ function renderOrdersList() {
                 remaining > 0
                   ? `<button type="button" data-open-payment="${order.id}" class="mt-btn mt-btn-success text-xs">
                       <i data-lucide="wallet" class="w-4 h-4" aria-hidden="true"></i>
-                      <span>Pelunasan</span>
+                      <span>${escapeHTML(t('orders.settlementBtn'))}</span>
                     </button>`
                   : ''
               }
-              <button type="button" data-open-receipt="${order.id}" title="Nota Digital" class="mt-btn mt-btn-secondary text-xs">
+              <button type="button" data-open-receipt="${order.id}" title="${escapeHTML(t('orders.receiptTitle'))}" class="mt-btn mt-btn-secondary text-xs">
                 <i data-lucide="receipt-text" class="w-4 h-4" aria-hidden="true"></i>
-                <span>Nota</span>
+                <span>${escapeHTML(t('orders.receiptBtn'))}</span>
               </button>
-              <button type="button" data-edit-order="${order.id}" title="Edit Order dan Foto" class="mt-btn mt-btn-secondary text-xs">
+              <button type="button" data-edit-order="${order.id}" title="${escapeHTML(t('orders.editTitle'))}" class="mt-btn mt-btn-secondary text-xs">
                 <i data-lucide="pencil" class="w-4 h-4" aria-hidden="true"></i>
-                <span>Edit</span>
+                <span>${escapeHTML(t('common.edit'))}</span>
               </button>
-              <button type="button" data-delete-order="${order.id}" title="Hapus Order" aria-label="Hapus order ${escapeHTML(order.ticket_code)}" class="mt-btn-icon mt-btn-danger-ghost">
+              <button type="button" data-delete-order="${order.id}" title="${escapeHTML(t('orders.deleteTitle'))}" aria-label="${escapeHTML(t('orders.deleteAria', { code: order.ticket_code }))}" class="mt-btn-icon mt-btn-danger-ghost">
                 <i data-lucide="trash-2" class="w-4 h-4" aria-hidden="true"></i>
               </button>
             </div>
@@ -2982,7 +3174,7 @@ function bindCardActionListeners() {
       const order = allOrders.find((o) => o.id === orderId);
       if (!order) return;
       const confirmed = confirm(
-        `Batalkan dan hapus permanen order ${order.ticket_code} (${order.customer_name})?\n\nSemua data order ini (item, riwayat pembayaran, dan kas terkait) akan dihapus. Data pelanggan (nama, nomor HP, dan ukuran) tetap disimpan.`
+        t('orders.deleteConfirm', { code: order.ticket_code, customer: order.customer_name })
       );
       if (!confirmed) return;
 
@@ -3004,7 +3196,7 @@ function bindCardActionListeners() {
 
         await fetchOrders();
       } catch (err) {
-        alert('Gagal menghapus order: ' + (err.message || 'Terjadi kesalahan.'));
+        alert(t('orders.deleteFailed', { message: err.message || t('common.genericError') }));
       } finally {
         btn.disabled = false;
       }
@@ -3014,7 +3206,7 @@ function bindCardActionListeners() {
 
 async function deleteOrderAndRelatedRecords(orderId) {
   const tenantId = getActiveTenantId();
-  if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+  if (!tenantId) throw new Error(t('common.noActiveTenant'));
   const { error: rpcError } = await supabase.rpc('delete_order_cascade', {
     p_tenant_id: tenantId,
     p_order_id: orderId,
@@ -3035,10 +3227,15 @@ async function updateOrderStatus(orderId, newStatus) {
   try {
     const targetOrder = allOrders.find((o) => o.id === orderId);
     if (newStatus === 'completed' && targetOrder) {
-      const remaining = Math.max(0, Number(targetOrder.total_amount || 0) - Number(targetOrder.paid_amount || 0));
+      const remaining = roundCurrencyAmount(
+        Math.max(0, Number(targetOrder.total_amount || 0) - Number(targetOrder.paid_amount || 0))
+      );
       if (remaining > 0) {
         alert(
-          `Order ${targetOrder.ticket_code} belum lunas (sisa tagihan ${formatCurrency(remaining)}). Tekan tombol Pelunasan terlebih dahulu sebelum menandai Selesai / Diambil.`
+          t('orders.unpaidCompleteAlert', {
+            code: targetOrder.ticket_code,
+            remaining: formatCurrency(remaining),
+          })
         );
         return;
       }
@@ -3046,7 +3243,7 @@ async function updateOrderStatus(orderId, newStatus) {
 
     // Marking an order completed never auto-settles unpaid balance.
     const tenantId = getActiveTenantId();
-    if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+    if (!tenantId) throw new Error(t('common.noActiveTenant'));
     const { error } = await supabase
       .from('orders')
       .update({ status: newStatus })
@@ -3059,7 +3256,7 @@ async function updateOrderStatus(orderId, newStatus) {
       if (updatedOrder) showWhatsAppReadyToast(updatedOrder);
     }
   } catch (err) {
-    alert('Gagal memperbarui status: ' + err.message);
+    alert(t('orders.statusUpdateFailed', { message: err.message }));
   }
 }
 
@@ -3071,16 +3268,20 @@ function showWhatsAppReadyToast(order) {
 
   const billingLine =
     remaining > 0
-      ? `Sisa tagihan: *${formatCurrency(remaining)}* (pembayaran saat pengambilan).`
-      : 'Status pembayaran: *Lunas*.';
+      ? t('wa.readyBillingUnpaid', { remaining: formatCurrency(remaining) })
+      : t('wa.readyBillingPaid');
 
-  const message =
-    `Halo Kak *${order.customer_name}*, pengerjaan order Anda di *${workshopSettings.NAME}* dengan kode tiket *${order.ticket_code}* telah *Selesai dan Siap Diambil*.\n\n` +
-    `${billingLine}\n` +
-    `Detail dan foto hasil pengerjaan dapat dilihat di:\n${trackingUrl}\n\n` +
-    `Alamat Workshop: ${workshopSettings.ADDRESS}\nJam buka: ${workshopSettings.OPENING_HOURS}\nTerima kasih!\n\nby MendTrack`;
+  const message = t('wa.readyMessage', {
+    customer: order.customer_name,
+    store: workshopSettings.NAME,
+    ticket: order.ticket_code,
+    billingLine,
+    trackingUrl,
+    address: workshopSettings.ADDRESS,
+    hours: workshopSettings.OPENING_HOURS,
+  });
 
-  waToastDesc.textContent = `Kirim info siap ambil ke ${order.customer_name} (${order.ticket_code})`;
+  waToastDesc.textContent = t('wa.toastDesc', { customer: order.customer_name, ticket: order.ticket_code });
   waToastSendLink.href = buildWhatsAppLink(order.customer_phone, message);
   waReadyToast.classList.remove('hidden');
   if (window.lucide) window.lucide.createIcons();
@@ -3128,8 +3329,8 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
 
   const isEdit = Boolean(existingOrder);
   document.getElementById('order-modal-title').textContent = isEdit
-    ? `Edit Order ${existingOrder.ticket_code}`
-    : 'Input Order Baru';
+    ? t('orderForm.editTitle', { code: existingOrder.ticket_code })
+    : t('orderForm.newTitle');
   document.getElementById('form-order-id').value = isEdit ? existingOrder.id : '';
 
   formItemsContainer.innerHTML = '';
@@ -3178,10 +3379,11 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
   ticketInput.readOnly = true;
   ticketInput.disabled = true;
 
+  syncCurrencyInputs(orderFormModal);
   recalculateFormTotals();
   const customerLookupStatus = document.getElementById('customer-lookup-status');
   if (customerLookupStatus) {
-    customerLookupStatus.textContent = 'Masukkan nomor HP untuk memeriksa data pelanggan.';
+    customerLookupStatus.textContent = t('orderForm.lookupPrompt');
     customerLookupStatus.className = 'mt-1 text-xs mt-muted';
   }
   orderFormModal.classList.remove('hidden');
@@ -3236,6 +3438,7 @@ function appendItemRow(itemData = {}, signedUrlMap = {}) {
   const beforePreviewUrl = beforePath ? signedUrlMap[beforePath] || '' : '';
   const afterPreviewUrl = afterPath ? signedUrlMap[afterPath] || '' : '';
 
+  const currencyMeta = getCurrencyMeta();
   const card = document.createElement('div');
   card.className = 'item-row mt-card-muted p-4 space-y-3 relative';
   card.dataset.itemId = itemData.id || '';
@@ -3244,66 +3447,66 @@ function appendItemRow(itemData = {}, signedUrlMap = {}) {
 
   card.innerHTML = `
     <div class="flex items-center justify-between gap-2">
-      <span class="text-xs font-mono-code font-bold mt-accent item-row-label">Item #${rowIndex + 1}</span>
+      <span class="text-xs font-mono-code font-bold mt-accent item-row-label">${escapeHTML(t('common.itemLabel', { number: rowIndex + 1 }))}</span>
       <button type="button" class="remove-item-btn mt-btn mt-btn-danger-ghost text-xs">
-        Hapus Item
+        ${escapeHTML(t('orderForm.removeItemBtn'))}
       </button>
     </div>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
       <div>
-        <label for="item-garment-${uid}" class="block text-xs font-semibold mt-text mb-1">Nama pakaian / artikel *</label>
-        <input id="item-garment-${uid}" type="text" required data-field="garment_name" value="${escapeHTML(itemData.garment_name || '')}" placeholder="Contoh: Raw Denim 15oz" class="mt-input" />
+        <label for="item-garment-${uid}" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('orderForm.garmentLabel'))}</label>
+        <input id="item-garment-${uid}" type="text" required data-field="garment_name" value="${escapeHTML(itemData.garment_name || '')}" placeholder="${escapeHTML(t('orderForm.garmentPlaceholder'))}" class="mt-input" />
       </div>
 
       <div>
-        <label for="item-service-${uid}" class="block text-xs font-semibold mt-text mb-1">Jenis layanan *</label>
-        <input id="item-service-${uid}" type="text" required list="service-presets-${uid}" data-field="service_type" value="${escapeHTML(itemData.service_type || '')}" placeholder="Pilih atau ketik layanan..." class="mt-input" />
+        <label for="item-service-${uid}" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('orderForm.serviceLabel'))}</label>
+        <input id="item-service-${uid}" type="text" required list="service-presets-${uid}" data-field="service_type" value="${escapeHTML(itemData.service_type || '')}" placeholder="${escapeHTML(t('orderForm.servicePlaceholder'))}" class="mt-input" />
         <datalist id="service-presets-${uid}">${presetOptions}</datalist>
       </div>
     </div>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
       <div>
-        <label for="item-specs-${uid}" class="block text-xs font-semibold mt-text mb-1">Spesifikasi ukuran (opsional)</label>
-        <input id="item-specs-${uid}" type="text" data-field="measurement_specs" value="${escapeHTML(specsString)}" placeholder="Contoh: Inseam: 78cm, Leg Opening: 18cm" class="mt-input text-xs" />
+        <label for="item-specs-${uid}" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('orderForm.specsLabel'))}</label>
+        <input id="item-specs-${uid}" type="text" data-field="measurement_specs" value="${escapeHTML(specsString)}" placeholder="${escapeHTML(t('orderForm.specsPlaceholder'))}" class="mt-input text-xs" />
       </div>
 
       <div>
-        <label for="item-price-${uid}" class="block text-xs font-semibold mt-text mb-1">Biaya item (Rp) *</label>
-        <input id="item-price-${uid}" type="number" required min="0" step="1000" data-field="price" value="${Number(itemData.price || 0)}" class="item-price-input mt-input font-mono-code text-right font-semibold" />
+        <label for="item-price-${uid}" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('orderForm.itemPricePrefix'))}<span data-currency-label>${escapeHTML(currencyMeta.shortLabel)}</span>) *</label>
+        <input id="item-price-${uid}" type="number" required data-currency-input="nonneg" inputmode="${currencyMeta.decimals > 0 ? 'decimal' : 'numeric'}" min="0" step="${escapeHTML(currencyMeta.step)}" data-field="price" value="${Number(itemData.price || 0)}" class="item-price-input mt-input font-mono-code text-right font-semibold" />
       </div>
     </div>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
       <div>
         <label for="item-before-${uid}" class="block text-xs font-semibold mt-text mb-1">
-          Foto sebelum ${beforePath ? '<span class="mt-success-text">(Tersimpan)</span>' : ''}
+          ${escapeHTML(t('orderForm.photoBefore'))} ${beforePath ? `<span class="mt-success-text">${escapeHTML(t('orderForm.photoSaved'))}</span>` : ''}
         </label>
         ${
           beforePreviewUrl
             ? `<a href="${escapeHTML(beforePreviewUrl)}" target="_blank" rel="noopener noreferrer" class="existing-photo-preview block mb-2">
-                <img src="${escapeHTML(beforePreviewUrl)}" width="112" height="80" onerror="this.src='/assets/placeholder-garment.svg'" alt="Foto sebelum tersimpan" class="w-28 h-20 object-cover rounded-lg border" style="border-color: var(--mt-border);" />
-                <span class="text-xs mt-muted">Foto tersimpan · pilih file baru untuk mengganti</span>
+                <img src="${escapeHTML(beforePreviewUrl)}" width="112" height="80" onerror="this.src='/assets/placeholder-garment.svg'" alt="${escapeHTML(t('orderForm.photoBeforeAlt'))}" class="w-28 h-20 object-cover rounded-lg border" style="border-color: var(--mt-border);" />
+                <span class="text-xs mt-muted">${escapeHTML(t('orderForm.photoSavedHint'))}</span>
               </a>`
             : beforePath
-              ? '<p class="text-xs mt-muted mb-2">Foto tersimpan · pilih file baru untuk mengganti</p>'
+              ? `<p class="text-xs mt-muted mb-2">${escapeHTML(t('orderForm.photoSavedHint'))}</p>`
               : ''
         }
         <input id="item-before-${uid}" type="file" accept="image/*" data-file="before" class="w-full text-xs mt-muted" />
       </div>
       <div>
         <label for="item-after-${uid}" class="block text-xs font-semibold mt-text mb-1">
-          Foto sesudah ${afterPath ? '<span class="mt-success-text">(Tersimpan)</span>' : ''}
+          ${escapeHTML(t('orderForm.photoAfter'))} ${afterPath ? `<span class="mt-success-text">${escapeHTML(t('orderForm.photoSaved'))}</span>` : ''}
         </label>
         ${
           afterPreviewUrl
             ? `<a href="${escapeHTML(afterPreviewUrl)}" target="_blank" rel="noopener noreferrer" class="existing-photo-preview block mb-2">
-                <img src="${escapeHTML(afterPreviewUrl)}" width="112" height="80" onerror="this.src='/assets/placeholder-garment.svg'" alt="Foto sesudah tersimpan" class="w-28 h-20 object-cover rounded-lg border" style="border-color: var(--mt-border);" />
-                <span class="text-xs mt-muted">Foto tersimpan · pilih file baru untuk mengganti</span>
+                <img src="${escapeHTML(afterPreviewUrl)}" width="112" height="80" onerror="this.src='/assets/placeholder-garment.svg'" alt="${escapeHTML(t('orderForm.photoAfterAlt'))}" class="w-28 h-20 object-cover rounded-lg border" style="border-color: var(--mt-border);" />
+                <span class="text-xs mt-muted">${escapeHTML(t('orderForm.photoSavedHint'))}</span>
               </a>`
             : afterPath
-              ? '<p class="text-xs mt-muted mb-2">Foto tersimpan · pilih file baru untuk mengganti</p>'
+              ? `<p class="text-xs mt-muted mb-2">${escapeHTML(t('orderForm.photoSavedHint'))}</p>`
               : ''
         }
         <input id="item-after-${uid}" type="file" accept="image/*" data-file="after" class="w-full text-xs mt-muted" />
@@ -3313,7 +3516,7 @@ function appendItemRow(itemData = {}, signedUrlMap = {}) {
 
   card.querySelector('.remove-item-btn').addEventListener('click', () => {
     if (formItemsContainer.children.length <= 1) {
-      alert('Minimal harus terdapat 1 item pakaian dalam satu order.');
+      alert(t('orderForm.minOneItem'));
       return;
     }
     card.remove();
@@ -3332,7 +3535,7 @@ function appendItemRow(itemData = {}, signedUrlMap = {}) {
 
 function renumberItemLabels() {
   formItemsContainer.querySelectorAll('.item-row-label').forEach((el, idx) => {
-    el.textContent = `Item #${idx + 1}`;
+    el.textContent = t('common.itemLabel', { number: idx + 1 });
   });
 }
 
@@ -3360,7 +3563,7 @@ function parseMeasurementSpecs(rawStr) {
       const val = pair.slice(idx + 1).trim();
       if (key && val) result[key] = val;
     } else if (pair.trim()) {
-      result['Catatan'] = pair.trim();
+      result[t('orderForm.specNoteKey')] = pair.trim();
     }
   });
   return result;
@@ -3368,7 +3571,7 @@ function parseMeasurementSpecs(rawStr) {
 
 async function uploadGarmentPhoto(file, orderId, typeLabel) {
   const tenantId = getActiveTenantId();
-  if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+  if (!tenantId) throw new Error(t('common.noActiveTenant'));
   const compressedBlob = await compressImage(file, 1080, 0.8);
   const filePath = `${tenantId}/${orderId}/${typeLabel}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.jpg`;
 
@@ -3408,26 +3611,26 @@ async function checkCustomerPhoneInForm() {
   const normalized = normalizePhone(phoneInput.value);
   const requestId = ++customerLookupRequest;
   if (!normalized || normalized.length < 10) {
-    status.textContent = 'Masukkan nomor HP minimal 10 digit.';
+    status.textContent = t('orderForm.lookupMinDigits');
     status.className = 'mt-1 text-xs mt-muted';
     return;
   }
 
-  status.textContent = 'Memeriksa nomor pelanggan...';
+  status.textContent = t('orderForm.lookupChecking');
   status.className = 'mt-1 text-xs mt-muted';
   try {
     const customer = await findCustomerByPhone(normalized);
     if (requestId !== customerLookupRequest) return;
     if (customer) {
-      status.textContent = `Nomor ini sudah terdaftar atas nama ${customer.name}.`;
+      status.textContent = t('orderForm.lookupFound', { name: customer.name });
       status.className = 'mt-1 text-xs mt-accent font-medium';
     } else {
-      status.textContent = 'Nomor belum terdaftar. Pelanggan baru akan otomatis dibuat saat order disimpan.';
+      status.textContent = t('orderForm.lookupNew');
       status.className = 'mt-1 text-xs mt-success-text font-medium';
     }
   } catch (error) {
     if (requestId !== customerLookupRequest) return;
-    status.textContent = `Pemeriksaan pelanggan gagal: ${error.message || 'Coba lagi.'}`;
+    status.textContent = t('orderForm.lookupFailed', { message: error.message || t('orderForm.retryShort') });
     status.className = 'mt-1 text-xs mt-danger-text';
   }
 }
@@ -3437,7 +3640,7 @@ async function handleSaveOrderSubmit(e) {
   const estimatedDateInput = document.getElementById('form-estimated-date');
   const estimatedDate = estimatedDateInput?.value.trim() || '';
   if (!estimatedDate || !parseLocalDateKey(estimatedDate)) {
-    showEstimatedDateError('Target selesai (deadline) wajib diisi.');
+    showEstimatedDateError(t('orderForm.deadlineRequired'));
     estimatedDateInput?.scrollIntoView({ block: 'center' });
     estimatedDateInput?.focus();
     return;
@@ -3446,7 +3649,7 @@ async function handleSaveOrderSubmit(e) {
 
   const submitBtn = document.getElementById('save-order-submit-btn');
   submitBtn.disabled = true;
-  submitBtn.innerHTML = '<span>Menyimpan...</span>';
+  submitBtn.innerHTML = `<span>${escapeHTML(t('common.saving'))}</span>`;
   try {
     const existingOrderId = document.getElementById('form-order-id').value.trim();
     const existingOrderRecord = existingOrderId ? allOrders.find((o) => o.id === existingOrderId) : null;
@@ -3460,18 +3663,18 @@ async function handleSaveOrderSubmit(e) {
     const customerName = document.getElementById('form-customer-name').value.trim();
     const customerPhone = normalizePhone(document.getElementById('form-customer-phone').value);
     const notes = document.getElementById('form-notes').value.trim();
-    const paidAmount = Number(document.getElementById('form-paid-amount').value || 0);
+    const paidAmount = roundCurrencyAmount(Number(document.getElementById('form-paid-amount').value || 0));
 
-    if (!ticketCode) throw new Error('Kode tiket wajib diisi.');
-    if (!estimatedDate || !parseLocalDateKey(estimatedDate)) throw new Error('Target selesai (deadline) wajib diisi.');
-    if (!customerName) throw new Error('Nama pelanggan wajib diisi.');
-    if (!customerPhone || customerPhone.length < 10) throw new Error('Nomor WhatsApp tidak valid (minimal 10 digit).');
-    if (!Number.isFinite(paidAmount) || paidAmount < 0) throw new Error('Nominal pembayaran tidak valid.');
+    if (!ticketCode) throw new Error(t('orderForm.ticketRequired'));
+    if (!estimatedDate || !parseLocalDateKey(estimatedDate)) throw new Error(t('orderForm.deadlineRequired'));
+    if (!customerName) throw new Error(t('customers.nameRequired'));
+    if (!customerPhone || customerPhone.length < 10) throw new Error(t('orderForm.phoneInvalid'));
+    if (!Number.isFinite(paidAmount) || paidAmount < 0) throw new Error(t('orderForm.dpInvalid'));
 
     await findCustomerByPhone(customerPhone);
 
     const itemRows = Array.from(formItemsContainer.querySelectorAll('.item-row'));
-    if (!itemRows.length) throw new Error('Minimal harus terdapat 1 item pakaian dalam satu order.');
+    if (!itemRows.length) throw new Error(t('orderForm.minOneItem'));
 
     const orderId = existingOrderId || crypto.randomUUID();
 
@@ -3481,10 +3684,10 @@ async function handleSaveOrderSubmit(e) {
       const garmentName = row.querySelector('[data-field="garment_name"]').value.trim();
       const serviceType = row.querySelector('[data-field="service_type"]').value.trim();
       const specsRaw = row.querySelector('[data-field="measurement_specs"]').value;
-      const price = Number(row.querySelector('[data-field="price"]').value || 0);
-      if (!garmentName) throw new Error('Nama pakaian pada setiap item wajib diisi.');
-      if (!serviceType) throw new Error('Jenis layanan pada setiap item wajib diisi.');
-      if (!Number.isFinite(price) || price < 0) throw new Error('Biaya item tidak valid.');
+      const price = roundCurrencyAmount(Number(row.querySelector('[data-field="price"]').value || 0));
+      if (!garmentName) throw new Error(t('orderForm.garmentRequired'));
+      if (!serviceType) throw new Error(t('orderForm.serviceRequired'));
+      if (!Number.isFinite(price) || price < 0) throw new Error(t('orderForm.priceInvalid'));
 
       let beforePath = row.dataset.existingBeforePath || null;
       let afterPath = row.dataset.existingAfterPath || null;
@@ -3505,7 +3708,7 @@ async function handleSaveOrderSubmit(e) {
     }
 
     const tenantId = getActiveTenantId();
-    if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+    if (!tenantId) throw new Error(t('common.noActiveTenant'));
 
     const { data: savedOrderId, error: saveError } = await supabase.rpc('save_order_with_items', {
       p_tenant_id: tenantId,
@@ -3519,7 +3722,7 @@ async function handleSaveOrderSubmit(e) {
       p_items: itemsPayload,
     });
     if (saveError) throw saveError;
-    if (!savedOrderId) throw new Error('Database tidak mengembalikan ID order yang tersimpan.');
+    if (!savedOrderId) throw new Error(t('orderForm.noIdReturned'));
 
     clearOrderDraft(tenantId);
     draftBanner?.classList.add('hidden');
@@ -3533,25 +3736,25 @@ async function handleSaveOrderSubmit(e) {
         .map((item, index) => `${index + 1}. ${item.garment_name} (${item.service_type}) - ${formatCurrency(item.price)}`)
         .join('\n');
       const trackingUrl = getPublicTrackingUrl();
-      const receiptMessage =
-        `*Struk Digital - ${workshopSettings.NAME}*\n` +
-        `No. Tiket: *${ticketCode}*\n` +
-        `Pelanggan: ${customerName}\n` +
-        `Target Selesai: ${formatDateID(estimatedDate)}\n\n` +
-        `*Detail Layanan:*\n${itemLines}\n\n` +
-        `Total: *${formatCurrency(totalAmount)}*\n` +
-        `Dibayar: ${formatCurrency(paidAmount)}\n` +
-        `Sisa Tagihan: *${formatCurrency(remaining)}*\n\n` +
-        `Pantau progres dengan nomor WhatsApp terdaftar: ${trackingUrl}\n\n` +
-        `Jam Operasional: ${workshopSettings.OPENING_HOURS}\n` +
-        `Terima kasih telah mempercayakan perawatan pakaian Anda kepada ${workshopSettings.NAME}.\n\nby MendTrack`;
+      const receiptMessage = t('wa.newOrderMessage', {
+        store: workshopSettings.NAME,
+        ticket: ticketCode,
+        customer: customerName,
+        targetDate: formatDateID(estimatedDate),
+        items: itemLines,
+        total: formatCurrency(totalAmount),
+        paid: formatCurrency(paidAmount),
+        remaining: formatCurrency(remaining),
+        trackingUrl,
+        hours: workshopSettings.OPENING_HOURS,
+      });
       window.location.href = buildWhatsAppLink(customerPhone, receiptMessage);
     }
   } catch (err) {
-    alert('Gagal menyimpan order: ' + err.message);
+    alert(t('orderForm.saveFailed', { message: err.message }));
   } finally {
     submitBtn.disabled = false;
-    submitBtn.innerHTML = '<i data-lucide="check" class="w-4 h-4" aria-hidden="true"></i><span>Simpan Order</span>';
+    submitBtn.innerHTML = `<i data-lucide="check" class="w-4 h-4" aria-hidden="true"></i><span>${escapeHTML(t('orderForm.saveBtn'))}</span>`;
     if (window.lucide) window.lucide.createIcons();
   }
 }
@@ -3590,7 +3793,10 @@ function checkSavedDraftBanner() {
   const draft = loadOrderDraft(tenantId);
   if (draft && draft.data && (draft.data.customer_name || draft.data.items?.length)) {
     if (draftSavedTime) {
-      draftSavedTime.textContent = `Draf untuk "${draft.data.customer_name || draft.data.ticket_code}" disimpan pada ${formatDateID(draft.savedAt, true)}`;
+      draftSavedTime.textContent = t('draft.savedDetail', {
+        name: draft.data.customer_name || draft.data.ticket_code,
+        time: formatDateID(draft.savedAt, true),
+      });
     }
     draftBanner?.classList.remove('hidden');
   } else {
@@ -3603,7 +3809,7 @@ function openPaymentModal(order) {
   rememberTrigger();
   const total = Number(order.total_amount || 0);
   const currentPaid = Number(order.paid_amount || 0);
-  const remaining = Math.max(0, total - currentPaid);
+  const remaining = roundCurrencyAmount(Math.max(0, total - currentPaid));
 
   document.getElementById('pay-order-id').value = order.id;
   document.getElementById('pay-modal-ticket').textContent = `${order.ticket_code} | ${order.customer_name}`;
@@ -3611,8 +3817,9 @@ function openPaymentModal(order) {
   document.getElementById('pay-current-display').textContent = formatCurrency(currentPaid);
   document.getElementById('pay-remaining-display').textContent = formatCurrency(remaining);
 
+  syncCurrencyInputs(paymentModal);
   const paidInput = document.getElementById('pay-new-paid-input');
-  paidInput.value = remaining;
+  paidInput.value = String(remaining);
   payFullQuickBtn.dataset.totalAmount = String(remaining);
 
   paymentModal.classList.remove('hidden');
@@ -3623,13 +3830,15 @@ function openPaymentModal(order) {
 async function handlePaymentSubmit(e) {
   e.preventDefault();
   const orderId = document.getElementById('pay-order-id').value;
-  const newPaidAmount = Number(document.getElementById('pay-new-paid-input').value || 0);
+  const newPaidAmount = roundCurrencyAmount(Number(document.getElementById('pay-new-paid-input').value || 0));
   const payMethod = paymentForm.querySelector('input[name="pay_method"]:checked')?.value || 'Tunai';
   const targetOrder = allOrders.find((o) => o.id === orderId);
   if (!targetOrder) return;
-  const remaining = Math.max(0, Number(targetOrder.total_amount || 0) - Number(targetOrder.paid_amount || 0));
-  if (!Number.isFinite(newPaidAmount) || newPaidAmount <= 0 || newPaidAmount !== remaining) {
-    alert('Nominal pelunasan harus sama persis dengan sisa tagihan: ' + formatCurrency(remaining));
+  const remaining = roundCurrencyAmount(
+    Math.max(0, Number(targetOrder.total_amount || 0) - Number(targetOrder.paid_amount || 0))
+  );
+  if (!Number.isFinite(newPaidAmount) || newPaidAmount <= 0 || Math.abs(newPaidAmount - remaining) > 0.0001) {
+    alert(t('payment.exactAmountError', { amount: formatCurrency(remaining) }));
     return;
   }
 
@@ -3637,12 +3846,12 @@ async function handlePaymentSubmit(e) {
   if (submitBtn) submitBtn.disabled = true;
   try {
     const tenantId = getActiveTenantId();
-    if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+    if (!tenantId) throw new Error(t('common.noActiveTenant'));
     const idempotencyKey = `settlement:${orderId}:${crypto.randomUUID()}`;
     const { error } = await supabase.rpc('record_order_payment_v3', {
       p_tenant_id: tenantId,
       p_order_id: orderId,
-      p_amount: newPaidAmount,
+      p_amount: remaining,
       p_payment_type: 'pelunasan',
       p_pay_method: payMethod,
       p_note: 'Pelunasan dari daftar order',
@@ -3652,33 +3861,23 @@ async function handlePaymentSubmit(e) {
     closePaymentModal();
     await fetchOrders();
   } catch (err) {
-    alert('Gagal menyimpan pembayaran: ' + err.message);
+    alert(t('payment.saveFailed', { message: err.message }));
   } finally {
     if (submitBtn) submitBtn.disabled = false;
   }
 }
 
 // Manual cash entries only; order payments post through record_order_payment_v3 RPC.
-const cashCategories = {
-  income: [
-    ['custom', 'Custom'],
-    ['reparasi', 'Reparasi'],
-    ['lain_lain', 'Lain-lain'],
-  ],
-  expense: [
-    ['alat_bahan', 'Alat dan Bahan'],
-    ['operasional', 'Operasional'],
-    ['makan_minum', 'Makan dan Minum'],
-    ['gaji', 'Gaji'],
-    ['lain_lain', 'Lain-lain'],
-  ],
-};
-
 function updateCashCategoryOptions() {
   const type = document.getElementById('cash-type')?.value || 'income';
   const select = document.getElementById('cash-category');
   if (select) {
-    select.innerHTML = cashCategories[type].map(([v, l]) => `<option value="${v}">${l}</option>`).join('');
+    const currentValue = select.value;
+    const options = getCashCategories(type);
+    select.innerHTML = options.map(([v, l]) => `<option value="${v}">${escapeHTML(l)}</option>`).join('');
+    if (options.some(([v]) => v === currentValue)) {
+      select.value = currentValue;
+    }
   }
 }
 
@@ -3694,7 +3893,7 @@ async function renderCash() {
   const target = document.getElementById('cash-transactions');
   const tenantId = getActiveTenantId();
   if (!target || !tenantId) return;
-  target.innerHTML = '<p class="text-sm mt-muted" role="status">Memuat transaksi kas...</p>';
+  target.innerHTML = `<p class="text-sm mt-muted" role="status">${escapeHTML(t('cash.loading'))}</p>`;
   try {
     const period = document.getElementById('cash-period')?.value || 'week';
     let query = supabase
@@ -3728,24 +3927,23 @@ async function renderCash() {
     document.getElementById('cash-expense').textContent = formatCurrency(periodExpense);
     document.getElementById('cash-balance').textContent = formatCurrency(balance);
 
-    const labels = Object.fromEntries([...cashCategories.income, ...cashCategories.expense]);
     target.innerHTML = rows.length
       ? rows
           .map(
             (x) => `<div class="flex items-center justify-between gap-3 py-3 border-b last:border-0" style="border-color: var(--mt-border);">
               <div class="min-w-0">
-                <p class="text-sm font-semibold mt-text">${escapeHTML(x.description || labels[x.category] || x.category)}</p>
-                <p class="text-xs mt-muted">${formatDateID(x.occurred_at, true)} · ${labels[x.category] || x.category} · ${escapeHTML(x.payment_method || 'Tunai')}${x.order_id ? ' · Order' : ' · Manual'}</p>
+                <p class="text-sm font-semibold mt-text">${escapeHTML(x.description || getCashCategoryLabel(x.category))}</p>
+                <p class="text-xs mt-muted">${escapeHTML(formatDateID(x.occurred_at, true))} · ${escapeHTML(getCashCategoryLabel(x.category))} · ${escapeHTML(getPaymentMethodLabel(x.payment_method || 'Tunai'))} · ${escapeHTML(x.order_id ? t('cash.sourceOrder') : t('cash.sourceManual'))}</p>
               </div>
-              <b class="text-sm font-mono-code whitespace-nowrap ${x.transaction_type === 'income' ? 'mt-success-text' : 'mt-danger-text'}">${x.transaction_type === 'income' ? '+' : '-'}${formatCurrency(x.amount)}</b>
+              <b class="text-sm font-mono-code whitespace-nowrap ${x.transaction_type === 'income' ? 'mt-success-text' : 'mt-danger-text'}">${x.transaction_type === 'income' ? '+' : '-'}${escapeHTML(formatCurrency(x.amount))}</b>
             </div>`
           )
           .join('')
-      : '<p class="text-sm mt-muted py-5 text-center">Belum ada transaksi pada periode ini.</p>';
+      : `<p class="text-sm mt-muted py-5 text-center">${escapeHTML(t('reports.noTransactions'))}</p>`;
   } catch (err) {
     target.innerHTML = `<div role="alert" class="text-sm mt-danger-text flex items-center justify-between gap-2">
-      <span>Gagal memuat kas: ${escapeHTML(err.message || '')}</span>
-      <button type="button" data-retry-cash class="mt-btn mt-btn-secondary text-xs">Muat ulang</button>
+      <span>${escapeHTML(t('cash.loadFailed', { message: err.message || '' }))}</span>
+      <button type="button" data-retry-cash class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('common.reload'))}</button>
     </div>`;
     target.querySelector('[data-retry-cash]')?.addEventListener('click', renderCash);
   }
@@ -3756,7 +3954,9 @@ function openCashModal() {
   updateCashCategoryOptions();
   document.getElementById('cash-form')?.reset();
   updateCashCategoryOptions();
-  document.getElementById('cash-modal')?.classList.remove('hidden');
+  const modal = document.getElementById('cash-modal');
+  if (modal) syncCurrencyInputs(modal);
+  modal?.classList.remove('hidden');
   document.getElementById('cash-amount')?.focus();
 }
 
@@ -3766,12 +3966,12 @@ async function submitCashForm(e) {
   if (btn) btn.disabled = true;
   try {
     const tenantId = getActiveTenantId();
-    if (!tenantId) throw new Error('Workshop aktif tidak ditemukan.');
+    if (!tenantId) throw new Error(t('common.noActiveTenant'));
     const args = {
       p_tenant_id: tenantId,
       p_transaction_type: document.getElementById('cash-type').value,
       p_category: document.getElementById('cash-category').value,
-      p_amount: Number(document.getElementById('cash-amount').value),
+      p_amount: roundCurrencyAmount(Number(document.getElementById('cash-amount').value)),
       p_payment_method: document.getElementById('cash-method').value,
       p_description: document.getElementById('cash-description').value.trim() || null,
       p_occurred_at: new Date().toISOString(),
@@ -3781,7 +3981,7 @@ async function submitCashForm(e) {
     closeCashModal();
     await renderCash();
   } catch (err) {
-    alert('Gagal menyimpan transaksi kas: ' + err.message);
+    alert(t('cash.saveFailed', { message: err.message }));
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -3796,7 +3996,7 @@ function openReceiptModal(order) {
   const total = Number(order.total_amount || 0);
   const paid = Number(order.paid_amount || 0);
   const remaining = Math.max(0, total - paid);
-  const payMeta = PAYMENT_STATUS_META[order.payment_status] || PAYMENT_STATUS_META.unpaid;
+  const payMeta = getPaymentStatusMeta(order.payment_status);
 
   const itemsRowsHTML = items
     .map(
@@ -3806,7 +4006,7 @@ function openReceiptModal(order) {
           <p class="font-semibold mt-text">${idx + 1}. ${escapeHTML(it.garment_name)}</p>
           <p class="text-xs mt-muted">${escapeHTML(it.service_type)}</p>
         </div>
-        <span class="font-mono-code text-xs font-semibold mt-text shrink-0">${formatCurrency(it.price)}</span>
+        <span class="font-mono-code text-xs font-semibold mt-text shrink-0">${escapeHTML(formatCurrency(it.price))}</span>
       </div>
     `
     )
@@ -3814,7 +4014,7 @@ function openReceiptModal(order) {
 
   receiptContent.innerHTML = `
     <div class="text-center pb-3 mt-seam-b">
-      ${workshopSettings.LOGO ? `<img src="${workshopSettings.LOGO}" width="56" height="56" alt="Logo ${escapeHTML(workshopSettings.NAME)}" class="w-14 h-14 object-contain mx-auto mb-2">` : ''}
+      ${workshopSettings.LOGO ? `<img src="${workshopSettings.LOGO}" width="56" height="56" alt="${escapeHTML(t('common.logoAlt', { name: workshopSettings.NAME }))}" class="w-14 h-14 object-contain mx-auto mb-2">` : ''}
       <h3 class="font-bold text-base mt-text">${escapeHTML(workshopSettings.NAME)}</h3>
       <p class="text-xs mt-muted">${escapeHTML(workshopSettings.TAGLINE)}</p>
       <p class="text-xs mt-muted">${escapeHTML(workshopSettings.ADDRESS)}</p>
@@ -3822,47 +4022,47 @@ function openReceiptModal(order) {
     </div>
 
     <div class="grid grid-cols-2 gap-y-1.5 text-xs">
-      <span class="mt-muted">No. Tiket:</span>
+      <span class="mt-muted">${escapeHTML(t('receipt.ticketNo'))}</span>
       <span class="font-mono-code font-bold text-right mt-text">${escapeHTML(order.ticket_code)}</span>
 
-      <span class="mt-muted">Pelanggan:</span>
+      <span class="mt-muted">${escapeHTML(t('receipt.customer'))}</span>
       <span class="font-semibold text-right mt-text">${escapeHTML(order.customer_name)}</span>
 
-      <span class="mt-muted">Tanggal masuk:</span>
-      <span class="text-right mt-text">${formatDateID(order.created_at)}</span>
+      <span class="mt-muted">${escapeHTML(t('receipt.receivedDate'))}</span>
+      <span class="text-right mt-text">${escapeHTML(formatDateID(order.created_at))}</span>
 
-      <span class="mt-muted">Target selesai:</span>
-      <span class="font-semibold text-right mt-text">${formatDateID(order.estimated_done_date)}</span>
+      <span class="mt-muted">${escapeHTML(t('receipt.targetDone'))}</span>
+      <span class="font-semibold text-right mt-text">${escapeHTML(formatDateID(order.estimated_done_date))}</span>
     </div>
 
     <div class="pt-3 mt-seam-t">
-      <p class="text-xs font-bold mt-text mb-1">Rincian layanan</p>
+      <p class="text-xs font-bold mt-text mb-1">${escapeHTML(t('receipt.serviceDetails'))}</p>
       ${itemsRowsHTML}
     </div>
 
     <div class="space-y-1.5 text-xs pt-1">
       <div class="flex justify-between">
-        <span class="mt-muted">Total tagihan</span>
-        <span class="font-mono-code font-bold mt-text">${formatCurrency(total)}</span>
+        <span class="mt-muted">${escapeHTML(t('receipt.totalBill'))}</span>
+        <span class="font-mono-code font-bold mt-text">${escapeHTML(formatCurrency(total))}</span>
       </div>
       <div class="flex justify-between">
-        <span class="mt-muted">Sudah dibayar</span>
-        <span class="font-mono-code mt-success-text font-semibold">${formatCurrency(paid)}</span>
+        <span class="mt-muted">${escapeHTML(t('receipt.paid'))}</span>
+        <span class="font-mono-code mt-success-text font-semibold">${escapeHTML(formatCurrency(paid))}</span>
       </div>
       <div class="flex justify-between text-sm pt-2 mt-seam-t">
-        <span class="font-bold mt-text">Sisa tagihan</span>
-        <span class="font-mono-code font-bold mt-accent">${formatCurrency(remaining)}</span>
+        <span class="font-bold mt-text">${escapeHTML(t('receipt.remaining'))}</span>
+        <span class="font-mono-code font-bold mt-accent">${escapeHTML(formatCurrency(remaining))}</span>
       </div>
       <div class="pt-2 text-center">
-        <span class="${payMeta.badgeClass}">Status: ${escapeHTML(payMeta.label)}</span>
+        <span class="${payMeta.badgeClass}">${escapeHTML(t('receipt.statusBadge', { status: payMeta.label }))}</span>
       </div>
     </div>
 
     <p class="text-xs text-center mt-muted pt-3 mt-seam-t">
-      Lacak progres dengan nomor WhatsApp terdaftar di:<br />
+      ${escapeHTML(t('receipt.trackNote'))}<br />
       <span class="font-mono-code mt-text">${escapeHTML(getPublicTrackingUrl())}</span>
     </p>
-    <p class="mt-4 pt-2 mt-seam-t text-center text-xs mt-muted">by MendTrack</p>
+    <p class="mt-4 pt-2 mt-seam-t text-center text-xs mt-muted">${escapeHTML(t('common.byMendTrack'))}</p>
   `;
 
   receiptModal.classList.remove('hidden');
@@ -3883,18 +4083,19 @@ function handleSendReceiptViaWA() {
     .map((it, idx) => `${idx + 1}. ${it.garment_name} (${it.service_type}) - ${formatCurrency(it.price)}`)
     .join('\n');
 
-  const receiptText =
-    `*Nota Digital - ${workshopSettings.NAME}*\n` +
-    `No. Tiket: *${o.ticket_code}*\n` +
-    `Pelanggan: ${o.customer_name}\n` +
-    `Target Selesai: ${formatDateID(o.estimated_done_date)}\n\n` +
-    `*Detail Layanan:*\n${itemLines}\n\n` +
-    `Total: *${formatCurrency(total)}*\n` +
-    `Dibayar: ${formatCurrency(paid)}\n` +
-    `Sisa Tagihan: *${formatCurrency(remaining)}*\n\n` +
-    `Pantau status pengerjaan Anda di:\n${trackingUrl}\n\n` +
-    `Alamat: ${workshopSettings.ADDRESS}\nJam buka: ${workshopSettings.OPENING_HOURS}\n\n` +
-    `Terima kasih telah mempercayakan perawatan denim Anda di ${workshopSettings.NAME}.\n\nby MendTrack`;
+  const receiptText = t('wa.receiptMessage', {
+    store: workshopSettings.NAME,
+    ticket: o.ticket_code,
+    customer: o.customer_name,
+    targetDate: formatDateID(o.estimated_done_date),
+    items: itemLines,
+    total: formatCurrency(total),
+    paid: formatCurrency(paid),
+    remaining: formatCurrency(remaining),
+    trackingUrl,
+    address: workshopSettings.ADDRESS,
+    hours: workshopSettings.OPENING_HOURS,
+  });
 
   // Same-tab navigation lets Android Chrome hand wa.me links directly to the WhatsApp app.
   window.location.href = buildWhatsAppLink(o.customer_phone, receiptText);
