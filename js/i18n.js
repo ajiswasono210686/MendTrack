@@ -776,6 +776,118 @@ const DICTIONARIES = {
     'settings.savedSuccess': 'Pengaturan toko berhasil disimpan.',
     'settings.saveFailed': 'Gagal menyimpan pengaturan: {message}',
     'settings.saveFailedHint': 'Periksa tabel, kebijakan akses, dan koneksi.',
+
+    // Stage 3: Mail-In Logistics, QR Tag, & Denim Fit Passport
+    'status.awaiting_package': 'Menunggu Paket',
+    'status.shipped': 'Dikirim',
+    'status.mail_in.received': 'Paket Diterima',
+    'status.mail_in.ready': 'Siap Dikirim',
+    'status.mail_in.completed': 'Selesai (Diterima Pelanggan)',
+    'step.awaiting_package.desc': 'Menunggu paket kiriman tiba di workshop.',
+    'step.mail_in.received.desc': 'Paket telah tiba dan dicatat oleh petugas workshop.',
+    'step.mail_in.ready.desc': 'Pengerjaan selesai dan paket siap dikirim kembali.',
+    'step.shipped.desc': 'Paket sedang dalam pengiriman kembali ke alamat Anda.',
+    'log.default.awaiting_package': 'Menunggu paket kiriman dari pelanggan',
+    'log.default.mail_in_received': 'Paket kiriman diterima oleh workshop',
+    'log.default.mail_in_ready': 'Pengerjaan selesai dan siap dikirim',
+    'log.default.shipped': 'Paket telah dikirim kembali ke pelanggan',
+    'log.default.mail_in_completed': 'Order mail-in selesai',
+    'orderType.all': 'Semua tipe',
+    'orderType.walk_in': 'Walk-in',
+    'orderType.mail_in': 'Mail-in (Paket)',
+    'orderType.mail_in_short': 'Mail-in',
+    'orders.typeFilterLabel': 'Tipe order',
+    'orders.searchPlaceholderMailIn': 'Kode tiket, nama, WhatsApp, atau nomor resi...',
+    'orders.next.awaiting_package': 'Tandai Paket Diterima',
+    'orders.next.mail_in_ready': 'Tandai Dikirim',
+    'orders.next.shipped': 'Tandai Selesai',
+    'orders.qrTagBtn': 'QR Tag',
+    'orders.qrTagTitle': 'Cetak QR Tag Celana',
+    'orders.inboundLabel': 'Resi masuk',
+    'orders.outboundLabel': 'Resi keluar',
+    'orders.copyTrackingAria': 'Salin nomor resi {tracking}',
+    'orders.trackingCopied': 'Nomor resi disalin',
+    'orderForm.orderTypeLegend': 'Tipe penerimaan order',
+    'orderForm.walkInDesc': 'Pelanggan datang langsung ke workshop',
+    'orderForm.mailInDesc': 'Pelanggan mengirim pakaian via kurir/ekspedisi',
+    'orderForm.mailInHeading': 'Info logistik mail-in',
+    'orderForm.mailInArrivedLabel': 'Paket sudah tiba di workshop (mulai dari status Paket Diterima)',
+    'orderForm.inboundCourierLabel': 'Kurir masuk',
+    'orderForm.inboundCourierPlaceholder': 'Contoh: JNE, J&T, Pos, DHL, UPS',
+    'orderForm.inboundTrackingLabel': 'Nomor resi masuk',
+    'orderForm.inboundTrackingPlaceholder': 'Nomor resi pengiriman dari pelanggan',
+    'orderForm.outboundCourierLabel': 'Kurir kirim keluar',
+    'orderForm.outboundCourierPlaceholder': 'Kurir pengembalian ke pelanggan',
+    'orderForm.outboundTrackingLabel': 'Nomor resi kirim keluar',
+    'orderForm.outboundTrackingPlaceholder': 'Diisi saat paket dikirim kembali',
+    'shipment.modalTitle': 'Catat Pengiriman Keluar',
+    'shipment.modalSub': 'Lengkapi kurir & nomor resi sebelum menandai order Dikirim',
+    'shipment.closeAria': 'Tutup modal pengiriman keluar',
+    'shipment.unpaidWarning': 'Perhatian: Order ini masih memiliki sisa tagihan {remaining}. Pastikan pelunasan sudah dikonfirmasi sebelum paket dikirim.',
+    'shipment.saveBtn': 'Simpan & Tandai Dikirim',
+    'shipment.saveFailed': 'Gagal mencatat pengiriman keluar: {message}',
+    'wa.mailInReceivedTitle': 'Paket mail-in diterima',
+    'wa.mailInReceivedDesc': 'Kirim konfirmasi paket tiba ke {customer} ({ticket})',
+    'wa.mailInReceivedMessage': 'Halo Kak *{customer}*, paket Anda untuk order *{ticket}* di *{store}* telah *Kami Terima di Workshop*.\n\n{inboundLine}Target selesai: *{targetDate}*\n\nPantau progres pengerjaan Anda di:\n{trackingUrl}\n\nTerima kasih!\n\nby MendTrack',
+    'wa.mailInReadyTitle': 'Order mail-in siap dikirim',
+    'wa.mailInReadyDesc': 'Kirim info siap kirim ke {customer} ({ticket})',
+    'wa.mailInReadyBillingUnpaid': 'Sisa tagihan: *{remaining}* (mohon pelunasan sebelum paket dikirim kembali).',
+    'wa.mailInReadyMessage': 'Halo Kak *{customer}*, pengerjaan order mail-in Anda di *{store}* dengan kode tiket *{ticket}* telah *Selesai dan Siap Dikirim*.\n\n{billingLine}\nDetail dan foto hasil pengerjaan dapat dilihat di:\n{trackingUrl}\n\nTerima kasih!\n\nby MendTrack',
+    'wa.mailInShippedTitle': 'Paket telah dikirim',
+    'wa.mailInShippedDesc': 'Kirim info resi keluar ke {customer} ({ticket})',
+    'wa.mailInShippedMessage': 'Halo Kak *{customer}*, paket order *{ticket}* dari *{store}* telah *Dikirim Kembali*.\n\n{outboundLine}Pantau detail order Anda di:\n{trackingUrl}\n\nTerima kasih telah mempercayakan perawatan pakaian Anda kepada {store}.\n\nby MendTrack',
+    'wa.mailInLineType': 'Tipe Order: Mail-in (Paket)',
+    'wa.mailInLineInbound': 'Resi Masuk: {value}',
+    'wa.mailInLineOutbound': 'Resi Keluar: {value}',
+    'wa.mailInSendAddressHint': 'Alamat kirim paket ke workshop: {address}',
+    'receipt.orderType': 'Tipe order:',
+    'receipt.inboundInfo': 'Resi masuk:',
+    'receipt.outboundInfo': 'Resi keluar:',
+    'tracker.mailInHeading': 'Informasi pengiriman paket',
+    'tracker.inboundCourier': 'Kurir masuk',
+    'tracker.inboundTracking': 'Resi masuk',
+    'tracker.outboundCourier': 'Kurir kirim keluar',
+    'tracker.outboundTracking': 'Resi kirim keluar',
+    'tracker.trackingPending': 'Belum tersedia',
+    'tracker.copyTrackingAria': 'Salin nomor resi {tracking}',
+    'tracker.copyTrackingDoneAria': 'Nomor resi berhasil disalin',
+    'tracker.shipToWorkshopHint': 'Kirim paket Anda ke alamat workshop berikut dan cantumkan kode tiket {ticket} pada paket:',
+    'qrTag.modalTitle': 'Cetak QR Tag Celana',
+    'qrTag.modalSub': 'Tempelkan pada pakaian agar admin cukup scan QR untuk membuka detail order',
+    'qrTag.closeAria': 'Tutup cetak QR tag',
+    'qrTag.formatLabel': 'Ukuran kertas cetak',
+    'qrTag.format58': 'Thermal 58mm',
+    'qrTag.format80': 'Thermal 80mm',
+    'qrTag.formatA6': 'Kertas A6',
+    'qrTag.printBtn': 'Cetak Tag',
+    'qrTag.scanHint': 'Scan QR untuk buka order di Admin',
+    'qrTag.targetLabel': 'Target selesai',
+    'qrTag.moreItems': '+{count} item lainnya',
+    'qrTag.deepLinkNotFound': 'Tiket {ticket} tidak ditemukan di workshop aktif Anda.',
+    'qrTag.openTagBtn': 'Cetak QR Tag',
+    'passport.sectionHeading': 'Denim Fit Passport (opsional)',
+    'passport.sectionDesc': 'Catat karakter kain denim, penyusutan rendam, dan preferensi jahitan pelanggan.',
+    'passport.fabricLabel': 'Karakter kain denim',
+    'passport.fabricNone': 'Tidak ditentukan (umum)',
+    'passport.fabric.sanforized': 'Sanforized',
+    'passport.fabric.unsanforized': 'Unsanforized (Loomstate)',
+    'passport.fabric.raw': 'Raw Denim',
+    'passport.shrinkageLabel': 'Catatan penyusutan (pre-soak vs post-soak)',
+    'passport.shrinkagePlaceholder': 'Contoh: Pre-soak pinggang 84cm ke post-soak 81cm, susut inseam 3cm',
+    'passport.hemTaperLabel': 'Preferensi hem / taper',
+    'passport.hemTaperPlaceholder': 'Contoh: Chainstitch lipat 1 inci, taper halus ke 17.5cm',
+    'passport.fitNotesLabel': 'Catatan fit tambahan',
+    'passport.fitNotesPlaceholder': 'Contoh: Suka paha agak longgar, benang copper gold',
+    'passport.cardFabric': 'Kain',
+    'passport.cardShrinkage': 'Penyusutan',
+    'passport.cardHemTaper': 'Hem/Taper',
+    'passport.cardFitNotes': 'Catatan fit',
+    'passport.autofillBannerTitle': 'Denim Fit Passport tersedia',
+    'passport.autofillBannerMeta': '{type}{fabric} · {count} ukuran tersimpan',
+    'passport.autofillBtn': 'Pakai ukuran terakhir pelanggan',
+    'passport.autofillConfirmOverwrite': 'Kolom spesifikasi ukuran item sudah terisi. Ganti dengan Denim Fit Passport terakhir pelanggan?',
+    'passport.autofillApplied': 'Ukuran & profil Denim Fit Passport diterapkan ke Item #{number}.',
+    'passport.autofillEmpty': 'Catatan ukuran terakhir belum memiliki angka atau atribut denim untuk diisi.',
   },
 
   en: {
@@ -1519,15 +1631,132 @@ const DICTIONARIES = {
     'settings.savedSuccess': 'Store settings saved.',
     'settings.saveFailed': 'Failed to save settings: {message}',
     'settings.saveFailedHint': 'Check table permissions and network connection.',
+
+    // Stage 3: Mail-In Logistics, QR Tag, & Denim Fit Passport
+    'status.awaiting_package': 'Awaiting Package',
+    'status.shipped': 'Shipped',
+    'status.mail_in.received': 'Package Received',
+    'status.mail_in.ready': 'Ready to Ship',
+    'status.mail_in.completed': 'Completed (Delivered)',
+    'step.awaiting_package.desc': 'Waiting for your parcel to arrive at the workshop.',
+    'step.mail_in.received.desc': 'Your parcel has arrived and been checked in by workshop staff.',
+    'step.mail_in.ready.desc': 'Work is finished and your parcel is ready to ship back.',
+    'step.shipped.desc': 'Your parcel is on its way back to you.',
+    'log.default.awaiting_package': 'Waiting for customer parcel to arrive',
+    'log.default.mail_in_received': 'Mail-in parcel received by workshop',
+    'log.default.mail_in_ready': 'Work completed and ready to ship',
+    'log.default.shipped': 'Parcel shipped back to customer',
+    'log.default.mail_in_completed': 'Mail-in order completed',
+    'orderType.all': 'All types',
+    'orderType.walk_in': 'Walk-in',
+    'orderType.mail_in': 'Mail-in (Parcel)',
+    'orderType.mail_in_short': 'Mail-in',
+    'orders.typeFilterLabel': 'Order type',
+    'orders.searchPlaceholderMailIn': 'Ticket code, name, WhatsApp, or tracking number...',
+    'orders.next.awaiting_package': 'Mark Package Received',
+    'orders.next.mail_in_ready': 'Mark as Shipped',
+    'orders.next.shipped': 'Mark Completed',
+    'orders.qrTagBtn': 'QR Tag',
+    'orders.qrTagTitle': 'Print Garment QR Tag',
+    'orders.inboundLabel': 'Inbound tracking',
+    'orders.outboundLabel': 'Outbound tracking',
+    'orders.copyTrackingAria': 'Copy tracking number {tracking}',
+    'orders.trackingCopied': 'Tracking number copied',
+    'orderForm.orderTypeLegend': 'Order fulfillment type',
+    'orderForm.walkInDesc': 'Customer drops off garment in person',
+    'orderForm.mailInDesc': 'Customer ships garment via courier',
+    'orderForm.mailInHeading': 'Mail-in logistics details',
+    'orderForm.mailInArrivedLabel': 'Parcel has already arrived at workshop (start as Package Received)',
+    'orderForm.inboundCourierLabel': 'Inbound courier',
+    'orderForm.inboundCourierPlaceholder': 'Example: UPS, FedEx, DHL, USPS, JNE',
+    'orderForm.inboundTrackingLabel': 'Inbound tracking number',
+    'orderForm.inboundTrackingPlaceholder': 'Tracking number from customer',
+    'orderForm.outboundCourierLabel': 'Outbound courier',
+    'orderForm.outboundCourierPlaceholder': 'Return shipment courier',
+    'orderForm.outboundTrackingLabel': 'Outbound tracking number',
+    'orderForm.outboundTrackingPlaceholder': 'Filled when returning parcel',
+    'shipment.modalTitle': 'Record Outbound Shipment',
+    'shipment.modalSub': 'Enter return courier and tracking before marking as Shipped',
+    'shipment.closeAria': 'Close outbound shipment modal',
+    'shipment.unpaidWarning': 'Warning: This order still has an unpaid balance of {remaining}. Confirm payment before shipping the parcel.',
+    'shipment.saveBtn': 'Save & Mark Shipped',
+    'shipment.saveFailed': 'Failed to record outbound shipment: {message}',
+    'wa.mailInReceivedTitle': 'Mail-in parcel received',
+    'wa.mailInReceivedDesc': 'Send parcel arrival confirmation to {customer} ({ticket})',
+    'wa.mailInReceivedMessage': 'Hello *{customer}*, your mail-in parcel for order *{ticket}* at *{store}* has been *Received at our Workshop*.\n\n{inboundLine}Est. completion: *{targetDate}*\n\nTrack your progress at:\n{trackingUrl}\n\nThank you!\n\nby MendTrack',
+    'wa.mailInReadyTitle': 'Mail-in order ready to ship',
+    'wa.mailInReadyDesc': 'Send ready-to-ship notice to {customer} ({ticket})',
+    'wa.mailInReadyBillingUnpaid': 'Remaining balance: *{remaining}* (please settle before return shipment).',
+    'wa.mailInReadyMessage': 'Hello *{customer}*, your mail-in order at *{store}* (Ticket *{ticket}*) is now *Complete and Ready to Ship*.\n\n{billingLine}\nView order details and photos at:\n{trackingUrl}\n\nThank you!\n\nby MendTrack',
+    'wa.mailInShippedTitle': 'Parcel shipped',
+    'wa.mailInShippedDesc': 'Send return tracking details to {customer} ({ticket})',
+    'wa.mailInShippedMessage': 'Hello *{customer}*, your order *{ticket}* from *{store}* has been *Shipped Back*.\n\n{outboundLine}View full details at:\n{trackingUrl}\n\nThank you for trusting {store} with your garments.\n\nby MendTrack',
+    'wa.mailInLineType': 'Order Type: Mail-in (Parcel)',
+    'wa.mailInLineInbound': 'Inbound Tracking: {value}',
+    'wa.mailInLineOutbound': 'Outbound Tracking: {value}',
+    'wa.mailInSendAddressHint': 'Ship your parcel to our workshop: {address}',
+    'receipt.orderType': 'Order type:',
+    'receipt.inboundInfo': 'Inbound tracking:',
+    'receipt.outboundInfo': 'Outbound tracking:',
+    'tracker.mailInHeading': 'Mail-in parcel shipping',
+    'tracker.inboundCourier': 'Inbound courier',
+    'tracker.inboundTracking': 'Inbound tracking',
+    'tracker.outboundCourier': 'Outbound courier',
+    'tracker.outboundTracking': 'Outbound tracking',
+    'tracker.trackingPending': 'Not available yet',
+    'tracker.copyTrackingAria': 'Copy tracking number {tracking}',
+    'tracker.copyTrackingDoneAria': 'Tracking number copied',
+    'tracker.shipToWorkshopHint': 'Ship your parcel to the workshop address below and write ticket code {ticket} on the package:',
+    'qrTag.modalTitle': 'Print Garment QR Tag',
+    'qrTag.modalSub': 'Attach to garment so workshop staff can scan to open the order directly',
+    'qrTag.closeAria': 'Close QR tag print modal',
+    'qrTag.formatLabel': 'Print paper preset',
+    'qrTag.format58': 'Thermal 58mm',
+    'qrTag.format80': 'Thermal 80mm',
+    'qrTag.formatA6': 'A6 Card',
+    'qrTag.printBtn': 'Print Tag',
+    'qrTag.scanHint': 'Scan QR to open order in Admin',
+    'qrTag.targetLabel': 'Due date',
+    'qrTag.moreItems': '+{count} more item(s)',
+    'qrTag.deepLinkNotFound': 'Ticket {ticket} was not found in your active workshop.',
+    'qrTag.openTagBtn': 'Print QR Tag',
+    'passport.sectionHeading': 'Denim Fit Passport (optional)',
+    'passport.sectionDesc': 'Record denim fabric construction, soak shrinkage behavior, and customer fit preferences.',
+    'passport.fabricLabel': 'Denim fabric type',
+    'passport.fabricNone': 'Not specified (general)',
+    'passport.fabric.sanforized': 'Sanforized',
+    'passport.fabric.unsanforized': 'Unsanforized (Loomstate)',
+    'passport.fabric.raw': 'Raw Denim',
+    'passport.shrinkageLabel': 'Shrinkage notes (pre-soak vs post-soak)',
+    'passport.shrinkagePlaceholder': 'Example: Pre-soak waist 33in to post-soak 31.5in, inseam shrinks 1.5in',
+    'passport.hemTaperLabel': 'Hem / taper preference',
+    'passport.hemTaperPlaceholder': 'Example: Chainstitch 1-inch cuff, slight taper to 17.5cm leg opening',
+    'passport.fitNotesLabel': 'Additional fit notes',
+    'passport.fitNotesPlaceholder': 'Example: Prefers roomy thigh, copper gold thread',
+    'passport.cardFabric': 'Fabric',
+    'passport.cardShrinkage': 'Shrinkage',
+    'passport.cardHemTaper': 'Hem/Taper',
+    'passport.cardFitNotes': 'Fit notes',
+    'passport.autofillBannerTitle': 'Denim Fit Passport available',
+    'passport.autofillBannerMeta': '{type}{fabric} · {count} saved measurements',
+    'passport.autofillBtn': "Use customer's latest fit",
+    'passport.autofillConfirmOverwrite': "This item's measurement specs already have text. Replace with the customer's latest Denim Fit Passport?",
+    'passport.autofillApplied': 'Denim Fit Passport specs applied to Item #{number}.',
+    'passport.autofillEmpty': 'The latest measurement record has no values or denim attributes to apply.',
   },
 };
 
 const KNOWN_SYSTEM_LOG_NOTES = {
+  'Menunggu paket kiriman dari pelanggan': 'log.default.awaiting_package',
+  'Paket kiriman diterima oleh workshop': 'log.default.mail_in_received',
   'Order diterima oleh workshop': 'log.default.received',
   'Order masuk dalam antrean pengerjaan': 'log.default.queued',
   'Sedang dalam proses pengerjaan': 'log.default.in_progress',
   'Tahap pemeriksaan kualitas (Quality Check)': 'log.default.qc',
+  'Pengerjaan selesai dan siap dikirim': 'log.default.mail_in_ready',
   'Pengerjaan selesai dan siap diambil': 'log.default.ready',
+  'Paket telah dikirim kembali ke pelanggan': 'log.default.shipped',
+  'Order mail-in selesai': 'log.default.mail_in_completed',
   'Order telah diambil / selesai': 'log.default.completed',
 };
 
@@ -1700,13 +1929,24 @@ export function applyTranslations(root = typeof document !== 'undefined' ? docum
   updateLangToggleButtons(root);
 }
 
-export function getOrderSteps(localeOverride = null) {
-  return [
+export function getOrderSteps(localeOverride = null, orderType = 'walk_in') {
+  const isMailIn = orderType === 'mail_in';
+  const steps = [];
+  if (isMailIn) {
+    steps.push({
+      key: 'awaiting_package',
+      label: t('status.awaiting_package', {}, localeOverride),
+      shortLabel: t('status.awaiting_package', {}, localeOverride),
+      description: t('step.awaiting_package.desc', {}, localeOverride),
+      icon: 'package',
+    });
+  }
+  steps.push(
     {
       key: 'received',
-      label: t('status.received', {}, localeOverride),
-      shortLabel: t('status.received', {}, localeOverride),
-      description: t('step.received.desc', {}, localeOverride),
+      label: t(isMailIn ? 'status.mail_in.received' : 'status.received', {}, localeOverride),
+      shortLabel: t(isMailIn ? 'status.mail_in.received' : 'status.received', {}, localeOverride),
+      description: t(isMailIn ? 'step.mail_in.received.desc' : 'step.received.desc', {}, localeOverride),
       icon: 'package-check',
     },
     {
@@ -1732,23 +1972,49 @@ export function getOrderSteps(localeOverride = null) {
     },
     {
       key: 'ready',
-      label: t('status.ready', {}, localeOverride),
-      shortLabel: t('status.ready', {}, localeOverride),
-      description: t('step.ready.desc', {}, localeOverride),
-      icon: 'shopping-bag',
-    },
-  ];
+      label: t(isMailIn ? 'status.mail_in.ready' : 'status.ready', {}, localeOverride),
+      shortLabel: t(isMailIn ? 'status.mail_in.ready' : 'status.ready', {}, localeOverride),
+      description: t(isMailIn ? 'step.mail_in.ready.desc' : 'step.ready.desc', {}, localeOverride),
+      icon: isMailIn ? 'package-open' : 'shopping-bag',
+    }
+  );
+  if (isMailIn) {
+    steps.push({
+      key: 'shipped',
+      label: t('status.shipped', {}, localeOverride),
+      shortLabel: t('status.shipped', {}, localeOverride),
+      description: t('step.shipped.desc', {}, localeOverride),
+      icon: 'truck',
+    });
+  }
+  return steps;
 }
 
-export function getStatusMeta(status, localeOverride = null) {
-  const key = ['received', 'queued', 'in_progress', 'qc', 'ready', 'completed'].includes(status)
-    ? status
-    : 'received';
+export function getStatusMeta(status, localeOverride = null, orderType = 'walk_in') {
+  const valid = ['awaiting_package', 'received', 'queued', 'in_progress', 'qc', 'ready', 'shipped', 'completed'];
+  const key = valid.includes(status) ? status : 'received';
+  const isMailIn = orderType === 'mail_in';
+  const mailInOverrideKeys = ['received', 'ready', 'completed'];
+  const labelKey = isMailIn && mailInOverrideKeys.includes(key) ? `status.mail_in.${key}` : `status.${key}`;
   return {
-    label: t(`status.${key}`, {}, localeOverride),
+    label: t(labelKey, {}, localeOverride),
     badgeClass: `mt-badge mt-badge-${key}`,
     dotClass: 'mt-badge-dot',
   };
+}
+
+export function getOrderTypeMeta(orderType, localeOverride = null) {
+  const isMailIn = orderType === 'mail_in';
+  return {
+    label: t(isMailIn ? 'orderType.mail_in_short' : 'orderType.walk_in', {}, localeOverride),
+    badgeClass: isMailIn ? 'mt-badge mt-badge-mail_in' : 'mt-badge mt-badge-walk_in',
+  };
+}
+
+export function getDenimFabricLabel(fabricType, localeOverride = null) {
+  const canonical = String(fabricType || '').trim().toLowerCase();
+  if (!['sanforized', 'unsanforized', 'raw'].includes(canonical)) return '';
+  return t(`passport.fabric.${canonical}`, {}, localeOverride);
 }
 
 export function getPaymentStatusMeta(status, localeOverride = null) {

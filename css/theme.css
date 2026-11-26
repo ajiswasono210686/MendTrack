@@ -367,6 +367,8 @@ label.mt-label-locked {
   flex: none;
 }
 
+.mt-badge-awaiting_package { background: #FBECE3; color: #7C2D12; border-color: #E8B899; }
+.mt-badge-awaiting_package .mt-badge-dot { background: #9E4316; }
 .mt-badge-received { background: #E6E0D4; color: #18253E; border-color: #C7BEB0; }
 .mt-badge-received .mt-badge-dot { background: #4A5568; }
 .mt-badge-queued { background: #DBEAFE; color: #1E3A8A; border-color: #93C5FD; }
@@ -377,8 +379,12 @@ label.mt-label-locked {
 .mt-badge-qc .mt-badge-dot { background: #6D28D9; }
 .mt-badge-ready { background: #DCFCE7; color: #14532D; border-color: #86EFAC; }
 .mt-badge-ready .mt-badge-dot { background: #166534; }
+.mt-badge-shipped { background: #E0F2FE; color: #0C4A6E; border-color: #7DD3FC; }
+.mt-badge-shipped .mt-badge-dot { background: #0369A1; }
 .mt-badge-completed { background: #E6E0D4; color: #18253E; border-color: #B5AA96; }
 .mt-badge-completed .mt-badge-dot { background: #18253E; }
+.mt-badge-mail_in { background: #18253E; color: #FFFDF9; border-color: #18253E; }
+.mt-badge-walk_in { background: #ECE7DC; color: #18253E; border-color: #C7BEB0; }
 
 .mt-badge-unpaid { background: #FFE4E6; color: #881337; border-color: #FDA4AF; }
 .mt-badge-partial { background: #FEF3C7; color: #78350F; border-color: #FCD34D; }
@@ -389,6 +395,8 @@ label.mt-label-locked {
 .mt-badge-offline { background: #FFE4E6; color: #881337; border-color: #FDA4AF; }
 .mt-badge-offline .mt-badge-dot { background: #9F1239; }
 
+html[data-theme="dark"] .mt-badge-awaiting_package { background: #4A2715; color: #FFEDD5; border-color: #9E4316; }
+html[data-theme="dark"] .mt-badge-awaiting_package .mt-badge-dot { background: #F2A36B; }
 html[data-theme="dark"] .mt-badge-received { background: #2B3752; color: #F3EFE6; border-color: #465470; }
 html[data-theme="dark"] .mt-badge-received .mt-badge-dot { background: #B4BDD0; }
 html[data-theme="dark"] .mt-badge-queued { background: #1D3B6E; color: #DBEAFE; border-color: #3B69B8; }
@@ -399,8 +407,12 @@ html[data-theme="dark"] .mt-badge-qc { background: #3E2A6E; color: #EDE9FE; bord
 html[data-theme="dark"] .mt-badge-qc .mt-badge-dot { background: #C4B5FD; }
 html[data-theme="dark"] .mt-badge-ready { background: #144936; color: #D1FAE5; border-color: #2E7D5E; }
 html[data-theme="dark"] .mt-badge-ready .mt-badge-dot { background: #6EE7B7; }
+html[data-theme="dark"] .mt-badge-shipped { background: #103A54; color: #E0F2FE; border-color: #2E7AA8; }
+html[data-theme="dark"] .mt-badge-shipped .mt-badge-dot { background: #7DD3FC; }
 html[data-theme="dark"] .mt-badge-completed { background: #2B3752; color: #F3EFE6; border-color: #526282; }
 html[data-theme="dark"] .mt-badge-completed .mt-badge-dot { background: #F3EFE6; }
+html[data-theme="dark"] .mt-badge-mail_in { background: #2B3B5C; color: #F3EFE6; border-color: #526487; }
+html[data-theme="dark"] .mt-badge-walk_in { background: #212C42; color: #DCE2EE; border-color: #3C4A69; }
 
 html[data-theme="dark"] .mt-badge-unpaid { background: #6B1C2D; color: #FFE4E6; border-color: #A83850; }
 html[data-theme="dark"] .mt-badge-partial { background: #5C3D0E; color: #FEF3C7; border-color: #A16207; }
@@ -1315,6 +1327,264 @@ html[data-theme="dark"] .mt-legend-dot.workload-over {
   }
 }
 
+/* Stage 3: Mail-In Logistics pills, Denim Fit Passport banner, & QR Tag preview/print. */
+.mt-tracking-code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.mt-tracking-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.125rem 0.25rem 0.125rem 0.625rem;
+  border-radius: 8px;
+  border: 1px solid var(--mt-border);
+  background-color: var(--mt-surface-muted);
+  color: var(--mt-ink);
+  font-size: 0.75rem;
+  max-width: 100%;
+}
+
+.mt-tracking-copy-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 0.625rem;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  border: 1px solid var(--mt-input-border);
+  background-color: var(--mt-surface);
+  color: var(--mt-ink);
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.mt-tracking-copy-btn:hover:not(:disabled) {
+  background-color: var(--mt-accent-soft);
+  border-color: var(--mt-accent);
+  color: var(--mt-accent-text);
+}
+
+.mt-passport-banner {
+  background-color: var(--mt-accent-soft);
+  border: 1px dashed var(--mt-accent);
+  border-radius: 8px;
+  padding: 0.75rem 0.875rem;
+  color: var(--mt-ink);
+}
+
+.mt-qr-format-bar {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.mt-qr-format-btn {
+  min-height: 44px;
+  padding: 0.375rem 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--mt-input-border);
+  background-color: var(--mt-surface);
+  color: var(--mt-ink);
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.mt-qr-format-btn:hover {
+  background-color: var(--mt-surface-muted);
+}
+
+.mt-qr-format-btn.is-active {
+  border-width: 2px;
+  border-color: var(--mt-accent);
+  background-color: var(--mt-accent-soft);
+  color: var(--mt-accent-text);
+}
+
+.mt-qr-tag-stage {
+  background-color: var(--mt-surface-muted);
+  border: 1px dashed var(--mt-seam);
+  border-radius: 10px;
+  padding: 1rem;
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+}
+
+.mt-qr-tag-sheet {
+  background-color: #FFFFFF;
+  color: #101623;
+  border: 1.5px solid #18253E;
+  border-radius: 6px;
+  padding: 12px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 240px;
+}
+
+.mt-qr-tag-sheet[data-print-format="80mm"] {
+  max-width: 300px;
+  padding: 14px;
+}
+
+.mt-qr-tag-sheet[data-print-format="a6"] {
+  max-width: 390px;
+  padding: 18px;
+}
+
+.mt-qr-tag-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1.5px dashed #18253E;
+}
+
+.mt-qr-tag-code {
+  font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: 0.02em;
+  color: #101623;
+}
+
+.mt-qr-tag-type {
+  display: inline-block;
+  padding: 2px 6px;
+  border: 1px solid #18253E;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #101623;
+  background-color: #F5F2EB;
+  white-space: nowrap;
+}
+
+.mt-qr-tag-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 8px;
+}
+
+.mt-qr-tag-sheet[data-print-format="a6"] .mt-qr-tag-body {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: start;
+  gap: 14px;
+}
+
+.mt-qr-tag-qr-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 6px;
+  border-top: 1px dashed #7A7468;
+}
+
+.mt-qr-tag-sheet[data-print-format="a6"] .mt-qr-tag-qr-wrap {
+  padding-top: 0;
+  border-top: 0;
+  padding-left: 12px;
+  border-left: 1px dashed #7A7468;
+}
+
+.mt-qr-tag-qr-box {
+  width: 132px;
+  height: 132px;
+  background: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mt-qr-tag-sheet[data-print-format="80mm"] .mt-qr-tag-qr-box {
+  width: 148px;
+  height: 148px;
+}
+
+.mt-qr-tag-sheet[data-print-format="a6"] .mt-qr-tag-qr-box {
+  width: 152px;
+  height: 152px;
+}
+
+.mt-qr-tag-qr-box svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.mt-qr-tag-meta {
+  font-size: 12px;
+  line-height: 1.35;
+  color: #101623;
+}
+
+.mt-qr-tag-store {
+  font-size: 10px;
+  font-weight: 700;
+  color: #4A5568;
+  margin: 0;
+}
+
+.mt-qr-tag-customer {
+  margin: 0;
+  font-weight: 700;
+}
+
+.mt-qr-tag-phone {
+  margin: 2px 0 0;
+  font-size: 11px;
+  color: #4A5568;
+}
+
+.mt-qr-tag-due {
+  margin: 6px 0 0;
+  font-size: 11px;
+}
+
+.mt-qr-tag-due-label {
+  color: #4A5568;
+}
+
+.mt-qr-tag-items {
+  margin: 4px 0 0;
+  padding-left: 14px;
+  list-style: disc;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #18253E;
+}
+
+.mt-qr-tag-caption {
+  margin-top: 4px;
+  font-size: 10px;
+  color: #4A5568;
+  text-align: center;
+}
+
+@media screen and (max-width: 480px) {
+  .mt-qr-tag-sheet[data-print-format="a6"] .mt-qr-tag-body {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .mt-qr-tag-sheet[data-print-format="a6"] .mt-qr-tag-qr-wrap {
+    padding-left: 0;
+    border-left: 0;
+    padding-top: 6px;
+    border-top: 1px dashed #7A7468;
+  }
+}
+
 @media print {
   body {
     background: #FFFFFF !important;
@@ -1327,6 +1597,71 @@ html[data-theme="dark"] .mt-legend-dot.workload-over {
   }
   #admin-workspace {
     padding-left: 0 !important;
+  }
+  body:not(.mt-printing-qr-tag) #qr-tag-modal {
+    display: none !important;
+  }
+  body.mt-printing-qr-tag #receipt-modal {
+    display: none !important;
+  }
+  body.mt-printing-qr-tag #qr-tag-modal {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    background: #FFFFFF !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  body.mt-printing-qr-tag #qr-tag-modal .mt-modal-panel {
+    box-shadow: none !important;
+    border: none !important;
+    background: #FFFFFF !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  body.mt-printing-qr-tag .mt-qr-tag-stage {
+    background: #FFFFFF !important;
+    border: none !important;
+    padding: 0 !important;
+    justify-content: flex-start !important;
+  }
+  body.mt-printing-qr-tag .mt-qr-tag-sheet {
+    border: 1px solid #000000 !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    color: #000000 !important;
+    page-break-inside: avoid;
+  }
+  body.mt-printing-qr-tag .mt-qr-tag-sheet[data-print-format="58mm"] {
+    width: 54mm !important;
+    max-width: 54mm !important;
+    padding: 3mm !important;
+  }
+  body.mt-printing-qr-tag .mt-qr-tag-sheet[data-print-format="58mm"] .mt-qr-tag-qr-box {
+    width: 34mm !important;
+    height: 34mm !important;
+  }
+  body.mt-printing-qr-tag .mt-qr-tag-sheet[data-print-format="80mm"] {
+    width: 74mm !important;
+    max-width: 74mm !important;
+    padding: 4mm !important;
+  }
+  body.mt-printing-qr-tag .mt-qr-tag-sheet[data-print-format="80mm"] .mt-qr-tag-qr-box {
+    width: 40mm !important;
+    height: 40mm !important;
+  }
+  body.mt-printing-qr-tag .mt-qr-tag-sheet[data-print-format="a6"] {
+    width: 98mm !important;
+    max-width: 98mm !important;
+    padding: 6mm !important;
+  }
+  body.mt-printing-qr-tag .mt-qr-tag-sheet[data-print-format="a6"] .mt-qr-tag-qr-box {
+    width: 38mm !important;
+    height: 38mm !important;
   }
   .print-only-container {
     box-shadow: none !important;

@@ -44,12 +44,18 @@ import {
   SUPPORTED_TIMEZONES,
   LOCALE_STORAGE_KEY,
   getStatusMeta,
+  getOrderTypeMeta,
+  getDenimFabricLabel,
   getPaymentStatusMeta,
   getCashCategories,
   getCashCategoryLabel,
   getPaymentMethodLabel,
   getServiceCategoryLabel,
 } from './i18n.js';
+import { renderQrSvg } from './qr-svg.js';
+
+const PENDING_ADMIN_TICKET_KEY = 'mendtrack_pending_admin_ticket';
+const QR_TAG_FORMAT_KEY = 'mendtrack-qr-tag-format';
 
 let activeTenant = null;
 let pendingVerifyEmail = '';
@@ -63,7 +69,10 @@ let allOrders = [];
 let workloadDateFilter = null;
 let searchQuery = '';
 let orderStatusFilter = 'all';
+let orderTypeFilter = 'all';
 let currentReceiptOrder = null;
+let currentQrTagOrder = null;
+let matchedLatestPassport = null;
 let workloadServices = [];
 const workloadToday = new Date();
 let workloadViewMonth = new Date(workloadToday.getFullYear(), workloadToday.getMonth(), 1);
@@ -71,7 +80,7 @@ let workloadSelectedDate = toLocalDateKey(workloadToday);
 
 let workshopSettings = { ...DEFAULT_STORE_SETTINGS };
 let activeServiceCatalog = [];
-let lastModalTrigger = null;
+let modalTriggerStack = [];
 let itemRowCounter = 0;
 
 function detectBrowserTimezone() {
@@ -198,15 +207,18 @@ function isValidWorkshopSlug(slug) {
 
 function rememberTrigger() {
   if (document.activeElement instanceof HTMLElement) {
-    lastModalTrigger = document.activeElement;
+    modalTriggerStack.push(document.activeElement);
   }
 }
 
 function restoreTriggerFocus() {
-  if (lastModalTrigger && document.contains(lastModalTrigger)) {
-    lastModalTrigger.focus();
+  while (modalTriggerStack.length > 0) {
+    const trigger = modalTriggerStack.pop();
+    if (trigger && document.contains(trigger) && trigger.offsetParent !== null) {
+      trigger.focus();
+      return;
+    }
   }
-  lastModalTrigger = null;
 }
 
 function applyStoreSettings() {
@@ -543,21 +555,33 @@ function renderArchiveOrders() {
   const archived = allOrders.filter((order) => order.status === 'completed');
   target.innerHTML = archived.length
     ? archived
-        .map(
-          (order) => `<article class="mt-card p-4 flex flex-wrap items-center justify-between gap-3">
+        .map((order) => {
+          const isMailIn = order.order_type === 'mail_in';
+          const typeMeta = isMailIn ? getOrderTypeMeta('mail_in') : null;
+          return `<article class="mt-card p-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p class="font-mono-code font-bold mt-text">${escapeHTML(order.ticket_code || '')}</p>
+              <div class="flex items-center gap-2 flex-wrap">
+                <p class="font-mono-code font-bold mt-text">${escapeHTML(order.ticket_code || '')}</p>
+                ${typeMeta ? `<span class="${typeMeta.badgeClass}">${escapeHTML(typeMeta.label)}</span>` : ''}
+              </div>
               <p class="text-sm mt-text">${escapeHTML(order.customer_name || '')}</p>
               <p class="text-xs mt-muted">${escapeHTML(t('archive.completedMeta', { date: formatDateID(order.updated_at || order.created_at) }))}</p>
             </div>
-            <div class="text-right flex flex-col items-end gap-1">
+            <div class="text-right flex flex-col items-end gap-1.5">
               <p class="font-mono-code font-bold mt-text">${escapeHTML(formatCurrency(order.total_amount))}</p>
-              <button type="button" data-edit-order="${order.id}" class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('archive.viewOrder'))}</button>
+              <div class="flex flex-wrap items-center justify-end gap-2">
+                <button type="button" data-open-qr-tag="${order.id}" title="${escapeHTML(t('orders.qrTagTitle'))}" class="mt-btn mt-btn-secondary text-xs">
+                  <i data-lucide="qr-code" class="w-4 h-4" aria-hidden="true"></i>
+                  <span>${escapeHTML(t('orders.qrTagBtn'))}</span>
+                </button>
+                <button type="button" data-edit-order="${order.id}" class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('archive.viewOrder'))}</button>
+              </div>
             </div>
-          </article>`
-        )
+          </article>`;
+        })
         .join('')
     : `<div class="mt-card p-8 text-center text-sm mt-muted">${escapeHTML(t('archive.empty'))}</div>`;
+  if (window.lucide) window.lucide.createIcons();
 }
 
 async function renderReports() {
@@ -825,7 +849,7 @@ function getOrderEstimatedMinutes(order) {
 
 function getWorkloadForDate(dateKey) {
   const orders = allOrders.filter(
-    (order) => order.estimated_done_date === dateKey && !['ready', 'completed'].includes(order.status)
+    (order) => order.estimated_done_date === dateKey && !['ready', 'shipped', 'completed'].includes(order.status)
   );
   const minutes = orders.reduce((sum, order) => sum + getOrderEstimatedMinutes(order), 0);
   const unknownItems = orders.reduce((sum, order) => {
@@ -985,7 +1009,46 @@ function consumeAuthRedirectError() {
   return errDesc || t('admin.googleAuthError');
 }
 
+function capturePendingDeepLinkTicket() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const raw = String(params.get('ticket') || '').trim().toUpperCase();
+    if (raw) {
+      sessionStorage.setItem(PENDING_ADMIN_TICKET_KEY, raw);
+    }
+  } catch (_) {}
+}
+
+function consumePendingDeepLinkTicket() {
+  let targetTicket = '';
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const urlTicket = String(params.get('ticket') || '').trim().toUpperCase();
+    const storedTicket = String(sessionStorage.getItem(PENDING_ADMIN_TICKET_KEY) || '').trim().toUpperCase();
+    targetTicket = urlTicket || storedTicket;
+    if (!targetTicket) return;
+    sessionStorage.removeItem(PENDING_ADMIN_TICKET_KEY);
+    if (urlTicket) {
+      const cleanUrl = new URL(window.location.href);
+      cleanUrl.searchParams.delete('ticket');
+      window.history.replaceState({}, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
+    }
+  } catch (_) {
+    return;
+  }
+
+  const matched = allOrders.find(
+    (order) => String(order.ticket_code || '').trim().toUpperCase() === targetTicket
+  );
+  if (matched) {
+    openOrderModal(matched);
+  } else {
+    alert(t('qrTag.deepLinkNotFound', { ticket: targetTicket }));
+  }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
+  capturePendingDeepLinkTicket();
   setLocale(detectPreferredLocale());
   populateRegionalSelects();
   mountSeparatedManagementPages();
@@ -1150,9 +1213,13 @@ function resetTenantState() {
   activeMeasurementTemplateFields = [];
   customerMeasurementRecords = [];
   currentReceiptOrder = null;
+  currentQrTagOrder = null;
+  matchedLatestPassport = null;
+  modalTriggerStack = [];
   workloadDateFilter = null;
   searchQuery = '';
   orderStatusFilter = 'all';
+  orderTypeFilter = 'all';
   workshopSettings = { ...DEFAULT_STORE_SETTINGS };
   setLocale(detectPreferredLocale());
   setCurrency('IDR');
@@ -1167,6 +1234,8 @@ function resetTenantState() {
   orderFormModal?.classList.add('hidden');
   paymentModal?.classList.add('hidden');
   receiptModal?.classList.add('hidden');
+  document.getElementById('qr-tag-modal')?.classList.add('hidden');
+  document.getElementById('outbound-shipment-modal')?.classList.add('hidden');
   document.getElementById('store-settings-modal')?.classList.add('hidden');
   document.getElementById('service-edit-modal')?.classList.add('hidden');
   document.getElementById('cash-modal')?.classList.add('hidden');
@@ -1259,6 +1328,7 @@ async function enterWorkspace(tenant) {
   await loadWorkloadServices();
   await fetchOrders();
   await fetchCustomers();
+  consumePendingDeepLinkTicket();
 }
 
 function showAuthError(msg) {
@@ -1421,6 +1491,16 @@ function closeActiveDialogOnEscape() {
     closeCashModal();
     return;
   }
+  const shipmentModal = document.getElementById('outbound-shipment-modal');
+  if (shipmentModal && !shipmentModal.classList.contains('hidden')) {
+    closeOutboundShipmentModal();
+    return;
+  }
+  const qrTagModal = document.getElementById('qr-tag-modal');
+  if (qrTagModal && !qrTagModal.classList.contains('hidden')) {
+    closeQrTagModal();
+    return;
+  }
   if (receiptModal && !receiptModal.classList.contains('hidden')) {
     closeReceiptModal();
     return;
@@ -1449,6 +1529,18 @@ function closeReceiptModal() {
   restoreTriggerFocus();
 }
 
+function closeQrTagModal() {
+  document.body.classList.remove('mt-printing-qr-tag');
+  document.getElementById('qr-tag-modal')?.classList.add('hidden');
+  currentQrTagOrder = null;
+  restoreTriggerFocus();
+}
+
+function closeOutboundShipmentModal() {
+  document.getElementById('outbound-shipment-modal')?.classList.add('hidden');
+  restoreTriggerFocus();
+}
+
 function closeCustomerDetailModal() {
   document.getElementById('customer-detail-modal')?.classList.add('hidden');
   const heading = document.getElementById('customer-detail-title');
@@ -1459,10 +1551,13 @@ function closeCustomerDetailModal() {
 function resetOrderFilters() {
   searchQuery = '';
   orderStatusFilter = 'all';
+  orderTypeFilter = 'all';
   workloadDateFilter = null;
   if (adminSearchInput) adminSearchInput.value = '';
   const statusSelect = document.getElementById('order-status-filter');
   if (statusSelect) statusSelect.value = 'all';
+  const typeSelect = document.getElementById('order-type-filter');
+  if (typeSelect) typeSelect.value = 'all';
   renderWorkloadCalendar();
   renderOrdersList();
 }
@@ -1515,6 +1610,12 @@ function bindGlobalEvents() {
   document.getElementById('cash-form')?.addEventListener('submit', submitCashForm);
   document.getElementById('sidebar-new-order-btn')?.addEventListener('click', () => openOrderModal(null));
   document.getElementById('archive-orders-list')?.addEventListener('click', (event) => {
+    const qrBtn = event.target.closest('[data-open-qr-tag]');
+    if (qrBtn) {
+      const order = allOrders.find((item) => item.id === qrBtn.dataset.openQrTag);
+      if (order) openQrTagModal(order);
+      return;
+    }
     const button = event.target.closest('[data-edit-order]');
     if (!button) return;
     const order = allOrders.find((item) => item.id === button.dataset.editOrder);
@@ -1954,6 +2055,10 @@ function bindGlobalEvents() {
     }, 250)
   );
 
+  document.getElementById('order-type-filter')?.addEventListener('change', (event) => {
+    orderTypeFilter = event.target.value || 'all';
+    renderOrdersList();
+  });
   document.getElementById('order-status-filter')?.addEventListener('change', (event) => {
     orderStatusFilter = event.target.value || 'all';
     renderOrdersList();
@@ -2018,6 +2123,18 @@ function bindGlobalEvents() {
   orderCrudForm?.addEventListener('input', () => {
     triggerAutoSaveDraft();
   });
+  orderCrudForm?.addEventListener('change', (event) => {
+    if (event.target.name === 'order_type' || event.target.id === 'form-mailin-arrived') {
+      syncMailInFormVisibility(Boolean(document.getElementById('form-order-id')?.value.trim()));
+      triggerAutoSaveDraft();
+    }
+  });
+  document.getElementById('apply-latest-passport-btn')?.addEventListener('click', applyLatestPassportToOrderForm);
+  document.getElementById('order-modal-qr-tag-btn')?.addEventListener('click', () => {
+    const id = document.getElementById('form-order-id')?.value.trim();
+    const order = id ? allOrders.find((item) => item.id === id) : null;
+    if (order) openQrTagModal(order);
+  });
 
   const customerPhoneInput = document.getElementById('form-customer-phone');
   customerPhoneInput?.addEventListener(
@@ -2039,11 +2156,42 @@ function bindGlobalEvents() {
   });
   paymentForm?.addEventListener('submit', handlePaymentSubmit);
 
+  document.getElementById('close-shipment-modal-btn')?.addEventListener('click', closeOutboundShipmentModal);
+  document.getElementById('cancel-shipment-modal-btn')?.addEventListener('click', closeOutboundShipmentModal);
+  document.getElementById('outbound-shipment-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'outbound-shipment-modal') closeOutboundShipmentModal();
+  });
+  document.getElementById('outbound-shipment-form')?.addEventListener('submit', handleOutboundShipmentSubmit);
+
+  document.getElementById('close-qr-tag-modal-btn')?.addEventListener('click', closeQrTagModal);
+  document.getElementById('cancel-qr-tag-modal-btn')?.addEventListener('click', closeQrTagModal);
+  document.getElementById('qr-tag-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'qr-tag-modal') closeQrTagModal();
+  });
+  document.querySelectorAll('[data-qr-format]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const format = btn.getAttribute('data-qr-format') || '58mm';
+      setQrTagFormat(format);
+      if (currentQrTagOrder) renderQrTagSheet(currentQrTagOrder);
+    });
+  });
+  document.getElementById('print-qr-tag-btn')?.addEventListener('click', () => {
+    if (!currentQrTagOrder) return;
+    document.body.classList.add('mt-printing-qr-tag');
+    window.print();
+  });
+  window.addEventListener('afterprint', () => {
+    document.body.classList.remove('mt-printing-qr-tag');
+  });
+
   closeReceiptModalBtn?.addEventListener('click', closeReceiptModal);
   receiptModal?.addEventListener('click', (e) => {
     if (e.target === receiptModal) closeReceiptModal();
   });
-  printReceiptBtn?.addEventListener('click', () => window.print());
+  printReceiptBtn?.addEventListener('click', () => {
+    document.body.classList.remove('mt-printing-qr-tag');
+    window.print();
+  });
   copyReceiptWaBtn?.addEventListener('click', handleSendReceiptViaWA);
   closeWaToastBtn?.addEventListener('click', () => waReadyToast?.classList.add('hidden'));
 }
@@ -2369,7 +2517,7 @@ async function renderCustomerMeasurements() {
             ? customerMeasurementRecords
                 .map((record) => {
                   const values = Object.entries(record.measurement_data || {})
-                    .slice(0, 4)
+                    .slice(0, 6)
                     .map(([key, value]) => {
                       const field = (record.template_snapshot || []).find((item) => item.field_key === key);
                       const displayUnit = getMeasurementDisplayUnit();
@@ -2378,10 +2526,27 @@ async function renderCustomerMeasurements() {
                       return `<span class="inline-block text-xs mt-text mt-card-muted px-2 py-1 mr-1 mb-1 font-mono-code">${escapeHTML(field?.field_label || key)}: ${escapeHTML(String(Number(displayValue.toFixed(2))))} ${displayUnit === 'inch' ? 'in' : 'cm'}</span>`;
                     })
                     .join('');
-                  return `<article class="mt-card p-3.5">
+                  const fabricLabel = getDenimFabricLabel(record.denim_fabric_type);
+                  const passportDetails = [
+                    record.shrinkage_notes
+                      ? `<p class="text-xs mt-muted"><strong class="mt-text">${escapeHTML(t('passport.cardShrinkage'))}:</strong> ${escapeHTML(record.shrinkage_notes)}</p>`
+                      : '',
+                    record.hem_taper_preference
+                      ? `<p class="text-xs mt-muted"><strong class="mt-text">${escapeHTML(t('passport.cardHemTaper'))}:</strong> ${escapeHTML(record.hem_taper_preference)}</p>`
+                      : '',
+                    record.fit_notes
+                      ? `<p class="text-xs mt-muted"><strong class="mt-text">${escapeHTML(t('passport.cardFitNotes'))}:</strong> ${escapeHTML(record.fit_notes)}</p>`
+                      : '',
+                  ]
+                    .filter(Boolean)
+                    .join('');
+                  return `<article class="mt-card p-3.5 space-y-2">
                     <div class="flex items-start justify-between gap-2">
                       <div class="min-w-0">
-                        <p class="text-sm font-bold mt-text">${escapeHTML(record.garment_type)}${record.model ? ` · ${escapeHTML(record.model)}` : ''}</p>
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                          <p class="text-sm font-bold mt-text">${escapeHTML(record.garment_type)}${record.model ? ` · ${escapeHTML(record.model)}` : ''}</p>
+                          ${fabricLabel ? `<span class="mt-badge mt-badge-mail_in">${escapeHTML(fabricLabel)}</span>` : ''}
+                        </div>
                         <p class="text-xs mt-muted mt-0.5">${escapeHTML(record.description || t('measure.noDesc'))}</p>
                       </div>
                       <div class="flex gap-1.5 shrink-0">
@@ -2393,7 +2558,8 @@ async function renderCustomerMeasurements() {
                         </button>
                       </div>
                     </div>
-                    <div class="mt-2">${values || `<span class="text-xs mt-muted">${escapeHTML(t('measure.noValues'))}</span>`}</div>
+                    <div>${values || `<span class="text-xs mt-muted">${escapeHTML(t('measure.noValues'))}</span>`}</div>
+                    ${passportDetails ? `<div class="pt-2 mt-seam-t space-y-1">${passportDetails}</div>` : ''}
                   </article>`;
                 })
                 .join('')
@@ -2425,7 +2591,7 @@ function renderCustomerOrderHistory() {
       transactions.length
         ? `<div class="space-y-2">${transactions
             .map((order) => {
-              const meta = getStatusMeta(order.status);
+              const meta = getStatusMeta(order.status, null, order.order_type);
               return `<button type="button" data-customer-open-order="${order.id}" class="w-full text-left mt-card p-3.5 hover:border-[var(--mt-accent)]">
                 <div class="flex items-center justify-between gap-2">
                   <span class="font-mono-code text-sm font-bold mt-text">${escapeHTML(order.ticket_code)}</span>
@@ -2530,6 +2696,33 @@ async function openCustomerMeasurementForm(record = null) {
           <h4 class="text-sm font-bold mt-text mb-3">${escapeHTML(t('measure.dataHeading'))}</h4>
           <div id="measurement-fields-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">${renderMeasurementFields(fields, record?.measurement_data || {})}</div>
         </div>
+        <div class="pt-3 mt-seam-t space-y-3">
+          <div>
+            <h4 class="text-sm font-bold mt-text">${escapeHTML(t('passport.sectionHeading'))}</h4>
+            <p class="text-xs mt-muted mt-0.5">${escapeHTML(t('passport.sectionDesc'))}</p>
+          </div>
+          <div>
+            <label for="measurement-denim-fabric" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('passport.fabricLabel'))}</label>
+            <select id="measurement-denim-fabric" class="mt-select">
+              <option value="" ${!record?.denim_fabric_type ? 'selected' : ''}>${escapeHTML(t('passport.fabricNone'))}</option>
+              <option value="sanforized" ${record?.denim_fabric_type === 'sanforized' ? 'selected' : ''}>${escapeHTML(t('passport.fabric.sanforized'))}</option>
+              <option value="unsanforized" ${record?.denim_fabric_type === 'unsanforized' ? 'selected' : ''}>${escapeHTML(t('passport.fabric.unsanforized'))}</option>
+              <option value="raw" ${record?.denim_fabric_type === 'raw' ? 'selected' : ''}>${escapeHTML(t('passport.fabric.raw'))}</option>
+            </select>
+          </div>
+          <div>
+            <label for="measurement-shrinkage-notes" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('passport.shrinkageLabel'))}</label>
+            <textarea id="measurement-shrinkage-notes" rows="2" maxlength="300" placeholder="${escapeHTML(t('passport.shrinkagePlaceholder'))}" class="mt-textarea">${escapeHTML(record?.shrinkage_notes || '')}</textarea>
+          </div>
+          <div>
+            <label for="measurement-hem-taper" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('passport.hemTaperLabel'))}</label>
+            <input id="measurement-hem-taper" type="text" maxlength="200" value="${escapeHTML(record?.hem_taper_preference || '')}" placeholder="${escapeHTML(t('passport.hemTaperPlaceholder'))}" class="mt-input" />
+          </div>
+          <div>
+            <label for="measurement-fit-notes" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('passport.fitNotesLabel'))}</label>
+            <textarea id="measurement-fit-notes" rows="2" maxlength="300" placeholder="${escapeHTML(t('passport.fitNotesPlaceholder'))}" class="mt-textarea">${escapeHTML(record?.fit_notes || '')}</textarea>
+          </div>
+        </div>
         <p id="measurement-form-error" class="hidden text-xs mt-danger-text"></p>
         <div class="flex gap-2">
           <button type="button" data-customer-detail-back class="mt-btn mt-btn-secondary flex-1">${escapeHTML(t('common.cancel'))}</button>
@@ -2593,6 +2786,8 @@ async function saveCustomerMeasurement(event) {
   }));
   const tenantId = getActiveTenantId();
   if (!tenantId) return alert(t('common.noActiveTenant'));
+  const rawFabric = document.getElementById('measurement-denim-fabric')?.value.trim() || '';
+  const fabricType = ['sanforized', 'unsanforized', 'raw'].includes(rawFabric) ? rawFabric : null;
   const payload = {
     tenant_id: tenantId,
     customer_id: activeCustomerDetail.id,
@@ -2600,6 +2795,10 @@ async function saveCustomerMeasurement(event) {
     garment_type: template.garment_type,
     model: document.getElementById('measurement-model').value.trim() || null,
     description: document.getElementById('measurement-description').value.trim() || null,
+    denim_fabric_type: fabricType,
+    shrinkage_notes: document.getElementById('measurement-shrinkage-notes')?.value.trim() || null,
+    hem_taper_preference: document.getElementById('measurement-hem-taper')?.value.trim() || null,
+    fit_notes: document.getElementById('measurement-fit-notes')?.value.trim() || null,
     measurement_data: values,
     template_snapshot: snapshot,
     updated_at: new Date().toISOString(),
@@ -2951,7 +3150,7 @@ function updateDashboardMetrics() {
   if (unpaidTotalEl) unpaidTotalEl.textContent = formatCurrency(totalPiutang);
 
   const ongoingWithDeadline = activeOrders
-    .filter((o) => o.estimated_done_date && !['ready', 'completed'].includes(o.status))
+    .filter((o) => o.estimated_done_date && !['ready', 'shipped', 'completed'].includes(o.status))
     .sort((a, b) => new Date(a.estimated_done_date) - new Date(b.estimated_done_date));
 
   if (ongoingWithDeadline.length > 0) {
@@ -2975,15 +3174,58 @@ function updateDashboardMetrics() {
   }
 }
 
+function getNextOrderStep(order) {
+  const isMailIn = order.order_type === 'mail_in';
+  if (isMailIn) {
+    const mailInMap = {
+      awaiting_package: { next: 'received', label: t('orders.next.awaiting_package') },
+      received: { next: 'queued', label: t('orders.next.received') },
+      queued: { next: 'in_progress', label: t('orders.next.queued') },
+      in_progress: { next: 'qc', label: t('orders.next.in_progress') },
+      qc: { next: 'ready', label: t('orders.next.qc') },
+      ready: { next: 'shipped', label: t('orders.next.mail_in_ready') },
+      shipped: { next: 'completed', label: t('orders.next.shipped') },
+    };
+    return mailInMap[order.status] || null;
+  }
+  const walkInMap = {
+    received: { next: 'queued', label: t('orders.next.received') },
+    queued: { next: 'in_progress', label: t('orders.next.queued') },
+    in_progress: { next: 'qc', label: t('orders.next.in_progress') },
+    qc: { next: 'ready', label: t('orders.next.qc') },
+    ready: { next: 'completed', label: t('orders.next.ready') },
+  };
+  return walkInMap[order.status] || null;
+}
+
+function renderTrackingPill(label, courier, tracking) {
+  if (!courier && !tracking) return '';
+  const summary = [courier, tracking].filter(Boolean).join(' · ');
+  return `
+    <span class="mt-tracking-pill">
+      <span class="mt-muted font-semibold shrink-0">${escapeHTML(label)}:</span>
+      <span class="font-mono-code font-semibold mt-text truncate">${escapeHTML(summary)}</span>
+      ${
+        tracking
+          ? `<button type="button" data-copy-tracking="${escapeHTML(tracking)}" aria-label="${escapeHTML(t('orders.copyTrackingAria', { tracking }))}" title="${escapeHTML(t('common.copy'))}" class="mt-tracking-copy-btn shrink-0">
+              <i data-lucide="copy" class="w-3.5 h-3.5" aria-hidden="true"></i>
+            </button>`
+          : ''
+      }
+    </span>
+  `;
+}
+
 function renderOrdersList() {
   if (!ordersListContainer) return;
 
   const activePool = allOrders.filter((order) => order.status !== 'completed');
   const filtered = activePool.filter((order) => {
     if (workloadDateFilter && order.estimated_done_date !== workloadDateFilter) return false;
+    if (orderTypeFilter !== 'all' && (order.order_type || 'walk_in') !== orderTypeFilter) return false;
     if (orderStatusFilter !== 'all' && order.status !== orderStatusFilter) return false;
     if (searchQuery) {
-      const hay = `${order.ticket_code} ${order.customer_name} ${order.customer_phone}`.toLowerCase();
+      const hay = `${order.ticket_code} ${order.customer_name} ${order.customer_phone} ${order.inbound_courier || ''} ${order.inbound_tracking || ''} ${order.outbound_courier || ''} ${order.outbound_tracking || ''}`.toLowerCase();
       if (!hay.includes(searchQuery)) return false;
     }
     return true;
@@ -3015,22 +3257,18 @@ function renderOrdersList() {
     return;
   }
 
-  const nextStatusMap = {
-    received: { next: 'queued', label: t('orders.next.received') },
-    queued: { next: 'in_progress', label: t('orders.next.queued') },
-    in_progress: { next: 'qc', label: t('orders.next.in_progress') },
-    qc: { next: 'ready', label: t('orders.next.qc') },
-    ready: { next: 'completed', label: t('orders.next.ready') },
-  };
-
   ordersListContainer.innerHTML = filtered
     .map((order) => {
-      const statusMeta = getStatusMeta(order.status);
+      const orderType = order.order_type === 'mail_in' ? 'mail_in' : 'walk_in';
+      const isMailIn = orderType === 'mail_in';
+      const statusMeta = getStatusMeta(order.status, null, orderType);
+      const typeMeta = isMailIn ? getOrderTypeMeta(orderType) : null;
       const payMeta = getPaymentStatusMeta(order.payment_status);
       const items = order.order_items || [];
       const remaining = Math.max(0, Number(order.total_amount) - Number(order.paid_amount));
       const deadline = getDeadlineStatus(order.estimated_done_date);
-      const nextStep = nextStatusMap[order.status];
+      const isDoneStage = ['ready', 'shipped', 'completed'].includes(order.status);
+      const nextStep = getNextOrderStep(order);
 
       const itemSummary =
         items.length > 0
@@ -3044,18 +3282,28 @@ function renderOrdersList() {
               .join(' ')
           : `<span class="text-xs mt-muted">${escapeHTML(t('orders.noItems'))}</span>`;
 
+      const trackingPillsHTML = isMailIn
+        ? [
+            renderTrackingPill(t('orders.inboundLabel'), order.inbound_courier, order.inbound_tracking),
+            renderTrackingPill(t('orders.outboundLabel'), order.outbound_courier, order.outbound_tracking),
+          ]
+            .filter(Boolean)
+            .join('')
+        : '';
+
       return `
         <article class="mt-card p-4 sm:p-5 space-y-3.5">
           <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5">
             <div class="min-w-0">
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="font-mono-code font-bold text-sm sm:text-base mt-text">${escapeHTML(order.ticket_code)}</span>
+                ${typeMeta ? `<span class="${typeMeta.badgeClass}">${escapeHTML(typeMeta.label)}</span>` : ''}
                 <span class="${statusMeta.badgeClass}">
                   <span class="${statusMeta.dotClass}" aria-hidden="true"></span>
                   <span>${escapeHTML(statusMeta.label)}</span>
                 </span>
                 ${
-                  deadline.isOverdue && !['ready', 'completed'].includes(order.status)
+                  deadline.isOverdue && !isDoneStage
                     ? `<span class="mt-badge mt-badge-overdue"><i data-lucide="alert-circle" class="w-3.5 h-3.5" aria-hidden="true"></i><span>${escapeHTML(deadline.label)}</span></span>`
                     : ''
                 }
@@ -3076,6 +3324,7 @@ function renderOrdersList() {
                   +${escapeHTML(order.customer_phone)}
                 </a>
               </div>
+              ${trackingPillsHTML ? `<div class="mt-2 flex flex-wrap gap-2">${trackingPillsHTML}</div>` : ''}
             </div>
 
             <div class="sm:text-right shrink-0">
@@ -3091,9 +3340,9 @@ function renderOrdersList() {
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2.5 mt-seam-t">
             <div class="flex flex-wrap gap-1.5">${itemSummary}</div>
             <div class="text-xs shrink-0 font-mono-code ${
-              deadline.isUrgent && !['ready', 'completed'].includes(order.status) ? 'mt-danger-text font-semibold' : 'mt-muted'
+              deadline.isUrgent && !isDoneStage ? 'mt-danger-text font-semibold' : 'mt-muted'
             }">
-              ${escapeHTML(deadline.isOverdue && !['ready', 'completed'].includes(order.status) ? t('orders.overduePrefix') : t('orders.targetPrefix'))}${escapeHTML(formatDateID(order.estimated_done_date))}
+              ${escapeHTML(deadline.isOverdue && !isDoneStage ? t('orders.overduePrefix') : t('orders.targetPrefix'))}${escapeHTML(formatDateID(order.estimated_done_date))}
             </div>
           </div>
 
@@ -3118,6 +3367,10 @@ function renderOrdersList() {
                     </button>`
                   : ''
               }
+              <button type="button" data-open-qr-tag="${order.id}" title="${escapeHTML(t('orders.qrTagTitle'))}" class="mt-btn mt-btn-secondary text-xs">
+                <i data-lucide="qr-code" class="w-4 h-4" aria-hidden="true"></i>
+                <span>${escapeHTML(t('orders.qrTagBtn'))}</span>
+              </button>
               <button type="button" data-open-receipt="${order.id}" title="${escapeHTML(t('orders.receiptTitle'))}" class="mt-btn mt-btn-secondary text-xs">
                 <i data-lucide="receipt-text" class="w-4 h-4" aria-hidden="true"></i>
                 <span>${escapeHTML(t('orders.receiptBtn'))}</span>
@@ -3141,6 +3394,26 @@ function renderOrdersList() {
 }
 
 function bindCardActionListeners() {
+  ordersListContainer.querySelectorAll('[data-copy-tracking]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const tracking = btn.getAttribute('data-copy-tracking') || '';
+      if (!tracking) return;
+      try {
+        await navigator.clipboard.writeText(tracking);
+        btn.innerHTML = '<i data-lucide="check" class="w-3.5 h-3.5 mt-success-text" aria-hidden="true"></i>';
+        btn.setAttribute('aria-label', t('orders.trackingCopied'));
+        if (window.lucide) window.lucide.createIcons();
+        setTimeout(() => {
+          btn.innerHTML = '<i data-lucide="copy" class="w-3.5 h-3.5" aria-hidden="true"></i>';
+          btn.setAttribute('aria-label', t('orders.copyTrackingAria', { tracking }));
+          if (window.lucide) window.lucide.createIcons();
+        }, 1600);
+      } catch (_) {
+        alert(tracking);
+      }
+    });
+  });
+
   ordersListContainer.querySelectorAll('[data-quick-next]').forEach((btn) => {
     btn.addEventListener('click', () => {
       updateOrderStatus(btn.getAttribute('data-quick-next'), btn.getAttribute('data-next-status'));
@@ -3151,6 +3424,13 @@ function bindCardActionListeners() {
     btn.addEventListener('click', () => {
       const order = allOrders.find((o) => o.id === btn.getAttribute('data-open-payment'));
       if (order) openPaymentModal(order);
+    });
+  });
+
+  ordersListContainer.querySelectorAll('[data-open-qr-tag]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const order = allOrders.find((o) => o.id === btn.getAttribute('data-open-qr-tag'));
+      if (order) openQrTagModal(order);
     });
   });
 
@@ -3223,10 +3503,164 @@ function extractStoragePath(photoUrl) {
   return decodeURIComponent(photoUrl.slice(idx + marker.length).split('?')[0]);
 }
 
+function openOutboundShipmentModal(order) {
+  const modal = document.getElementById('outbound-shipment-modal');
+  if (!modal || !order) return;
+  rememberTrigger();
+  document.getElementById('shipment-order-id').value = order.id;
+  document.getElementById('shipment-modal-ticket').textContent = `${order.ticket_code} · ${order.customer_name}`;
+  document.getElementById('shipment-outbound-courier').value = order.outbound_courier || '';
+  document.getElementById('shipment-outbound-tracking').value = order.outbound_tracking || '';
+
+  const remaining = roundCurrencyAmount(
+    Math.max(0, Number(order.total_amount || 0) - Number(order.paid_amount || 0))
+  );
+  const unpaidWarn = document.getElementById('shipment-unpaid-warning');
+  if (unpaidWarn) {
+    if (remaining > 0) {
+      unpaidWarn.textContent = t('shipment.unpaidWarning', { remaining: formatCurrency(remaining) });
+      unpaidWarn.classList.remove('hidden');
+    } else {
+      unpaidWarn.textContent = '';
+      unpaidWarn.classList.add('hidden');
+    }
+  }
+  modal.classList.remove('hidden');
+  document.getElementById('shipment-outbound-courier')?.focus();
+  if (window.lucide) window.lucide.createIcons();
+}
+
+async function handleOutboundShipmentSubmit(event) {
+  event.preventDefault();
+  const orderId = document.getElementById('shipment-order-id')?.value.trim();
+  const courier = document.getElementById('shipment-outbound-courier')?.value.trim() || null;
+  const tracking = document.getElementById('shipment-outbound-tracking')?.value.trim() || null;
+  const submitBtn = document.getElementById('save-shipment-btn');
+  if (!orderId) return;
+
+  if (submitBtn) submitBtn.disabled = true;
+  try {
+    const tenantId = getActiveTenantId();
+    if (!tenantId) throw new Error(t('common.noActiveTenant'));
+    const { error } = await supabase
+      .from('orders')
+      .update({
+        status: 'shipped',
+        outbound_courier: courier,
+        outbound_tracking: tracking,
+      })
+      .eq('id', orderId)
+      .eq('tenant_id', tenantId);
+    if (error) throw error;
+    closeOutboundShipmentModal();
+    await fetchOrders();
+    const updatedOrder = allOrders.find((o) => o.id === orderId);
+    if (updatedOrder) showWhatsAppStatusToast(updatedOrder, 'shipped');
+  } catch (err) {
+    alert(t('shipment.saveFailed', { message: err.message || t('common.genericError') }));
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+function getQrTagFormat() {
+  try {
+    const saved = localStorage.getItem(QR_TAG_FORMAT_KEY);
+    if (['58mm', '80mm', 'a6'].includes(saved)) return saved;
+  } catch (_) {}
+  return '58mm';
+}
+
+function setQrTagFormat(format) {
+  const valid = ['58mm', '80mm', 'a6'].includes(format) ? format : '58mm';
+  try {
+    localStorage.setItem(QR_TAG_FORMAT_KEY, valid);
+  } catch (_) {}
+  document.querySelectorAll('[data-qr-format]').forEach((btn) => {
+    const active = btn.getAttribute('data-qr-format') === valid;
+    btn.classList.toggle('is-active', active);
+    btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+  });
+}
+
+function renderQrTagSheet(order) {
+  const sheet = document.getElementById('qr-tag-sheet');
+  if (!sheet || !order) return;
+  const format = getQrTagFormat();
+  sheet.setAttribute('data-print-format', format);
+
+  const orderType = order.order_type === 'mail_in' ? 'mail_in' : 'walk_in';
+  const typeMeta = getOrderTypeMeta(orderType);
+  const items = order.order_items || [];
+  const visibleItems = items.slice(0, 3);
+  const extraCount = Math.max(0, items.length - visibleItems.length);
+  const deepLinkUrl = `${window.location.origin}/admin?ticket=${encodeURIComponent(order.ticket_code)}`;
+  const qrSvg = renderQrSvg(deepLinkUrl, {
+    ariaLabel: `${t('qrTag.modalTitle')} ${order.ticket_code}`,
+  });
+
+  const itemsListHTML = visibleItems
+    .map(
+      (it) =>
+        `<li><strong>${escapeHTML(it.garment_name)}</strong> (${escapeHTML(it.service_type)})</li>`
+    )
+    .join('');
+
+  sheet.innerHTML = `
+    <div class="mt-qr-tag-head">
+      <div class="min-w-0">
+        <p class="mt-qr-tag-store">${escapeHTML(workshopSettings.NAME)}</p>
+        <p class="mt-qr-tag-code">${escapeHTML(order.ticket_code)}</p>
+      </div>
+      <span class="mt-qr-tag-type">${escapeHTML(typeMeta.label)}</span>
+    </div>
+    <div class="mt-qr-tag-body">
+      <div class="mt-qr-tag-meta">
+        <p class="mt-qr-tag-customer">${escapeHTML(order.customer_name)}</p>
+        <p class="font-mono-code mt-qr-tag-phone">+${escapeHTML(order.customer_phone)}</p>
+        <p class="mt-qr-tag-due">
+          <span class="mt-qr-tag-due-label">${escapeHTML(t('qrTag.targetLabel'))}:</span>
+          <strong class="font-mono-code">${escapeHTML(formatDateID(order.estimated_done_date))}</strong>
+        </p>
+        ${
+          itemsListHTML
+            ? `<ul class="mt-qr-tag-items">${itemsListHTML}${
+                extraCount > 0 ? `<li>${escapeHTML(t('qrTag.moreItems', { count: extraCount }))}</li>` : ''
+              }</ul>`
+            : ''
+        }
+      </div>
+      <div class="mt-qr-tag-qr-wrap">
+        <div class="mt-qr-tag-qr-box">${qrSvg}</div>
+        <p class="mt-qr-tag-caption">${escapeHTML(t('qrTag.scanHint'))}</p>
+      </div>
+    </div>
+  `;
+}
+
+function openQrTagModal(order) {
+  const modal = document.getElementById('qr-tag-modal');
+  if (!modal || !order) return;
+  rememberTrigger();
+  currentQrTagOrder = order;
+  setQrTagFormat(getQrTagFormat());
+  renderQrTagSheet(order);
+  modal.classList.remove('hidden');
+  document.getElementById('print-qr-tag-btn')?.focus();
+  if (window.lucide) window.lucide.createIcons();
+}
+
 async function updateOrderStatus(orderId, newStatus) {
   try {
     const targetOrder = allOrders.find((o) => o.id === orderId);
-    if (newStatus === 'completed' && targetOrder) {
+    if (!targetOrder) return;
+
+    if (targetOrder.order_type === 'mail_in' && newStatus === 'shipped') {
+      openOutboundShipmentModal(targetOrder);
+      return;
+    }
+
+    if (newStatus === 'completed') {
       const remaining = roundCurrencyAmount(
         Math.max(0, Number(targetOrder.total_amount || 0) - Number(targetOrder.paid_amount || 0))
       );
@@ -3241,6 +3675,7 @@ async function updateOrderStatus(orderId, newStatus) {
       }
     }
 
+    const previousStatus = targetOrder.status;
     // Marking an order completed never auto-settles unpaid balance.
     const tenantId = getActiveTenantId();
     if (!tenantId) throw new Error(t('common.noActiveTenant'));
@@ -3251,40 +3686,93 @@ async function updateOrderStatus(orderId, newStatus) {
       .eq('tenant_id', tenantId);
     if (error) throw error;
     await fetchOrders();
-    if (newStatus === 'ready') {
-      const updatedOrder = allOrders.find((o) => o.id === orderId);
-      if (updatedOrder) showWhatsAppReadyToast(updatedOrder);
+    const updatedOrder = allOrders.find((o) => o.id === orderId);
+    if (!updatedOrder) return;
+    if (updatedOrder.order_type === 'mail_in' && previousStatus === 'awaiting_package' && newStatus === 'received') {
+      showWhatsAppStatusToast(updatedOrder, 'mail_in_received');
+    } else if (newStatus === 'ready') {
+      showWhatsAppStatusToast(updatedOrder, updatedOrder.order_type === 'mail_in' ? 'mail_in_ready' : 'ready');
     }
   } catch (err) {
     alert(t('orders.statusUpdateFailed', { message: err.message }));
   }
 }
 
-function showWhatsAppReadyToast(order) {
+function showWhatsAppStatusToast(order, mode = 'ready') {
   if (!waReadyToast || !waToastSendLink) return;
 
   const remaining = Math.max(0, Number(order.total_amount) - Number(order.paid_amount));
   const trackingUrl = getPublicTrackingUrl();
+  const toastTitleEl = waReadyToast.querySelector('[data-i18n="wa.toastTitle"], #wa-toast-title');
 
-  const billingLine =
-    remaining > 0
-      ? t('wa.readyBillingUnpaid', { remaining: formatCurrency(remaining) })
-      : t('wa.readyBillingPaid');
+  let title = t('wa.toastTitle');
+  let desc = t('wa.toastDesc', { customer: order.customer_name, ticket: order.ticket_code });
+  let message = '';
 
-  const message = t('wa.readyMessage', {
-    customer: order.customer_name,
-    store: workshopSettings.NAME,
-    ticket: order.ticket_code,
-    billingLine,
-    trackingUrl,
-    address: workshopSettings.ADDRESS,
-    hours: workshopSettings.OPENING_HOURS,
-  });
+  if (mode === 'mail_in_received') {
+    title = t('wa.mailInReceivedTitle');
+    desc = t('wa.mailInReceivedDesc', { customer: order.customer_name, ticket: order.ticket_code });
+    const inboundVal = [order.inbound_courier, order.inbound_tracking].filter(Boolean).join(' - ');
+    const inboundLine = inboundVal ? `${t('wa.mailInLineInbound', { value: inboundVal })}\n` : '';
+    message = t('wa.mailInReceivedMessage', {
+      customer: order.customer_name,
+      store: workshopSettings.NAME,
+      ticket: order.ticket_code,
+      inboundLine,
+      targetDate: formatDateID(order.estimated_done_date),
+      trackingUrl,
+    });
+  } else if (mode === 'mail_in_ready') {
+    title = t('wa.mailInReadyTitle');
+    desc = t('wa.mailInReadyDesc', { customer: order.customer_name, ticket: order.ticket_code });
+    const billingLine =
+      remaining > 0
+        ? t('wa.mailInReadyBillingUnpaid', { remaining: formatCurrency(remaining) })
+        : t('wa.readyBillingPaid');
+    message = t('wa.mailInReadyMessage', {
+      customer: order.customer_name,
+      store: workshopSettings.NAME,
+      ticket: order.ticket_code,
+      billingLine,
+      trackingUrl,
+    });
+  } else if (mode === 'shipped') {
+    title = t('wa.mailInShippedTitle');
+    desc = t('wa.mailInShippedDesc', { customer: order.customer_name, ticket: order.ticket_code });
+    const outboundVal = [order.outbound_courier, order.outbound_tracking].filter(Boolean).join(' - ');
+    const outboundLine = outboundVal ? `${t('wa.mailInLineOutbound', { value: outboundVal })}\n\n` : '';
+    message = t('wa.mailInShippedMessage', {
+      customer: order.customer_name,
+      store: workshopSettings.NAME,
+      ticket: order.ticket_code,
+      outboundLine,
+      trackingUrl,
+    });
+  } else {
+    const billingLine =
+      remaining > 0
+        ? t('wa.readyBillingUnpaid', { remaining: formatCurrency(remaining) })
+        : t('wa.readyBillingPaid');
+    message = t('wa.readyMessage', {
+      customer: order.customer_name,
+      store: workshopSettings.NAME,
+      ticket: order.ticket_code,
+      billingLine,
+      trackingUrl,
+      address: workshopSettings.ADDRESS,
+      hours: workshopSettings.OPENING_HOURS,
+    });
+  }
 
-  waToastDesc.textContent = t('wa.toastDesc', { customer: order.customer_name, ticket: order.ticket_code });
+  if (toastTitleEl) toastTitleEl.textContent = title;
+  waToastDesc.textContent = desc;
   waToastSendLink.href = buildWhatsAppLink(order.customer_phone, message);
   waReadyToast.classList.remove('hidden');
   if (window.lucide) window.lucide.createIcons();
+}
+
+function showWhatsAppReadyToast(order) {
+  showWhatsAppStatusToast(order, order?.order_type === 'mail_in' ? 'mail_in_ready' : 'ready');
 }
 
 let lockedOrderTicketCode = '';
@@ -3315,6 +3803,137 @@ function clearEstimatedDateError() {
   }
 }
 
+function getSelectedFormOrderType() {
+  const checked = orderCrudForm?.querySelector('input[name="order_type"]:checked');
+  return checked?.value === 'mail_in' ? 'mail_in' : 'walk_in';
+}
+
+function setFormOrderType(orderType = 'walk_in', isEdit = false) {
+  const val = orderType === 'mail_in' ? 'mail_in' : 'walk_in';
+  const radio = orderCrudForm?.querySelector(`input[name="order_type"][value="${val}"]`);
+  if (radio) radio.checked = true;
+  syncMailInFormVisibility(isEdit);
+}
+
+function syncMailInFormVisibility(isEdit = false) {
+  const isMailIn = getSelectedFormOrderType() === 'mail_in';
+  document.getElementById('mail-in-logistics-fields')?.classList.toggle('hidden', !isMailIn);
+  document.getElementById('mail-in-initial-status-wrap')?.classList.toggle('hidden', !isMailIn || isEdit);
+}
+
+function updatePassportAutofillBar(passport) {
+  matchedLatestPassport = passport || null;
+  const bar = document.getElementById('denim-passport-autofill-bar');
+  const metaEl = document.getElementById('denim-passport-autofill-meta');
+  const feedbackEl = document.getElementById('passport-autofill-feedback');
+  if (feedbackEl) {
+    feedbackEl.textContent = '';
+    feedbackEl.classList.add('hidden');
+  }
+  if (!bar) return;
+  if (!passport) {
+    bar.classList.add('hidden');
+    return;
+  }
+  const fabricLabel = getDenimFabricLabel(passport.denim_fabric_type);
+  const count = Object.keys(passport.measurement_data || {}).length;
+  if (metaEl) {
+    metaEl.textContent = t('passport.autofillBannerMeta', {
+      type: passport.garment_type || '',
+      fabric: fabricLabel ? ` · ${fabricLabel}` : '',
+      count,
+    });
+  }
+  bar.classList.remove('hidden');
+  if (window.lucide) window.lucide.createIcons();
+}
+
+async function fetchLatestCustomerPassport(customerId) {
+  const tenantId = getActiveTenantId();
+  if (!tenantId || !customerId) return null;
+  const { data, error } = await supabase
+    .from('customer_measurements')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('customer_id', customerId)
+    .order('updated_at', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.warn('Gagal memuat Denim Fit Passport pelanggan:', error);
+    return null;
+  }
+  return data || null;
+}
+
+function applyLatestPassportToOrderForm() {
+  if (!matchedLatestPassport) return;
+  const passport = matchedLatestPassport;
+  const displayUnit = getMeasurementDisplayUnit();
+  const unitSuffix = displayUnit === 'inch' ? 'in' : 'cm';
+  const sanitizeVal = (val) => String(val || '').replace(/,/g, ';').trim();
+  const pairs = [];
+
+  for (const [key, rawVal] of Object.entries(passport.measurement_data || {})) {
+    const field = (passport.template_snapshot || []).find((item) => item.field_key === key);
+    const label = sanitizeVal(field?.field_label || key);
+    const converted = convertMeasurementValue(rawVal, field?.unit || 'cm', displayUnit);
+    if (converted !== '' && Number.isFinite(converted)) {
+      pairs.push(`${label}: ${Number(converted.toFixed(2))} ${unitSuffix}`);
+    }
+  }
+  const fabricLabel = getDenimFabricLabel(passport.denim_fabric_type);
+  if (fabricLabel) {
+    pairs.push(`${t('passport.cardFabric')}: ${sanitizeVal(fabricLabel)}`);
+  }
+  if (passport.hem_taper_preference) {
+    pairs.push(`${t('passport.cardHemTaper')}: ${sanitizeVal(passport.hem_taper_preference)}`);
+  }
+
+  const notesExtra = [];
+  if (passport.shrinkage_notes) {
+    notesExtra.push(`${t('passport.cardShrinkage')}: ${passport.shrinkage_notes.trim()}`);
+  }
+  if (passport.fit_notes) {
+    notesExtra.push(`${t('passport.cardFitNotes')}: ${passport.fit_notes.trim()}`);
+  }
+
+  if (!pairs.length && !notesExtra.length) {
+    alert(t('passport.autofillEmpty'));
+    return;
+  }
+
+  const rows = Array.from(formItemsContainer.querySelectorAll('.item-row'));
+  if (!rows.length) return;
+  let targetIdx = rows.findIndex((row) => !row.querySelector('[data-field="measurement_specs"]')?.value.trim());
+  if (targetIdx === -1) targetIdx = 0;
+
+  const targetInput = rows[targetIdx].querySelector('[data-field="measurement_specs"]');
+  if (targetInput && pairs.length) {
+    if (targetInput.value.trim() && !confirm(t('passport.autofillConfirmOverwrite'))) {
+      return;
+    }
+    targetInput.value = pairs.join(', ');
+  }
+
+  const notesEl = document.getElementById('form-notes');
+  if (notesEl && notesExtra.length) {
+    const currentNotes = notesEl.value.trim();
+    const toAppend = notesExtra.filter((line) => !currentNotes.includes(line));
+    if (toAppend.length) {
+      notesEl.value = currentNotes ? `${currentNotes}\n${toAppend.join(' | ')}` : toAppend.join(' | ');
+    }
+  }
+
+  const feedbackEl = document.getElementById('passport-autofill-feedback');
+  if (feedbackEl) {
+    feedbackEl.textContent = t('passport.autofillApplied', { number: targetIdx + 1 });
+    feedbackEl.classList.remove('hidden');
+  }
+  triggerAutoSaveDraft();
+}
+
 async function openOrderModal(existingOrder = null, draftOverride = null) {
   if (!orderFormModal) return;
   const tenantId = getActiveTenantId();
@@ -3332,12 +3951,20 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
     ? t('orderForm.editTitle', { code: existingOrder.ticket_code })
     : t('orderForm.newTitle');
   document.getElementById('form-order-id').value = isEdit ? existingOrder.id : '';
+  document.getElementById('order-modal-qr-tag-btn')?.classList.toggle('hidden', !isEdit);
 
   formItemsContainer.innerHTML = '';
   clearEstimatedDateError();
+  updatePassportAutofillBar(null);
 
   const ticketPrefix = activeTenant?.ticket_prefix || workshopSettings.TICKET_PREFIX;
   const ticketInput = document.getElementById('form-ticket-code');
+  const mailInArrivedEl = document.getElementById('form-mailin-arrived');
+  const inboundCourierEl = document.getElementById('form-inbound-courier');
+  const inboundTrackingEl = document.getElementById('form-inbound-tracking');
+  const outboundCourierEl = document.getElementById('form-outbound-courier');
+  const outboundTrackingEl = document.getElementById('form-outbound-tracking');
+
   if (draftOverride) {
     lockedOrderTicketCode =
       draftOverride.ticket_code || generateTicketCode(allOrders.length + 1, ticketPrefix);
@@ -3347,6 +3974,12 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
     document.getElementById('form-estimated-date').value = draftOverride.estimated_done_date || '';
     document.getElementById('form-notes').value = draftOverride.notes || '';
     document.getElementById('form-paid-amount').value = draftOverride.paid_amount || 0;
+    setFormOrderType(draftOverride.order_type || 'walk_in', false);
+    if (mailInArrivedEl) mailInArrivedEl.checked = Boolean(draftOverride.mail_in_arrived);
+    if (inboundCourierEl) inboundCourierEl.value = draftOverride.inbound_courier || '';
+    if (inboundTrackingEl) inboundTrackingEl.value = draftOverride.inbound_tracking || '';
+    if (outboundCourierEl) outboundCourierEl.value = draftOverride.outbound_courier || '';
+    if (outboundTrackingEl) outboundTrackingEl.value = draftOverride.outbound_tracking || '';
 
     const items = draftOverride.items || [];
     if (items.length > 0) items.forEach((it) => appendItemRow(it));
@@ -3359,6 +3992,12 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
     document.getElementById('form-estimated-date').value = existingOrder.estimated_done_date || '';
     document.getElementById('form-notes').value = existingOrder.notes || '';
     document.getElementById('form-paid-amount').value = Number(existingOrder.paid_amount || 0);
+    setFormOrderType(existingOrder.order_type || 'walk_in', true);
+    if (mailInArrivedEl) mailInArrivedEl.checked = false;
+    if (inboundCourierEl) inboundCourierEl.value = existingOrder.inbound_courier || '';
+    if (inboundTrackingEl) inboundTrackingEl.value = existingOrder.inbound_tracking || '';
+    if (outboundCourierEl) outboundCourierEl.value = existingOrder.outbound_courier || '';
+    if (outboundTrackingEl) outboundTrackingEl.value = existingOrder.outbound_tracking || '';
 
     const items = existingOrder.order_items || [];
     const signedUrlMap = await signGarmentPhotoPaths(
@@ -3374,6 +4013,12 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
     document.getElementById('form-estimated-date').value = '';
     document.getElementById('form-notes').value = '';
     document.getElementById('form-paid-amount').value = 0;
+    setFormOrderType('walk_in', false);
+    if (mailInArrivedEl) mailInArrivedEl.checked = false;
+    if (inboundCourierEl) inboundCourierEl.value = '';
+    if (inboundTrackingEl) inboundTrackingEl.value = '';
+    if (outboundCourierEl) outboundCourierEl.value = '';
+    if (outboundTrackingEl) outboundTrackingEl.value = '';
     appendItemRow();
   }
   ticketInput.readOnly = true;
@@ -3389,6 +4034,10 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
   orderFormModal.classList.remove('hidden');
   document.getElementById('form-customer-name')?.focus();
   if (window.lucide) window.lucide.createIcons();
+
+  if (document.getElementById('form-customer-phone')?.value.trim()) {
+    checkCustomerPhoneInForm();
+  }
 }
 
 async function signGarmentPhotoPaths(paths) {
@@ -3613,6 +4262,7 @@ async function checkCustomerPhoneInForm() {
   if (!normalized || normalized.length < 10) {
     status.textContent = t('orderForm.lookupMinDigits');
     status.className = 'mt-1 text-xs mt-muted';
+    updatePassportAutofillBar(null);
     return;
   }
 
@@ -3624,14 +4274,19 @@ async function checkCustomerPhoneInForm() {
     if (customer) {
       status.textContent = t('orderForm.lookupFound', { name: customer.name });
       status.className = 'mt-1 text-xs mt-accent font-medium';
+      const latestPassport = await fetchLatestCustomerPassport(customer.id);
+      if (requestId !== customerLookupRequest) return;
+      updatePassportAutofillBar(latestPassport);
     } else {
       status.textContent = t('orderForm.lookupNew');
       status.className = 'mt-1 text-xs mt-success-text font-medium';
+      updatePassportAutofillBar(null);
     }
   } catch (error) {
     if (requestId !== customerLookupRequest) return;
     status.textContent = t('orderForm.lookupFailed', { message: error.message || t('orderForm.retryShort') });
     status.className = 'mt-1 text-xs mt-danger-text';
+    updatePassportAutofillBar(null);
   }
 }
 
@@ -3664,6 +4319,13 @@ async function handleSaveOrderSubmit(e) {
     const customerPhone = normalizePhone(document.getElementById('form-customer-phone').value);
     const notes = document.getElementById('form-notes').value.trim();
     const paidAmount = roundCurrencyAmount(Number(document.getElementById('form-paid-amount').value || 0));
+    const orderType = getSelectedFormOrderType();
+    const mailInArrived = Boolean(document.getElementById('form-mailin-arrived')?.checked);
+    const inboundCourier = orderType === 'mail_in' ? document.getElementById('form-inbound-courier')?.value.trim() || null : null;
+    const inboundTracking = orderType === 'mail_in' ? document.getElementById('form-inbound-tracking')?.value.trim() || null : null;
+    const outboundCourier = orderType === 'mail_in' ? document.getElementById('form-outbound-courier')?.value.trim() || null : null;
+    const outboundTracking = orderType === 'mail_in' ? document.getElementById('form-outbound-tracking')?.value.trim() || null : null;
+    const initialStatus = orderType === 'mail_in' ? (mailInArrived ? 'received' : 'awaiting_package') : 'received';
 
     if (!ticketCode) throw new Error(t('orderForm.ticketRequired'));
     if (!estimatedDate || !parseLocalDateKey(estimatedDate)) throw new Error(t('orderForm.deadlineRequired'));
@@ -3720,6 +4382,12 @@ async function handleSaveOrderSubmit(e) {
       p_notes: notes,
       p_paid_amount: paidAmount,
       p_items: itemsPayload,
+      p_order_type: orderType,
+      p_inbound_courier: inboundCourier,
+      p_inbound_tracking: inboundTracking,
+      p_outbound_courier: outboundCourier,
+      p_outbound_tracking: outboundTracking,
+      p_initial_status: existingOrderId ? null : initialStatus,
     });
     if (saveError) throw saveError;
     if (!savedOrderId) throw new Error(t('orderForm.noIdReturned'));
@@ -3736,7 +4404,7 @@ async function handleSaveOrderSubmit(e) {
         .map((item, index) => `${index + 1}. ${item.garment_name} (${item.service_type}) - ${formatCurrency(item.price)}`)
         .join('\n');
       const trackingUrl = getPublicTrackingUrl();
-      const receiptMessage = t('wa.newOrderMessage', {
+      let receiptMessage = t('wa.newOrderMessage', {
         store: workshopSettings.NAME,
         ticket: ticketCode,
         customer: customerName,
@@ -3748,6 +4416,17 @@ async function handleSaveOrderSubmit(e) {
         trackingUrl,
         hours: workshopSettings.OPENING_HOURS,
       });
+      if (orderType === 'mail_in') {
+        const mailInExtras = [t('wa.mailInLineType')];
+        const inboundVal = [inboundCourier, inboundTracking].filter(Boolean).join(' - ');
+        const outboundVal = [outboundCourier, outboundTracking].filter(Boolean).join(' - ');
+        if (inboundVal) mailInExtras.push(t('wa.mailInLineInbound', { value: inboundVal }));
+        if (outboundVal) mailInExtras.push(t('wa.mailInLineOutbound', { value: outboundVal }));
+        if (initialStatus === 'awaiting_package' && workshopSettings.ADDRESS) {
+          mailInExtras.push(t('wa.mailInSendAddressHint', { address: workshopSettings.ADDRESS }));
+        }
+        receiptMessage = `${receiptMessage}\n\n${mailInExtras.join('\n')}`;
+      }
       window.location.href = buildWhatsAppLink(customerPhone, receiptMessage);
     }
   } catch (err) {
@@ -3782,6 +4461,12 @@ const triggerAutoSaveDraft = debounce(() => {
       estimated_done_date: document.getElementById('form-estimated-date')?.value || '',
       notes: document.getElementById('form-notes')?.value || '',
       paid_amount: Number(document.getElementById('form-paid-amount')?.value || 0),
+      order_type: getSelectedFormOrderType(),
+      mail_in_arrived: Boolean(document.getElementById('form-mailin-arrived')?.checked),
+      inbound_courier: document.getElementById('form-inbound-courier')?.value || '',
+      inbound_tracking: document.getElementById('form-inbound-tracking')?.value || '',
+      outbound_courier: document.getElementById('form-outbound-courier')?.value || '',
+      outbound_tracking: document.getElementById('form-outbound-tracking')?.value || '',
       items,
     },
     tenantId
@@ -4028,6 +4713,25 @@ function openReceiptModal(order) {
       <span class="mt-muted">${escapeHTML(t('receipt.customer'))}</span>
       <span class="font-semibold text-right mt-text">${escapeHTML(order.customer_name)}</span>
 
+      ${
+        order.order_type === 'mail_in'
+          ? `<span class="mt-muted">${escapeHTML(t('receipt.orderType'))}</span>
+             <span class="font-semibold text-right mt-text">${escapeHTML(t('orderType.mail_in'))}</span>`
+          : ''
+      }
+      ${
+        order.order_type === 'mail_in' && (order.inbound_courier || order.inbound_tracking)
+          ? `<span class="mt-muted">${escapeHTML(t('receipt.inboundInfo'))}</span>
+             <span class="font-mono-code text-right mt-text">${escapeHTML([order.inbound_courier, order.inbound_tracking].filter(Boolean).join(' - '))}</span>`
+          : ''
+      }
+      ${
+        order.order_type === 'mail_in' && (order.outbound_courier || order.outbound_tracking)
+          ? `<span class="mt-muted">${escapeHTML(t('receipt.outboundInfo'))}</span>
+             <span class="font-mono-code text-right mt-text">${escapeHTML([order.outbound_courier, order.outbound_tracking].filter(Boolean).join(' - '))}</span>`
+          : ''
+      }
+
       <span class="mt-muted">${escapeHTML(t('receipt.receivedDate'))}</span>
       <span class="text-right mt-text">${escapeHTML(formatDateID(order.created_at))}</span>
 
@@ -4083,7 +4787,7 @@ function handleSendReceiptViaWA() {
     .map((it, idx) => `${idx + 1}. ${it.garment_name} (${it.service_type}) - ${formatCurrency(it.price)}`)
     .join('\n');
 
-  const receiptText = t('wa.receiptMessage', {
+  let receiptText = t('wa.receiptMessage', {
     store: workshopSettings.NAME,
     ticket: o.ticket_code,
     customer: o.customer_name,
@@ -4096,6 +4800,15 @@ function handleSendReceiptViaWA() {
     address: workshopSettings.ADDRESS,
     hours: workshopSettings.OPENING_HOURS,
   });
+
+  if (o.order_type === 'mail_in') {
+    const mailInLines = [t('wa.mailInLineType')];
+    const inboundVal = [o.inbound_courier, o.inbound_tracking].filter(Boolean).join(' - ');
+    const outboundVal = [o.outbound_courier, o.outbound_tracking].filter(Boolean).join(' - ');
+    if (inboundVal) mailInLines.push(t('wa.mailInLineInbound', { value: inboundVal }));
+    if (outboundVal) mailInLines.push(t('wa.mailInLineOutbound', { value: outboundVal }));
+    receiptText = `${receiptText}\n\n${mailInLines.join('\n')}`;
+  }
 
   // Same-tab navigation lets Android Chrome hand wa.me links directly to the WhatsApp app.
   window.location.href = buildWhatsAppLink(o.customer_phone, receiptText);
