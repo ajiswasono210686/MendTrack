@@ -1,9 +1,4 @@
-import {
-  SUPABASE_CONFIG,
-  ORDER_STEPS,
-  STATUS_META,
-  PAYMENT_STATUS_META,
-} from './config.js';
+import { SUPABASE_CONFIG } from './config.js';
 import { isSupabaseConfigured } from './supabase-client.js';
 import {
   formatCurrency,
@@ -15,6 +10,20 @@ import {
 } from './utils.js';
 import { initConnectionMonitor } from './storage-draft.js';
 import { DEFAULT_STORE_SETTINGS, mapTenantToSettings, applyStoreIdentity } from './store-settings.js';
+import {
+  t,
+  getLocale,
+  setLocale,
+  setCurrency,
+  setTimezone,
+  readStoredLocale,
+  detectPreferredLocale,
+  applyTranslations,
+  getOrderSteps,
+  getStatusMeta,
+  getPaymentStatusMeta,
+  translateSystemLogNote,
+} from './i18n.js';
 
 const SLUG_REGEX = /^[a-z0-9](?:[a-z0-9-]{1,46}[a-z0-9])$/;
 
@@ -22,6 +31,10 @@ let activeSlug = '';
 let isWorkshopValid = false;
 let currentSearchedPhone = '';
 let lastTicketList = [];
+let lastDetailPayload = null;
+let currentViewState = 'guide';
+let lastEmptyDescriptor = null;
+let lastNotFoundDescriptor = null;
 let publicStoreSettings = { ...DEFAULT_STORE_SETTINGS };
 let lastPhotoTrigger = null;
 
@@ -73,13 +86,13 @@ const MOCK_TRACKING_DATA = {
     {
       id: 'log-2',
       status: 'queued',
-      log_note: 'Masuk antrean meja reparasi',
+      log_note: 'Order masuk dalam antrean pengerjaan',
       created_at: new Date(Date.now() - 43200000).toISOString(),
     },
     {
       id: 'log-3',
       status: 'in_progress',
-      log_note: 'Sedang proses darning bagian crotch',
+      log_note: 'Sedang dalam proses pengerjaan',
       created_at: new Date(Date.now() - 7200000).toISOString(),
     },
   ],
@@ -111,6 +124,10 @@ const photoModal = document.getElementById('photo-modal');
 const photoModalImg = document.getElementById('photo-modal-img');
 const photoModalCaption = document.getElementById('photo-modal-caption');
 const closePhotoModalBtn = document.getElementById('close-photo-modal');
+
+function getTrackerLocaleStorageKey() {
+  return activeSlug ? `mendtrack-tracker-locale:${activeSlug}` : 'mendtrack-tracker-locale';
+}
 
 function resolveWorkshopSlug() {
   const pathMatch = window.location.pathname.match(/^\/t\/([^/]+)\/?$/i);
@@ -146,13 +163,15 @@ async function callPublicTracker(payload) {
   }
 
   if (!response.ok) {
-    throw new Error(data?.error || data?.message || `Server merespons status ${response.status}.`);
+    throw new Error(data?.error || data?.message || t('tracker.serverStatusError', { status: response.status }));
   }
   return data;
 }
 
-function showWorkshopNotFound(message) {
+function showWorkshopNotFound(keyOrMessage, params = {}) {
   isWorkshopValid = false;
+  currentViewState = 'not_found';
+  lastNotFoundDescriptor = { keyOrMessage, params };
   trackerHeroEl?.classList.add('hidden');
   initialGuideEl?.classList.add('hidden');
   loadingEl?.classList.add('hidden');
@@ -160,23 +179,62 @@ function showWorkshopNotFound(message) {
   ticketListEl?.classList.add('hidden');
   resultEl?.classList.add('hidden');
   trackerExitBtn?.classList.add('hidden');
-  if (workshopNotFoundMsgEl && message) {
-    workshopNotFoundMsgEl.textContent = message;
+  if (workshopNotFoundMsgEl) {
+    workshopNotFoundMsgEl.textContent = t(keyOrMessage, params);
   }
   workshopNotFoundEl?.classList.remove('hidden');
-  document.title = 'Workshop Tidak Ditemukan | MendTrack';
+  document.title = t('tracker.titleNotFound');
   if (window.lucide) window.lucide.createIcons();
 }
 
+function rerenderActiveTrackerView() {
+  applyTranslations(document);
+  const metaDesc = document.querySelector('meta[name="description"]');
+  if (metaDesc) {
+    metaDesc.setAttribute('content', t('tracker.metaDescription'));
+  }
+  if (photoModalImg) {
+    photoModalImg.alt = t('tracker.photoModalImgAlt');
+  }
+  if (currentViewState === 'not_found' && lastNotFoundDescriptor) {
+    showWorkshopNotFound(lastNotFoundDescriptor.keyOrMessage, lastNotFoundDescriptor.params);
+    return;
+  }
+  if (isWorkshopValid) {
+    applyStoreIdentity(document, publicStoreSettings);
+  } else {
+    document.title = t('tracker.titleDefault');
+  }
+  if (currentViewState === 'list' && lastTicketList.length) {
+    renderTicketSelectionList(lastTicketList);
+  } else if (currentViewState === 'detail' && lastDetailPayload) {
+    renderOrderDetail(lastDetailPayload);
+  } else if (currentViewState === 'empty' && lastEmptyDescriptor) {
+    showEmptyState(lastEmptyDescriptor.titleKey, lastEmptyDescriptor.messageKey, lastEmptyDescriptor.params);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
+  activeSlug = resolveWorkshopSlug();
+  const initialSaved = readStoredLocale(getTrackerLocaleStorageKey());
+  setLocale(initialSaved || detectPreferredLocale());
+  applyTranslations(document);
+
   if (window.lucide) window.lucide.createIcons();
   initConnectionMonitor('connection-badge');
   applyStoreIdentity(document, publicStoreSettings);
 
-  activeSlug = resolveWorkshopSlug();
   if (activeSlug && trackerBrandLink) {
     trackerBrandLink.href = `/t/${encodeURIComponent(activeSlug)}`;
   }
+
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('[data-mt-lang-toggle]')) return;
+    const next = getLocale() === 'en' ? 'id' : 'en';
+    // Customer language override never alters the workshop's billing currency.
+    setLocale(next, { persist: true, storageKey: getTrackerLocaleStorageKey() });
+    rerenderActiveTrackerView();
+  });
 
   trackInput?.addEventListener('input', () => {
     clearInputBtn?.classList.toggle('hidden', trackInput.value.trim().length === 0);
@@ -192,6 +250,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     trackInput.value = '';
     currentSearchedPhone = '';
     lastTicketList = [];
+    lastDetailPayload = null;
+    lastEmptyDescriptor = null;
     clearInputBtn?.classList.add('hidden');
     setViewState('guide');
     const nextUrl = new URL(window.location.href);
@@ -237,7 +297,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   if (!activeSlug) {
-    showWorkshopNotFound('Alamat tautan workshop tidak menyertakan slug yang valid.');
+    showWorkshopNotFound('tracker.notFoundNoSlug');
     return;
   }
 
@@ -249,14 +309,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     if (!profileRes || !profileRes.found || !profileRes.store) {
-      showWorkshopNotFound(
-        profileRes?.message || `Workshop "${activeSlug}" tidak ditemukan atau sedang tidak aktif.`
-      );
+      showWorkshopNotFound('tracker.notFoundSlug', { slug: activeSlug });
       return;
     }
 
     isWorkshopValid = true;
     publicStoreSettings = mapTenantToSettings(profileRes.store);
+    setCurrency(publicStoreSettings.CURRENCY);
+    setTimezone(publicStoreSettings.TIMEZONE);
+
+    // Default to the workshop's configured locale unless the customer explicitly toggled language for this slug.
+    const customerOverride = readStoredLocale(getTrackerLocaleStorageKey());
+    setLocale(customerOverride || publicStoreSettings.LOCALE || 'id');
+    applyTranslations(document);
     applyStoreIdentity(document, publicStoreSettings);
     if (footerTaglineWrap) {
       footerTaglineWrap.classList.toggle('hidden', !publicStoreSettings.TAGLINE);
@@ -273,19 +338,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   } catch (err) {
     console.error('Gagal memuat profil workshop:', err);
-    showWorkshopNotFound('Terjadi gangguan saat memuat data workshop. Silakan muat ulang halaman.');
+    showWorkshopNotFound('tracker.notFoundLoadError');
   }
 });
 
 async function executeTrackingSearch(rawQuery) {
   const query = normalizePhone(rawQuery);
   if (!query || query.length < 10) {
-    showEmptyState('Nomor WhatsApp tidak valid', 'Masukkan nomor HP yang terdaftar, minimal 10 digit.');
+    showEmptyState('tracker.invalidPhoneTitle', 'tracker.invalidPhoneMsg');
     return;
   }
 
   currentSearchedPhone = query;
   lastTicketList = [];
+  lastDetailPayload = null;
 
   const nextUrl = new URL(window.location.href);
   nextUrl.searchParams.delete('ticket');
@@ -300,10 +366,7 @@ async function executeTrackingSearch(rawQuery) {
       if (query === '6281234567890') {
         renderOrderDetail(MOCK_TRACKING_DATA);
       } else {
-        showEmptyState(
-          'Mode pratinjau aktif',
-          'Supabase belum dikonfigurasi di js/config.js. Gunakan nomor contoh 0812-3456-7890 untuk melihat simulasi.'
-        );
+        showEmptyState('tracker.previewActiveTitle', 'tracker.previewActiveMsg');
       }
     }, 250);
     return;
@@ -318,13 +381,14 @@ async function executeTrackingSearch(rawQuery) {
 
     if (!data || !data.found) {
       if (data?.mode === 'tenant_not_found') {
-        showWorkshopNotFound(data.message);
+        showWorkshopNotFound('tracker.notFoundSlug', { slug: activeSlug });
         return;
       }
-      showEmptyState(
-        'Order tidak ditemukan',
-        data?.message || 'Pastikan nomor WhatsApp yang dimasukkan sama dengan nomor saat order diterima.'
-      );
+      if (data?.mode === 'invalid_phone') {
+        showEmptyState('tracker.invalidPhoneTitle', 'tracker.invalidPhoneMsg');
+        return;
+      }
+      showEmptyState('tracker.emptyTitleDefault', 'tracker.emptyMessageDefault');
       return;
     }
 
@@ -339,10 +403,7 @@ async function executeTrackingSearch(rawQuery) {
     }
   } catch (err) {
     console.error('Tracking lookup error:', err);
-    showEmptyState(
-      'Gagal memuat data',
-      'Terjadi gangguan koneksi ke server. Pastikan internet aktif lalu coba kembali.'
-    );
+    showEmptyState('tracker.loadFailedTitle', 'tracker.loadFailedMsg');
   }
 }
 
@@ -361,10 +422,11 @@ async function executeSelectedTicket(ticketCode) {
     });
 
     if (!data || !data.found) {
-      showEmptyState(
-        'Order tidak ditemukan',
-        data?.message || 'Detail order tidak dapat ditemukan. Silakan cari kembali menggunakan nomor WhatsApp.'
-      );
+      if (data?.mode === 'tenant_not_found') {
+        showWorkshopNotFound('tracker.notFoundSlug', { slug: activeSlug });
+        return;
+      }
+      showEmptyState('tracker.emptyTitleDefault', 'tracker.detailNotFoundMsg');
       return;
     }
 
@@ -373,17 +435,15 @@ async function executeSelectedTicket(ticketCode) {
       return;
     }
 
-    showEmptyState('Data tidak tersedia', 'Detail order belum dapat ditampilkan. Silakan coba lagi.');
+    showEmptyState('tracker.detailUnavailableTitle', 'tracker.detailUnavailableMsg');
   } catch (err) {
     console.error('Selected ticket tracking error:', err);
-    showEmptyState(
-      'Gagal memuat detail',
-      'Terjadi gangguan saat mengambil detail order. Silakan kembali dan pilih order lagi.'
-    );
+    showEmptyState('tracker.detailFailedTitle', 'tracker.detailFailedMsg');
   }
 }
 
 function setViewState(state) {
+  currentViewState = state;
   workshopNotFoundEl?.classList.add('hidden');
   initialGuideEl?.classList.toggle('hidden', state !== 'guide');
   loadingEl?.classList.toggle('hidden', state !== 'loading');
@@ -393,9 +453,10 @@ function setViewState(state) {
   trackerExitBtn?.classList.toggle('hidden', state === 'guide');
 }
 
-function showEmptyState(title, message) {
-  if (emptyTitleEl) emptyTitleEl.textContent = title;
-  if (emptyMessageEl) emptyMessageEl.textContent = message;
+function showEmptyState(titleKey, messageKey, params = {}) {
+  lastEmptyDescriptor = { titleKey, messageKey, params };
+  if (emptyTitleEl) emptyTitleEl.textContent = t(titleKey, params);
+  if (emptyMessageEl) emptyMessageEl.textContent = t(messageKey, params);
   setViewState('empty');
   if (window.lucide) window.lucide.createIcons();
 }
@@ -404,25 +465,25 @@ function renderTicketSelectionList(tickets) {
   if (!ticketListEl) return;
 
   const cardsHTML = tickets
-    .map((t) => {
-      const statusInfo = STATUS_META[t.status] || STATUS_META.received;
+    .map((ticket) => {
+      const statusInfo = getStatusMeta(ticket.status);
       return `
         <button
           type="button"
-          data-select-ticket="${escapeHTML(t.ticket_code)}"
+          data-select-ticket="${escapeHTML(ticket.ticket_code)}"
           class="w-full text-left mt-card p-4 transition flex items-center justify-between gap-3 hover:border-[var(--mt-accent)]"
         >
           <div class="min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
-              <span class="font-mono-code font-bold text-sm mt-text">${escapeHTML(t.ticket_code)}</span>
+              <span class="font-mono-code font-bold text-sm mt-text">${escapeHTML(ticket.ticket_code)}</span>
               <span class="${statusInfo.badgeClass}">
                 <span class="${statusInfo.dotClass}" aria-hidden="true"></span>
                 <span>${escapeHTML(statusInfo.label)}</span>
               </span>
             </div>
             <p class="text-xs mt-muted mt-1.5">
-              ${t.item_count || 0} item · Masuk: ${formatDateID(t.created_at)}
-              ${t.estimated_done_date ? ` · Estimasi: <strong class="mt-text">${formatDateID(t.estimated_done_date)}</strong>` : ''}
+              ${escapeHTML(t('common.itemCount', { count: ticket.item_count || 0 }))} · ${escapeHTML(t('tracker.ticketReceivedMeta', { date: formatDateID(ticket.created_at) }))}
+              ${ticket.estimated_done_date ? ` · ${escapeHTML(t('tracker.ticketEstMeta'))} <strong class="mt-text">${escapeHTML(formatDateID(ticket.estimated_done_date))}</strong>` : ''}
             </p>
           </div>
           <span class="w-9 h-9 rounded-lg mt-card-muted flex items-center justify-center shrink-0" aria-hidden="true">
@@ -435,8 +496,8 @@ function renderTicketSelectionList(tickets) {
 
   ticketListEl.innerHTML = `
     <div class="mt-card p-4">
-      <h2 class="text-sm font-bold mt-text">Ditemukan ${tickets.length} order terdaftar</h2>
-      <p class="text-xs mt-muted mt-0.5">Pilih kode tiket di bawah untuk melihat detail progres.</p>
+      <h2 class="text-sm font-bold mt-text">${escapeHTML(t('tracker.foundTicketsHeading', { count: tickets.length }))}</h2>
+      <p class="text-xs mt-muted mt-0.5">${escapeHTML(t('tracker.foundTicketsDesc'))}</p>
     </div>
     <div class="space-y-2.5">${cardsHTML}</div>
   `;
@@ -453,17 +514,19 @@ function renderTicketSelectionList(tickets) {
 
 function renderOrderDetail(payload) {
   if (!resultEl) return;
+  lastDetailPayload = payload;
   const { order, items = [], logs = [], isDemo = false } = payload;
 
-  const statusInfo = STATUS_META[order.status] || STATUS_META.received;
-  const payInfo = PAYMENT_STATUS_META[order.payment_status] || PAYMENT_STATUS_META.unpaid;
+  const orderSteps = getOrderSteps();
+  const statusInfo = getStatusMeta(order.status);
+  const payInfo = getPaymentStatusMeta(order.payment_status);
   const remainingAmount = Math.max(0, Number(order.total_amount) - Number(order.paid_amount));
   const deadlineInfo = getDeadlineStatus(order.estimated_done_date);
 
   const effectiveStatus = order.status === 'completed' ? 'ready' : order.status;
   const currentStepIdx = Math.max(
     0,
-    ORDER_STEPS.findIndex((s) => s.key === effectiveStatus)
+    orderSteps.findIndex((s) => s.key === effectiveStatus)
   );
 
   const statusTimestamps = {};
@@ -471,40 +534,42 @@ function renderOrderDetail(payload) {
     statusTimestamps[log.status] = log.created_at;
   });
 
-  const stepperHTML = ORDER_STEPS.map((step, idx) => {
-    const isCompleted = order.status === 'completed' || idx < currentStepIdx;
-    const isCurrent = order.status !== 'completed' && idx === currentStepIdx;
-    const stepTime = statusTimestamps[step.key];
+  const stepperHTML = orderSteps
+    .map((step, idx) => {
+      const isCompleted = order.status === 'completed' || idx < currentStepIdx;
+      const isCurrent = order.status !== 'completed' && idx === currentStepIdx;
+      const stepTime = statusTimestamps[step.key];
 
-    const dotState = isCompleted ? 'is-done' : isCurrent ? 'is-current' : '';
-    const titleClass = isCurrent ? 'mt-text font-bold' : isCompleted ? 'mt-text font-semibold' : 'mt-muted';
+      const dotState = isCompleted ? 'is-done' : isCurrent ? 'is-current' : '';
+      const titleClass = isCurrent ? 'mt-text font-bold' : isCompleted ? 'mt-text font-semibold' : 'mt-muted';
 
-    return `
-      <div class="relative flex gap-3.5 pb-6 last:pb-0">
-        ${
-          idx < ORDER_STEPS.length - 1
-            ? `<div class="absolute left-4 top-8 bottom-0 w-0.5 mt-step-line ${isCompleted ? 'is-done' : ''}" aria-hidden="true"></div>`
-            : ''
-        }
-        <div class="relative z-10 mt-step-dot ${dotState}" aria-hidden="true">
-          <i data-lucide="${isCompleted ? 'check' : step.icon}" class="w-4 h-4"></i>
-        </div>
-        <div class="flex-1 pt-0.5 min-w-0">
-          <div class="flex items-center justify-between gap-2 flex-wrap">
-            <p class="text-sm ${titleClass}">
-              ${escapeHTML(step.label)}${isCurrent ? ' (Tahap saat ini)' : ''}
-            </p>
-            ${
-              stepTime
-                ? `<span class="text-xs font-mono-code mt-muted">${formatDateID(stepTime, true)}</span>`
-                : ''
-            }
+      return `
+        <div class="relative flex gap-3.5 pb-6 last:pb-0">
+          ${
+            idx < orderSteps.length - 1
+              ? `<div class="absolute left-4 top-8 bottom-0 w-0.5 mt-step-line ${isCompleted ? 'is-done' : ''}" aria-hidden="true"></div>`
+              : ''
+          }
+          <div class="relative z-10 mt-step-dot ${dotState}" aria-hidden="true">
+            <i data-lucide="${isCompleted ? 'check' : step.icon}" class="w-4 h-4"></i>
           </div>
-          <p class="text-xs mt-muted mt-0.5">${escapeHTML(step.description)}</p>
+          <div class="flex-1 pt-0.5 min-w-0">
+            <div class="flex items-center justify-between gap-2 flex-wrap">
+              <p class="text-sm ${titleClass}">
+                ${escapeHTML(step.label)}${isCurrent ? escapeHTML(t('tracker.currentStageTag')) : ''}
+              </p>
+              ${
+                stepTime
+                  ? `<span class="text-xs font-mono-code mt-muted">${escapeHTML(formatDateID(stepTime, true))}</span>`
+                  : ''
+              }
+            </div>
+            <p class="text-xs mt-muted mt-0.5">${escapeHTML(step.description)}</p>
+          </div>
         </div>
-      </div>
-    `;
-  }).join('');
+      `;
+    })
+    .join('');
 
   const logsHTML =
     logs.length > 0
@@ -512,19 +577,20 @@ function renderOrderDetail(payload) {
           .slice()
           .reverse()
           .map((log) => {
-            const meta = STATUS_META[log.status] || STATUS_META.received;
+            const meta = getStatusMeta(log.status);
+            const localizedNote = translateSystemLogNote(log.log_note, log.status);
             return `
               <div class="flex items-start gap-2.5 text-xs py-2.5 border-b last:border-none" style="border-color: var(--mt-border);">
                 <span class="${meta.badgeClass} shrink-0">${escapeHTML(meta.label)}</span>
                 <div class="flex-1 min-w-0">
-                  <p class="mt-text font-medium">${escapeHTML(log.log_note || meta.label)}</p>
-                  <p class="text-xs mt-muted mt-0.5 font-mono-code">${formatDateID(log.created_at, true)}</p>
+                  <p class="mt-text font-medium">${escapeHTML(localizedNote)}</p>
+                  <p class="text-xs mt-muted mt-0.5 font-mono-code">${escapeHTML(formatDateID(log.created_at, true))}</p>
                 </div>
               </div>
             `;
           })
           .join('')
-      : '<p class="text-xs mt-muted">Belum ada catatan aktivitas.</p>';
+      : `<p class="text-xs mt-muted">${escapeHTML(t('tracker.activityLogEmpty'))}</p>`;
 
   const itemsHTML = items
     .map((item, index) => {
@@ -552,17 +618,17 @@ function renderOrderDetail(payload) {
           ? `<div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mt-3 pt-3 mt-seam-t">
               ${
                 hasBefore
-                  ? `<button type="button" data-photo-url="${escapeHTML(item.before_photo_url)}" data-photo-title="Sebelum: ${escapeHTML(item.garment_name)}" class="group relative rounded-lg overflow-hidden border bg-black aspect-[4/3] w-full text-left" style="border-color: var(--mt-border);">
-                      <img src="${escapeHTML(item.before_photo_url)}" width="640" height="480" onerror="this.src='/assets/placeholder-garment.svg'" alt="Foto sebelum pengerjaan ${escapeHTML(item.garment_name)}" class="w-full h-full object-cover" />
-                      <span class="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/80 text-white text-xs font-semibold">Sebelum</span>
+                  ? `<button type="button" data-photo-url="${escapeHTML(item.before_photo_url)}" data-photo-title="${escapeHTML(t('tracker.beforeTitle', { name: item.garment_name }))}" class="group relative rounded-lg overflow-hidden border bg-black aspect-[4/3] w-full text-left" style="border-color: var(--mt-border);">
+                      <img src="${escapeHTML(item.before_photo_url)}" width="640" height="480" onerror="this.src='/assets/placeholder-garment.svg'" alt="${escapeHTML(t('tracker.beforeAlt', { name: item.garment_name }))}" class="w-full h-full object-cover" />
+                      <span class="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/80 text-white text-xs font-semibold">${escapeHTML(t('tracker.beforeBadge'))}</span>
                     </button>`
                   : ''
               }
               ${
                 hasAfter
-                  ? `<button type="button" data-photo-url="${escapeHTML(item.after_photo_url)}" data-photo-title="Sesudah: ${escapeHTML(item.garment_name)}" class="group relative rounded-lg overflow-hidden border bg-black aspect-[4/3] w-full text-left" style="border-color: var(--mt-border);">
-                      <img src="${escapeHTML(item.after_photo_url)}" width="640" height="480" onerror="this.src='/assets/placeholder-garment.svg'" alt="Foto sesudah pengerjaan ${escapeHTML(item.garment_name)}" class="w-full h-full object-cover" />
-                      <span class="absolute top-2 left-2 px-2 py-0.5 rounded mt-badge-ready text-xs font-semibold">Sesudah</span>
+                  ? `<button type="button" data-photo-url="${escapeHTML(item.after_photo_url)}" data-photo-title="${escapeHTML(t('tracker.afterTitle', { name: item.garment_name }))}" class="group relative rounded-lg overflow-hidden border bg-black aspect-[4/3] w-full text-left" style="border-color: var(--mt-border);">
+                      <img src="${escapeHTML(item.after_photo_url)}" width="640" height="480" onerror="this.src='/assets/placeholder-garment.svg'" alt="${escapeHTML(t('tracker.afterAlt', { name: item.garment_name }))}" class="w-full h-full object-cover" />
+                      <span class="absolute top-2 left-2 px-2 py-0.5 rounded mt-badge-ready text-xs font-semibold">${escapeHTML(t('tracker.afterBadge'))}</span>
                     </button>`
                   : ''
               }
@@ -573,12 +639,12 @@ function renderOrderDetail(payload) {
         <article class="mt-card-muted p-4">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
-              <span class="text-xs font-mono-code font-semibold mt-accent">Item #${index + 1}</span>
+              <span class="text-xs font-mono-code font-semibold mt-accent">${escapeHTML(t('common.itemLabel', { number: index + 1 }))}</span>
               <h4 class="font-bold mt-text text-sm sm:text-base">${escapeHTML(item.garment_name)}</h4>
               <p class="text-xs sm:text-sm mt-muted font-medium mt-0.5">${escapeHTML(item.service_type)}</p>
             </div>
             <span class="font-mono-code font-bold text-sm mt-text shrink-0">
-              ${formatCurrency(item.price)}
+              ${escapeHTML(formatCurrency(item.price))}
             </span>
           </div>
           ${specsBadges}
@@ -588,7 +654,11 @@ function renderOrderDetail(payload) {
     })
     .join('');
 
-  const waMessage = `Halo Admin ${publicStoreSettings.NAME}, saya *${order.customer_name}* ingin menanyakan progres order dengan kode tiket *${order.ticket_code}*. Terima kasih.`;
+  const waMessage = t('tracker.waInquiryMessage', {
+    store: publicStoreSettings.NAME,
+    customer: order.customer_name,
+    ticket: order.ticket_code,
+  });
   const waAdminLink = publicStoreSettings.ADMIN_PHONE
     ? buildWhatsAppLink(publicStoreSettings.ADMIN_PHONE, waMessage)
     : '';
@@ -598,7 +668,7 @@ function renderOrderDetail(payload) {
       ? `<div>
           <button type="button" id="back-to-ticket-list-btn" class="mt-btn mt-btn-secondary text-xs">
             <i data-lucide="arrow-left" class="w-4 h-4" aria-hidden="true"></i>
-            <span>Kembali ke daftar tiket (${lastTicketList.length})</span>
+            <span>${escapeHTML(t('tracker.backToList', { count: lastTicketList.length }))}</span>
           </button>
         </div>`
       : '';
@@ -607,21 +677,21 @@ function renderOrderDetail(payload) {
     ${backToListHTML}
     ${
       isDemo
-        ? `<div class="mt-notice-warn px-4 py-3 text-xs font-semibold">[DATA SIMULASI] Tampilan ini menggunakan contoh order karena koneksi Supabase belum aktif.</div>`
+        ? `<div class="mt-notice-warn px-4 py-3 text-xs font-semibold">${escapeHTML(t('tracker.demoBanner'))}</div>`
         : ''
     }
 
     <section class="mt-card p-5 sm:p-6">
       <div class="flex items-start justify-between gap-3 flex-wrap pb-4 mt-seam-b">
         <div>
-          <span class="text-xs mt-muted font-semibold">Kode tiket order</span>
+          <span class="text-xs mt-muted font-semibold">${escapeHTML(t('tracker.ticketCodeLabel'))}</span>
           <div class="flex items-center gap-2 mt-0.5">
             <h2 class="font-mono-code text-xl sm:text-2xl font-bold mt-text">${escapeHTML(order.ticket_code)}</h2>
-            <button type="button" id="copy-ticket-btn" aria-label="Salin kode tiket ${escapeHTML(order.ticket_code)}" title="Salin kode tiket" class="mt-btn-icon mt-btn-secondary">
+            <button type="button" id="copy-ticket-btn" aria-label="${escapeHTML(t('tracker.copyTicketAria', { code: order.ticket_code }))}" title="${escapeHTML(t('tracker.copyTicketTitle'))}" class="mt-btn-icon mt-btn-secondary">
               <i data-lucide="copy" class="w-4 h-4" aria-hidden="true"></i>
             </button>
           </div>
-          <p class="text-sm mt-muted mt-1">Pelanggan: <strong class="mt-text">${escapeHTML(order.customer_name)}</strong></p>
+          <p class="text-sm mt-muted mt-1">${escapeHTML(t('tracker.customerLabel'))} <strong class="mt-text">${escapeHTML(order.customer_name)}</strong></p>
         </div>
 
         <div class="flex flex-col items-start sm:items-end gap-1.5">
@@ -630,7 +700,7 @@ function renderOrderDetail(payload) {
             <span>${escapeHTML(statusInfo.label)}</span>
           </span>
           <span class="text-xs mt-muted">
-            Target selesai: <strong class="${deadlineInfo.isOverdue ? 'mt-danger-text' : 'mt-text'}">${formatDateID(order.estimated_done_date)}</strong>
+            ${escapeHTML(t('tracker.targetDoneLabel'))} <strong class="${deadlineInfo.isOverdue ? 'mt-danger-text' : 'mt-text'}">${escapeHTML(formatDateID(order.estimated_done_date))}</strong>
           </span>
         </div>
       </div>
@@ -639,7 +709,7 @@ function renderOrderDetail(payload) {
         order.notes
           ? `<div class="mt-notice-warn mt-4 p-3 text-xs flex items-start gap-2">
               <i data-lucide="sticky-note" class="w-4 h-4 shrink-0 mt-0.5" aria-hidden="true"></i>
-              <div><span class="font-semibold">Catatan workshop:</span> ${escapeHTML(order.notes)}</div>
+              <div><span class="font-semibold">${escapeHTML(t('tracker.workshopNotesLabel'))}</span> ${escapeHTML(order.notes)}</div>
             </div>`
           : ''
       }
@@ -648,14 +718,14 @@ function renderOrderDetail(payload) {
     <section class="mt-card p-5 sm:p-6">
       <h3 class="text-sm font-bold mt-text mb-5 flex items-center gap-2">
         <i data-lucide="git-commit-horizontal" class="w-4 h-4 mt-accent" aria-hidden="true"></i>
-        <span>Tahapan pengerjaan</span>
+        <span>${escapeHTML(t('tracker.stagesHeading'))}</span>
       </h3>
 
       <div>${stepperHTML}</div>
 
       <details class="mt-5 pt-4 mt-seam-t group">
         <summary class="text-xs font-semibold mt-text min-h-11 flex items-center justify-between list-none">
-          <span>Lihat riwayat aktivitas lengkap (${logs.length})</span>
+          <span>${escapeHTML(t('tracker.activityLogSummary', { count: logs.length }))}</span>
           <i data-lucide="chevron-down" class="w-4 h-4 group-open:rotate-180 transition" aria-hidden="true"></i>
         </summary>
         <div class="mt-2">${logsHTML}</div>
@@ -665,7 +735,7 @@ function renderOrderDetail(payload) {
     <section class="mt-card p-5 sm:p-6">
       <h3 class="text-sm font-bold mt-text mb-4 flex items-center gap-2">
         <i data-lucide="layers" class="w-4 h-4 mt-accent" aria-hidden="true"></i>
-        <span>Daftar item &amp; layanan (${items.length})</span>
+        <span>${escapeHTML(t('tracker.itemsHeading', { count: items.length }))}</span>
       </h3>
       <div class="space-y-3">${itemsHTML}</div>
     </section>
@@ -674,7 +744,7 @@ function renderOrderDetail(payload) {
       <div class="flex items-center justify-between gap-2 mb-4">
         <h3 class="text-sm font-bold mt-text flex items-center gap-2">
           <i data-lucide="receipt-text" class="w-4 h-4 mt-accent" aria-hidden="true"></i>
-          <span>Rincian biaya</span>
+          <span>${escapeHTML(t('tracker.costHeading'))}</span>
         </h3>
         <span class="${payInfo.badgeClass}">
           ${escapeHTML(payInfo.label)}
@@ -683,17 +753,17 @@ function renderOrderDetail(payload) {
 
       <div class="space-y-2 text-sm">
         <div class="flex justify-between mt-muted">
-          <span>Total biaya layanan</span>
-          <span class="font-mono-code font-semibold mt-text">${formatCurrency(order.total_amount)}</span>
+          <span>${escapeHTML(t('tracker.totalServiceCost'))}</span>
+          <span class="font-mono-code font-semibold mt-text">${escapeHTML(formatCurrency(order.total_amount))}</span>
         </div>
         <div class="flex justify-between mt-muted">
-          <span>Sudah dibayar (DP / cicilan)</span>
-          <span class="font-mono-code font-medium mt-success-text">- ${formatCurrency(order.paid_amount)}</span>
+          <span>${escapeHTML(t('tracker.alreadyPaidLabel'))}</span>
+          <span class="font-mono-code font-medium mt-success-text">- ${escapeHTML(formatCurrency(order.paid_amount))}</span>
         </div>
         <div class="pt-3 mt-seam-t flex justify-between items-center">
-          <span class="font-bold mt-text">Sisa tagihan</span>
+          <span class="font-bold mt-text">${escapeHTML(t('tracker.remainingBalance'))}</span>
           <span class="font-mono-code text-lg font-bold ${remainingAmount > 0 ? 'mt-accent' : 'mt-success-text'}">
-            ${formatCurrency(remainingAmount)}
+            ${escapeHTML(formatCurrency(remainingAmount))}
           </span>
         </div>
       </div>
@@ -708,7 +778,7 @@ function renderOrderDetail(payload) {
                 class="mt-btn mt-btn-success w-full"
               >
                 <i data-lucide="message-circle" class="w-5 h-5" aria-hidden="true"></i>
-                <span>Hubungi Admin via WhatsApp</span>
+                <span>${escapeHTML(t('tracker.contactAdminWa'))}</span>
               </a>
             </div>`
           : ''
@@ -725,11 +795,11 @@ function renderOrderDetail(payload) {
     try {
       await navigator.clipboard.writeText(order.ticket_code);
       copyBtn.innerHTML = '<i data-lucide="check" class="w-4 h-4 mt-success-text" aria-hidden="true"></i>';
-      copyBtn.setAttribute('aria-label', 'Kode tiket disalin');
+      copyBtn.setAttribute('aria-label', t('tracker.copyTicketDoneAria'));
       if (window.lucide) window.lucide.createIcons();
       setTimeout(() => {
         copyBtn.innerHTML = '<i data-lucide="copy" class="w-4 h-4" aria-hidden="true"></i>';
-        copyBtn.setAttribute('aria-label', `Salin kode tiket ${order.ticket_code}`);
+        copyBtn.setAttribute('aria-label', t('tracker.copyTicketAria', { code: order.ticket_code }));
         if (window.lucide) window.lucide.createIcons();
       }, 1500);
     } catch (_) {
@@ -751,7 +821,7 @@ function renderOrderDetail(payload) {
 function openLightbox(url, caption) {
   if (!photoModal || !photoModalImg) return;
   photoModalImg.src = url;
-  if (photoModalCaption) photoModalCaption.textContent = caption || 'Dokumentasi item';
+  if (photoModalCaption) photoModalCaption.textContent = caption || t('tracker.photoModalDefault');
   photoModal.classList.remove('hidden');
   closePhotoModalBtn?.focus();
 }

@@ -1,5 +1,6 @@
 // Tenant-scoped workshop profile and service catalog helpers.
 import { supabase } from './supabase-client.js';
+import { t, normalizeLocale, normalizeCurrency } from './i18n.js';
 
 export const DEFAULT_STORE_SETTINGS = {
   NAME: 'MendTrack',
@@ -33,10 +34,13 @@ export function mapTenantToSettings(data) {
       Number.isInteger(data.daily_capacity_minutes) && data.daily_capacity_minutes > 0
         ? data.daily_capacity_minutes
         : DEFAULT_STORE_SETTINGS.DAILY_CAPACITY_MINUTES,
-    LOCALE: data.locale || DEFAULT_STORE_SETTINGS.LOCALE,
-    CURRENCY: data.currency || DEFAULT_STORE_SETTINGS.CURRENCY,
-    TIMEZONE: data.timezone || DEFAULT_STORE_SETTINGS.TIMEZONE,
-    TICKET_PREFIX: data.ticket_prefix || DEFAULT_STORE_SETTINGS.TICKET_PREFIX,
+    LOCALE: normalizeLocale(data.locale || DEFAULT_STORE_SETTINGS.LOCALE),
+    CURRENCY: normalizeCurrency(data.currency || DEFAULT_STORE_SETTINGS.CURRENCY),
+    TIMEZONE: String(data.timezone || DEFAULT_STORE_SETTINGS.TIMEZONE).trim() || DEFAULT_STORE_SETTINGS.TIMEZONE,
+    TICKET_PREFIX:
+      String(data.ticket_prefix || DEFAULT_STORE_SETTINGS.TICKET_PREFIX)
+        .trim()
+        .toUpperCase() || DEFAULT_STORE_SETTINGS.TICKET_PREFIX,
   };
 }
 
@@ -52,7 +56,7 @@ export async function fetchStoreSettings(tenantId) {
 }
 
 export async function persistStoreSettings(tenantId, s) {
-  if (!tenantId) throw new Error('Tenant aktif tidak ditemukan.');
+  if (!tenantId) throw new Error(t('common.noActiveTenant'));
   const payload = {
     name: s.NAME,
     address: s.ADDRESS,
@@ -61,6 +65,13 @@ export async function persistStoreSettings(tenantId, s) {
     opening_hours: s.OPENING_HOURS,
     logo_data_url: s.LOGO || null,
     daily_capacity_minutes: s.DAILY_CAPACITY_MINUTES,
+    locale: normalizeLocale(s.LOCALE || DEFAULT_STORE_SETTINGS.LOCALE),
+    currency: normalizeCurrency(s.CURRENCY || DEFAULT_STORE_SETTINGS.CURRENCY),
+    timezone: String(s.TIMEZONE || DEFAULT_STORE_SETTINGS.TIMEZONE).trim() || DEFAULT_STORE_SETTINGS.TIMEZONE,
+    ticket_prefix:
+      String(s.TICKET_PREFIX || DEFAULT_STORE_SETTINGS.TICKET_PREFIX)
+        .trim()
+        .toUpperCase() || DEFAULT_STORE_SETTINGS.TICKET_PREFIX,
     updated_at: new Date().toISOString(),
   };
   const { error } = await supabase.from('tenants').update(payload).eq('id', tenantId);
@@ -88,7 +99,7 @@ export function applyStoreIdentity(doc, settings) {
       el.innerHTML = '';
       const img = doc.createElement('img');
       img.src = settings.LOGO;
-      img.alt = `Logo ${settings.NAME}`;
+      img.alt = t('common.logoAlt', { name: settings.NAME });
       img.width = 40;
       img.height = 40;
       img.className = 'w-full h-full object-contain';
@@ -97,7 +108,7 @@ export function applyStoreIdentity(doc, settings) {
       el.innerHTML = '<i data-lucide="scissors" class="w-5 h-5" aria-hidden="true"></i>';
     }
   });
-  doc.title = `${settings.NAME} | MendTrack`;
+  doc.title = t('tracker.titleStore', { name: settings.NAME });
   if (window.lucide) window.lucide.createIcons();
 }
 
@@ -115,7 +126,7 @@ export async function fetchServices(tenantId) {
 }
 
 export async function createService(tenantId, name, estimatedMinutes, serviceCategory = 'reparasi') {
-  if (!tenantId) throw new Error('Tenant aktif tidak ditemukan.');
+  if (!tenantId) throw new Error(t('common.noActiveTenant'));
   const category = serviceCategory === 'custom' ? 'custom' : 'reparasi';
   const { data, error } = await supabase
     .from('services')
@@ -133,7 +144,7 @@ export async function createService(tenantId, name, estimatedMinutes, serviceCat
 }
 
 export async function updateService(tenantId, id, name, estimatedMinutes, serviceCategory = 'reparasi') {
-  if (!tenantId) throw new Error('Tenant aktif tidak ditemukan.');
+  if (!tenantId) throw new Error(t('common.noActiveTenant'));
   const category = serviceCategory === 'custom' ? 'custom' : 'reparasi';
   const { error } = await supabase
     .from('services')
@@ -149,7 +160,7 @@ export async function updateService(tenantId, id, name, estimatedMinutes, servic
 }
 
 export async function deactivateService(tenantId, id) {
-  if (!tenantId) throw new Error('Tenant aktif tidak ditemukan.');
+  if (!tenantId) throw new Error(t('common.noActiveTenant'));
   const { error } = await supabase
     .from('services')
     .update({ is_active: false, updated_at: new Date().toISOString() })
@@ -159,7 +170,7 @@ export async function deactivateService(tenantId, id) {
 }
 
 export async function activateService(tenantId, id) {
-  if (!tenantId) throw new Error('Tenant aktif tidak ditemukan.');
+  if (!tenantId) throw new Error(t('common.noActiveTenant'));
   const { error } = await supabase
     .from('services')
     .update({ is_active: true, updated_at: new Date().toISOString() })

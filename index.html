@@ -22,7 +22,7 @@
 </head>
 <body class="min-h-screen flex flex-col">
 
-  <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 mt-btn mt-btn-primary">
+  <a href="#main-content" data-i18n="common.skipToMain" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 mt-btn mt-btn-primary">
     Lewati ke konten utama
   </a>
 
@@ -35,12 +35,15 @@
         <span class="font-bold tracking-tight text-base truncate">MendTrack</span>
       </a>
 
-      <nav aria-label="Navigasi utama" class="flex items-center gap-2 shrink-0">
+      <nav data-i18n-aria-label="landing.navAria" aria-label="Navigasi utama" class="flex items-center gap-2 shrink-0">
+        <button type="button" class="mt-lang-toggle" data-mt-lang-toggle aria-label="Bahasa saat ini: Indonesia. Ganti ke English" title="Bahasa: Indonesia (klik untuk English)">
+          <span class="is-active">ID</span><span class="mt-lang-sep" aria-hidden="true">/</span><span>EN</span>
+        </button>
         <button type="button" class="mt-theme-toggle" data-mt-theme-toggle aria-label="Aktifkan mode gelap" title="Mode gelap">
           <i data-lucide="moon" aria-hidden="true"></i><span class="mt-theme-label">Gelap</span>
         </button>
         <a href="/admin" class="mt-btn mt-btn-hero-cta text-xs px-4">
-          <span>Portal Admin</span>
+          <span data-i18n="landing.adminPortal">Portal Admin</span>
         </a>
       </nav>
     </div>
@@ -48,10 +51,10 @@
 
   <section class="mt-hero pt-7 pb-10 px-4">
     <div class="max-w-3xl mx-auto">
-      <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight max-w-2xl">
+      <h1 data-i18n="landing.heroTitle" class="text-2xl sm:text-3xl font-extrabold tracking-tight max-w-2xl">
         Lacak progres pengerjaan atau kelola workshop Anda
       </h1>
-      <p class="mt-2 text-sm sm:text-base max-w-xl" style="color: var(--mt-hero-muted);">
+      <p data-i18n="landing.heroDesc" class="mt-2 text-sm sm:text-base max-w-xl" style="color: var(--mt-hero-muted);">
         MendTrack membantu workshop reparasi denim, vermak, dan jahit custom mencatat order, kapasitas kerja harian, kas, serta berbagi tautan pelacakan kepada pelanggan.
       </p>
     </div>
@@ -61,10 +64,10 @@
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
       <section aria-labelledby="lookup-workshop-heading" class="mt-card p-5 sm:p-6 md:col-span-2 space-y-4">
         <div>
-          <h2 id="lookup-workshop-heading" class="text-base sm:text-lg font-bold mt-text">
+          <h2 id="lookup-workshop-heading" data-i18n="landing.lookupHeading" class="text-base sm:text-lg font-bold mt-text">
             Buka portal pelacakan workshop
           </h2>
-          <p class="text-sm mt-muted mt-1 leading-relaxed">
+          <p data-i18n="landing.lookupDesc" class="text-sm mt-muted mt-1 leading-relaxed">
             Masukkan slug workshop yang tertera pada nota atau pesan WhatsApp Anda untuk langsung mengecek status pengerjaan.
           </p>
         </div>
@@ -72,7 +75,7 @@
         <form id="slug-jump-form" class="space-y-3" novalidate>
           <div>
             <label for="workshop-slug-input" class="block text-xs font-semibold mt-text mb-1.5">
-              Slug workshop (contoh: <span class="font-mono-code">nama-workshop</span>)
+              <span data-i18n="landing.slugLabelPrefix">Slug workshop (contoh: </span><span data-i18n="landing.slugPlaceholder" class="font-mono-code">nama-workshop</span>)
             </label>
             <div class="flex flex-col sm:flex-row gap-2.5">
               <div class="relative flex-1">
@@ -85,13 +88,14 @@
                   minlength="3"
                   maxlength="48"
                   autocomplete="off"
+                  data-i18n-placeholder="landing.slugPlaceholder"
                   placeholder="nama-workshop"
                   class="mt-input font-mono-code"
                   style="padding-left: 2.5rem;"
                 />
               </div>
               <button type="submit" class="mt-btn mt-btn-primary sm:w-auto w-full px-5 shrink-0">
-                <span>Buka Pelacakan</span>
+                <span data-i18n="landing.openTrackerBtn">Buka Pelacakan</span>
               </button>
             </div>
             <p id="slug-jump-error" role="alert" class="hidden mt-1.5 text-xs mt-danger-text font-medium"></p>
@@ -101,18 +105,18 @@
 
       <aside aria-labelledby="owner-portal-heading" class="mt-card-muted p-5 sm:p-6 space-y-4">
         <div class="space-y-2">
-          <h2 id="owner-portal-heading" class="text-base font-bold mt-text">
+          <h2 id="owner-portal-heading" data-i18n="landing.ownerHeading" class="text-base font-bold mt-text">
             Pemilik atau admin workshop
           </h2>
           <p class="text-sm mt-muted leading-relaxed">
-            Masuk ke ruang kerja operasional atau daftarkan workshop baru untuk mendapatkan tautan pelacakan <span class="font-mono-code mt-text">/t/slug-anda</span>.
+            <span data-i18n="landing.ownerDescPrefix">Masuk ke ruang kerja operasional atau daftarkan workshop baru untuk mendapatkan tautan pelacakan </span><span data-i18n="landing.ownerSlugExample" class="font-mono-code mt-text">/t/slug-anda</span>.
           </p>
         </div>
 
         <div class="pt-3 mt-seam-t">
           <a href="/admin" class="mt-btn mt-btn-primary w-full text-xs">
             <i data-lucide="log-in" class="w-4 h-4" aria-hidden="true"></i>
-            <span>Masuk / Daftar Workshop</span>
+            <span data-i18n="landing.ownerCta">Masuk / Daftar Workshop</span>
           </a>
         </div>
       </aside>
@@ -121,16 +125,47 @@
 
   <footer class="mt-seam-t py-5 px-4 text-center text-xs mt-muted" style="background-color: var(--mt-surface);">
     <p class="font-semibold mt-text">MendTrack</p>
-    <p class="mt-1">Buku kerja operasional dan pelacakan order workshop pakaian</p>
+    <p data-i18n="landing.footerSubtitle" class="mt-1">Buku kerja operasional dan pelacakan order workshop pakaian</p>
   </footer>
 
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(console.warn));
     }
+  </script>
+  <script src="/js/theme-toggle.js" defer></script>
+  <script type="module">
+    import {
+      detectPreferredLocale,
+      getLocale,
+      setLocale,
+      applyTranslations,
+      t,
+      LOCALE_STORAGE_KEY,
+    } from "/js/i18n.js";
+
+    const syncLandingPage = () => {
+      applyTranslations(document);
+      document.title = t("landing.title");
+      const metaDesc = document.querySelector('meta[name="description"]');
+      if (metaDesc) metaDesc.setAttribute("content", t("landing.metaDescription"));
+      const errEl = document.getElementById("slug-jump-error");
+      if (errEl && !errEl.classList.contains("hidden")) {
+        errEl.textContent = t("landing.slugInvalid");
+      }
+      if (window.lucide) window.lucide.createIcons();
+    };
 
     document.addEventListener("DOMContentLoaded", () => {
-      if (window.lucide) window.lucide.createIcons();
+      setLocale(detectPreferredLocale());
+      syncLandingPage();
+
+      document.addEventListener("click", (event) => {
+        if (!event.target.closest("[data-mt-lang-toggle]")) return;
+        const next = getLocale() === "en" ? "id" : "en";
+        setLocale(next, { persist: true, storageKey: LOCALE_STORAGE_KEY });
+        syncLandingPage();
+      });
 
       const form = document.getElementById("slug-jump-form");
       const input = document.getElementById("workshop-slug-input");
@@ -154,7 +189,7 @@
 
         if (!slugRegex.test(cleaned)) {
           if (errEl) {
-            errEl.textContent = "Masukkan slug workshop yang valid (3-48 karakter huruf kecil, angka, atau tanda hubung).";
+            errEl.textContent = t("landing.slugInvalid");
             errEl.classList.remove("hidden");
           }
           input?.focus();
@@ -170,6 +205,5 @@
       });
     });
   </script>
-  <script src="/js/theme-toggle.js" defer></script>
 </body>
 </html>

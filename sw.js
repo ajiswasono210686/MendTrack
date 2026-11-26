@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mendtrack-shell-v12-glass-accent-audit';
+const CACHE_NAME = 'mendtrack-shell-v14-i18n-currency';
 const APP_SHELL = [
   '/admin.html',
   '/index.html',
@@ -7,6 +7,7 @@ const APP_SHELL = [
   '/css/theme.css',
   '/js/theme-toggle.js',
   '/js/sidebar.js',
+  '/js/i18n.js',
   '/js/config.js',
   '/js/utils.js',
   '/js/store-settings.js',

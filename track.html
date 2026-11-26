@@ -22,7 +22,7 @@
 </head>
 <body class="min-h-screen flex flex-col">
 
-  <a href="#main-content" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 mt-btn mt-btn-primary">
+  <a href="#main-content" data-i18n="common.skipToMain" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 mt-btn mt-btn-primary">
     Lewati ke konten utama
   </a>
 
@@ -35,17 +35,22 @@
         <span data-store-name class="font-bold tracking-tight text-base truncate">MendTrack</span>
       </a>
 
-      <div class="flex items-center gap-2 shrink-0">
+      <div class="mt-header-actions flex items-center gap-2 shrink-0">
+        <button type="button" class="mt-lang-toggle" data-mt-lang-toggle aria-label="Bahasa saat ini: Indonesia. Ganti ke English" title="Bahasa: Indonesia (klik untuk English)">
+          <span class="is-active">ID</span><span class="mt-lang-sep" aria-hidden="true">/</span><span>EN</span>
+        </button>
         <button type="button" class="mt-theme-toggle" data-mt-theme-toggle aria-label="Aktifkan mode gelap" title="Mode gelap">
           <i data-lucide="moon" aria-hidden="true"></i><span class="mt-theme-label">Gelap</span>
         </button>
         <span id="connection-badge" class="mt-badge mt-badge-online">
           <span class="mt-badge-dot" aria-hidden="true"></span>
-          <span>Online</span>
+          <span data-i18n="common.online">Online</span>
         </span>
         <button
           type="button"
           id="tracker-exit-btn"
+          data-i18n-aria-label="tracker.exitAria"
+          data-i18n-title="tracker.exitTitle"
           aria-label="Tutup hasil dan kembali ke pencarian"
           title="Tutup hasil pencarian"
           class="hidden mt-btn-icon mt-btn-on-dark"
@@ -58,15 +63,15 @@
 
   <section id="tracker-hero" class="mt-hero pt-7 pb-10 px-4 no-print">
     <div class="max-w-3xl mx-auto">
-      <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight">
-        Lacak Progres Pengerjaan Anda
+      <h1 data-i18n="tracker.heroTitle" class="text-2xl sm:text-3xl font-extrabold tracking-tight">
+        Lacak progres pengerjaan Anda
       </h1>
       <p class="mt-2 text-sm sm:text-base max-w-xl" style="color: var(--mt-hero-muted);">
-        Masukkan <span class="font-semibold" style="color: var(--mt-hero-accent);">Nomor WhatsApp</span> yang terdaftar saat order diserahkan ke workshop.
+        <span data-i18n="tracker.heroDescPrefix">Masukkan </span><span data-i18n="tracker.heroDescHighlight" class="font-semibold" style="color: var(--mt-hero-accent);">Nomor WhatsApp</span><span data-i18n="tracker.heroDescSuffix"> yang terdaftar saat order diserahkan ke workshop.</span>
       </p>
 
       <form id="track-form" class="mt-5 space-y-2">
-        <label for="track-input" class="block text-xs font-semibold" style="color: var(--mt-hero-muted);">
+        <label for="track-input" data-i18n="tracker.phoneLabel" class="block text-xs font-semibold" style="color: var(--mt-hero-muted);">
           Nomor WhatsApp terdaftar
         </label>
         <div class="flex flex-col sm:flex-row gap-2.5">
@@ -80,6 +85,7 @@
               id="track-input"
               name="query"
               autocomplete="tel"
+              data-i18n-placeholder="tracker.phonePlaceholder"
               placeholder="Contoh: 0812xxxxxxxx"
               class="mt-input-hero pl-11 pr-12"
               required
@@ -89,6 +95,7 @@
               id="clear-input-btn"
               class="hidden absolute inset-y-0 right-0 w-11 flex items-center justify-center"
               style="color: var(--mt-hero-muted);"
+              data-i18n-aria-label="tracker.clearInputAria"
               aria-label="Hapus nomor pencarian"
             >
               <i data-lucide="x" class="w-4 h-4" aria-hidden="true"></i>
@@ -100,7 +107,7 @@
             id="track-submit-btn"
             class="mt-btn mt-btn-hero-cta sm:w-auto w-full px-6"
           >
-            <span>Lacak Status</span>
+            <span data-i18n="tracker.trackBtn">Lacak Status</span>
           </button>
         </div>
       </form>
@@ -113,42 +120,42 @@
       <div class="w-12 h-12 rounded-lg mt-card-muted flex items-center justify-center mx-auto">
         <i data-lucide="store" class="w-6 h-6 mt-muted" aria-hidden="true"></i>
       </div>
-      <h2 class="text-lg font-bold mt-text">Workshop tidak ditemukan</h2>
-      <p id="workshop-not-found-message" class="text-sm mt-muted max-w-md mx-auto">
+      <h2 data-i18n="tracker.notFoundHeading" class="text-lg font-bold mt-text">Workshop tidak ditemukan</h2>
+      <p id="workshop-not-found-message" data-i18n="tracker.notFoundDefault" class="text-sm mt-muted max-w-md mx-auto">
         Tautan workshop tidak valid atau sedang tidak aktif. Periksa kembali alamat tautan dari workshop Anda.
       </p>
       <div class="pt-2 flex flex-wrap justify-center gap-2">
-        <a href="/" class="mt-btn mt-btn-primary text-xs">Cari Workshop di Beranda</a>
-        <a href="/admin" class="mt-btn mt-btn-secondary text-xs">Masuk Portal Admin</a>
+        <a href="/" data-i18n="tracker.findAtHome" class="mt-btn mt-btn-primary text-xs">Cari Workshop di Beranda</a>
+        <a href="/admin" data-i18n="tracker.goAdmin" class="mt-btn mt-btn-secondary text-xs">Masuk Portal Admin</a>
       </div>
     </section>
 
     <div id="config-warning" class="hidden mt-notice-warn p-4 text-sm flex items-start gap-3">
       <i data-lucide="alert-triangle" class="w-5 h-5 shrink-0 mt-0.5" aria-hidden="true"></i>
       <div>
-        <p class="font-semibold">Mode Pratinjau (Supabase belum terhubung)</p>
+        <p data-i18n="tracker.previewTitle" class="font-semibold">Mode pratinjau (Supabase belum terhubung)</p>
         <p class="text-xs mt-1">
-          Lengkapi kredensial <code class="font-mono-code font-semibold">js/config.js</code> untuk menghubungkan ke database produksi. Anda dapat mencoba simulasi menggunakan nomor contoh
+          <span data-i18n="tracker.previewDescPrefix">Lengkapi kredensial js/config.js untuk menghubungkan ke database produksi. Anda dapat mencoba simulasi menggunakan nomor contoh </span>
           <button type="button" id="demo-ticket-btn" class="underline font-mono-code font-semibold mt-accent">0812-3456-7890</button>.
         </p>
       </div>
     </div>
 
     <div id="tracking-loading" role="status" aria-live="polite" class="hidden mt-card p-6 space-y-3">
-      <p class="text-sm font-semibold mt-text">Memuat status pengerjaan...</p>
-      <p class="text-xs mt-muted">Sedang mengambil data order dari server workshop.</p>
+      <p data-i18n="tracker.loadingTitle" class="text-sm font-semibold mt-text">Memuat status pengerjaan...</p>
+      <p data-i18n="tracker.loadingDesc" class="text-xs mt-muted">Sedang mengambil data order dari server workshop.</p>
     </div>
 
     <div id="tracking-empty" role="status" aria-live="polite" class="hidden mt-card p-6 sm:p-8 text-center space-y-3">
       <div class="w-12 h-12 rounded-lg mt-card-muted flex items-center justify-center mx-auto">
         <i data-lucide="file-search" class="w-6 h-6 mt-muted" aria-hidden="true"></i>
       </div>
-      <h2 id="empty-title" class="text-base font-bold mt-text">Order tidak ditemukan</h2>
-      <p id="empty-message" class="text-sm mt-muted max-w-md mx-auto">
+      <h2 id="empty-title" data-i18n="tracker.emptyTitleDefault" class="text-base font-bold mt-text">Order tidak ditemukan</h2>
+      <p id="empty-message" data-i18n="tracker.emptyMessageDefault" class="text-sm mt-muted max-w-md mx-auto">
         Pastikan nomor WhatsApp yang Anda masukkan sama dengan nomor yang didaftarkan saat order diterima.
       </p>
       <div class="pt-1">
-        <button type="button" id="empty-reset-btn" class="mt-btn mt-btn-secondary">
+        <button type="button" id="empty-reset-btn" data-i18n="tracker.tryAnotherPhone" class="mt-btn mt-btn-secondary">
           Coba nomor lain
         </button>
       </div>
@@ -160,34 +167,34 @@
 
     <section id="initial-guide" class="grid grid-cols-1 md:grid-cols-3 gap-4" aria-labelledby="guide-heading">
       <div class="mt-card p-5 md:col-span-2 space-y-3">
-        <h2 id="guide-heading" class="text-base font-bold mt-text">Cara melacak pengerjaan</h2>
-        <p class="text-sm mt-muted leading-relaxed">
+        <h2 id="guide-heading" data-i18n="tracker.guideHeading" class="text-base font-bold mt-text">Cara melacak pengerjaan</h2>
+        <p data-i18n="tracker.guideDesc" class="text-sm mt-muted leading-relaxed">
           Gunakan nomor WhatsApp yang dicatat petugas saat menyerahkan pakaian. Jika Anda memiliki lebih dari satu order aktif, sistem akan menampilkan daftar tiket untuk dipilih.
         </p>
         <ol class="space-y-2 pt-2 mt-seam-t text-sm mt-text">
           <li class="flex items-start gap-2.5">
             <span class="font-mono-code text-xs font-bold mt-accent mt-0.5">01</span>
-            <span>Masukkan nomor WhatsApp di kolom pencarian di atas lalu tekan <strong>Lacak Status</strong>.</span>
+            <span><span data-i18n="tracker.guideStep1Prefix">Masukkan nomor WhatsApp di kolom pencarian di atas lalu tekan </span><strong data-i18n="tracker.trackBtn">Lacak Status</strong>.</span>
           </li>
           <li class="flex items-start gap-2.5">
             <span class="font-mono-code text-xs font-bold mt-accent mt-0.5">02</span>
-            <span>Periksa tahapan pengerjaan (Diterima, Antrean, Proses Pengerjaan, Quality Check, hingga Siap Diambil) beserta rincian biaya.</span>
+            <span data-i18n="tracker.guideStep2">Periksa tahapan pengerjaan (Diterima, Antrean, Proses Pengerjaan, Quality Check, hingga Siap Diambil) beserta rincian biaya.</span>
           </li>
           <li class="flex items-start gap-2.5">
             <span class="font-mono-code text-xs font-bold mt-accent mt-0.5">03</span>
-            <span>Ambil pesanan di workshop ketika status berubah menjadi <strong>Siap Diambil</strong>.</span>
+            <span><span data-i18n="tracker.guideStep3Prefix">Ambil pesanan di workshop ketika status berubah menjadi </span><strong data-i18n="status.ready">Siap Diambil</strong>.</span>
           </li>
         </ol>
       </div>
 
       <aside class="mt-card-muted p-5 flex flex-col justify-between gap-3">
         <div class="space-y-2">
-          <h2 class="text-sm font-bold mt-text">Lokasi workshop</h2>
+          <h2 data-i18n="tracker.locationHeading" class="text-sm font-bold mt-text">Lokasi workshop</h2>
           <p class="text-sm font-semibold mt-text" data-store-name>MendTrack</p>
           <p class="text-xs mt-muted leading-relaxed" data-store-address>-</p>
         </div>
         <div class="pt-3 mt-seam-t space-y-1">
-          <p class="text-xs font-semibold mt-text">Jam operasional</p>
+          <p data-i18n="tracker.hoursHeading" class="text-xs font-semibold mt-text">Jam operasional</p>
           <p class="text-xs mt-muted" data-store-hours>-</p>
         </div>
       </aside>
@@ -211,10 +218,11 @@
   >
     <div class="relative max-w-xl w-full mt-modal-panel overflow-hidden">
       <div class="mt-modal-head flex items-center justify-between px-4 py-3">
-        <h2 id="photo-modal-caption" class="text-sm font-semibold">Dokumentasi item</h2>
+        <h2 id="photo-modal-caption" data-i18n="tracker.photoModalDefault" class="text-sm font-semibold">Dokumentasi item</h2>
         <button
           type="button"
           id="close-photo-modal"
+          data-i18n-aria-label="tracker.photoModalCloseAria"
           aria-label="Tutup pratinjau foto"
           class="mt-btn-icon mt-btn-on-dark"
         >
