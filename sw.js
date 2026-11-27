@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mendtrack-shell-v18-saved-meas-picker';
+const CACHE_NAME = 'mendtrack-shell-v19-clean-meas-picker';
 const APP_SHELL = [
   '/admin.html',
   '/index.html',
