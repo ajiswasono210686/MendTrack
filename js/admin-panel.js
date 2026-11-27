@@ -73,9 +73,9 @@ let orderTypeFilter = 'all';
 let focusedOrderId = null;
 let currentReceiptOrder = null;
 let currentQrTagOrder = null;
-let matchedLatestPassport = null;
 let matchedCustomerPassports = [];
 let matchedCustomerPhoneKey = '';
+let pendingMeasurementOrderRow = null;
 let workloadServices = [];
 const workloadToday = new Date();
 let workloadViewMonth = new Date(workloadToday.getFullYear(), workloadToday.getMonth(), 1);
@@ -1353,9 +1353,9 @@ function resetTenantState() {
   customerMeasurementRecords = [];
   currentReceiptOrder = null;
   currentQrTagOrder = null;
-  matchedLatestPassport = null;
   matchedCustomerPassports = [];
   matchedCustomerPhoneKey = '';
+  pendingMeasurementOrderRow = null;
   modalTriggerStack = [];
   workloadDateFilter = null;
   searchQuery = '';
@@ -1703,6 +1703,7 @@ function closeOutboundShipmentModal() {
 }
 
 function closeCustomerDetailModal() {
+  pendingMeasurementOrderRow = null;
   document.getElementById('customer-detail-modal')?.classList.add('hidden');
   const heading = document.getElementById('customer-detail-title');
   if (heading) heading.textContent = t('customers.detailTitle');
@@ -2296,7 +2297,6 @@ function bindGlobalEvents() {
       triggerAutoSaveDraft();
     }
   });
-  document.getElementById('apply-latest-passport-btn')?.addEventListener('click', applyLatestPassportToOrderForm);
   document.getElementById('order-modal-qr-tag-btn')?.addEventListener('click', () => {
     const id = document.getElementById('form-order-id')?.value.trim();
     const order = id ? allOrders.find((item) => item.id === id) : null;
@@ -2626,7 +2626,10 @@ async function handleCustomerDetailAction(event) {
   const deleteButton = event.target.closest('[data-delete-customer-measurement]');
   const closeButton = event.target.closest('[data-customer-detail-close]');
   if (closeButton) return closeCustomerDetailModal();
-  if (backButton) return openCustomerEdit(activeCustomerDetail);
+  if (backButton) {
+    if (pendingMeasurementOrderRow) return closeCustomerDetailModal();
+    return openCustomerEdit(activeCustomerDetail);
+  }
   if (viewButton?.dataset.customerDetailView === 'measurements') return renderCustomerMeasurements();
   if (viewButton?.dataset.customerDetailView === 'orders') return renderCustomerOrderHistory();
   if (addButton) return openCustomerMeasurementForm();
@@ -2978,8 +2981,37 @@ async function saveCustomerMeasurement(event) {
         .eq('id', editId)
         .eq('customer_id', activeCustomerDetail.id)
         .eq('tenant_id', tenantId)
-    : await supabase.from('customer_measurements').insert(payload);
+        .select('*')
+        .single()
+    : await supabase.from('customer_measurements').insert(payload).select('*').single();
   if (result.error) return alert(t('measure.saveFailed', { message: result.error.message }));
+
+  if (pendingMeasurementOrderRow) {
+    const targetRow = pendingMeasurementOrderRow;
+    const savedRecord = result.data;
+    const savedCustomer = activeCustomerDetail;
+    const phoneKey = normalizePhone(savedCustomer?.phone || '');
+    const passports = savedCustomer?.id ? await fetchCustomerPassports(savedCustomer.id) : [];
+    updatePassportAutofillBar(passports, phoneKey);
+    closeCustomerDetailModal();
+    if (savedRecord && targetRow) {
+      const applied = applyPassportToItemRow(savedRecord, targetRow);
+      const picker = targetRow.querySelector('[data-saved-measurements-picker]');
+      const toggleBtn = targetRow.querySelector('[data-toggle-saved-measurements]');
+      picker?.classList.add('hidden');
+      toggleBtn?.setAttribute('aria-expanded', 'false');
+      if (applied) {
+        const feedback = targetRow.querySelector('[data-item-meas-feedback]');
+        if (feedback) {
+          feedback.textContent = t('passport.pickerSelected', { type: savedRecord.garment_type || '-' });
+          feedback.classList.remove('hidden');
+        }
+        targetRow.querySelector('[data-field="measurement_specs"]')?.focus();
+      }
+    }
+    return;
+  }
+
   await renderCustomerMeasurements();
 }
 
@@ -4096,7 +4128,15 @@ function renderSavedMeasurementPicker(rowEl) {
   }
 
   if (!matchedCustomerPassports.length) {
-    picker.innerHTML = `${headerHTML}<p class="text-xs mt-muted py-1">${escapeHTML(t('passport.pickerEmpty'))}</p>`;
+    picker.innerHTML = `${headerHTML}
+      <div class="space-y-2 py-1">
+        <p class="text-xs mt-muted">${escapeHTML(t('passport.pickerEmpty'))}</p>
+        <button type="button" data-add-saved-measurement class="mt-btn mt-btn-secondary text-xs">
+          <i data-lucide="plus" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
+          <span>${escapeHTML(t('measure.addBtn'))}</span>
+        </button>
+      </div>`;
+    if (window.lucide) window.lucide.createIcons();
     return;
   }
 
@@ -4154,6 +4194,63 @@ function applyPassportToItemRow(passport, rowEl) {
   return true;
 }
 
+async function openAddMeasurementFromOrderForm(rowEl) {
+  const phoneInput = document.getElementById('form-customer-phone');
+  const nameInput = document.getElementById('form-customer-name');
+  const normalizedPhone = normalizePhone(phoneInput?.value || '');
+  if (!normalizedPhone || normalizedPhone.length < 10) {
+    alert(t('passport.addNeedPhone'));
+    phoneInput?.focus();
+    return;
+  }
+
+  const tenantId = getActiveTenantId();
+  if (!tenantId) return alert(t('common.noActiveTenant'));
+
+  try {
+    let customer = await findCustomerByPhone(normalizedPhone);
+    if (!customer) {
+      const customerName = nameInput?.value.trim() || '';
+      if (!customerName) {
+        alert(t('passport.addNeedName'));
+        nameInput?.focus();
+        return;
+      }
+      const { data: created, error } = await supabase
+        .from('customers')
+        .insert({ tenant_id: tenantId, name: customerName, phone: normalizedPhone })
+        .select('id, name, phone, created_at, updated_at')
+        .single();
+      if (error) throw error;
+      customer = created;
+      if (customer) {
+        customerRecords = [...customerRecords.filter((item) => item.id !== customer.id), customer].sort((a, b) =>
+          a.name.localeCompare(b.name, getLocale())
+        );
+        const status = document.getElementById('customer-lookup-status');
+        if (status) {
+          status.textContent = t('orderForm.lookupFound', { name: customer.name });
+          status.className = 'mt-1 text-xs mt-accent font-medium';
+        }
+      }
+    }
+
+    if (!customer) return;
+    activeCustomerDetail = customer;
+    pendingMeasurementOrderRow = rowEl;
+    const modal = document.getElementById('customer-detail-modal');
+    if (modal?.classList.contains('hidden')) rememberTrigger();
+    const heading = document.getElementById('customer-detail-title');
+    if (heading) heading.textContent = t('measure.addBtn');
+    modal?.classList.remove('hidden');
+    await openCustomerMeasurementForm(null);
+    if (window.lucide) window.lucide.createIcons();
+  } catch (error) {
+    pendingMeasurementOrderRow = null;
+    alert(t('measure.openFormFailed') + (error?.message ? `: ${error.message}` : ''));
+  }
+}
+
 function updatePassportAutofillBar(passportsOrSingle, phoneKey = '') {
   const list = Array.isArray(passportsOrSingle)
     ? passportsOrSingle.filter(Boolean)
@@ -4161,33 +4258,8 @@ function updatePassportAutofillBar(passportsOrSingle, phoneKey = '') {
       ? [passportsOrSingle]
       : [];
   matchedCustomerPassports = list;
-  matchedLatestPassport = list[0] || null;
   matchedCustomerPhoneKey = phoneKey || '';
-
-  const bar = document.getElementById('denim-passport-autofill-bar');
-  const metaEl = document.getElementById('denim-passport-autofill-meta');
-  const feedbackEl = document.getElementById('passport-autofill-feedback');
-  if (feedbackEl) {
-    feedbackEl.textContent = '';
-    feedbackEl.classList.add('hidden');
-  }
   refreshSavedMeasurementControls();
-  if (!bar) return;
-  if (!matchedLatestPassport) {
-    bar.classList.add('hidden');
-    return;
-  }
-  const fabricLabel = getDenimFabricLabel(matchedLatestPassport.denim_fabric_type);
-  const count = Object.keys(matchedLatestPassport.measurement_data || {}).length;
-  if (metaEl) {
-    metaEl.textContent = t('passport.autofillBannerMeta', {
-      type: matchedLatestPassport.garment_type || '',
-      fabric: fabricLabel ? ` · ${fabricLabel}` : '',
-      count,
-    });
-  }
-  bar.classList.remove('hidden');
-  if (window.lucide) window.lucide.createIcons();
 }
 
 async function fetchCustomerPassports(customerId) {
@@ -4206,23 +4278,6 @@ async function fetchCustomerPassports(customerId) {
     return [];
   }
   return data || [];
-}
-
-function applyLatestPassportToOrderForm() {
-  if (!matchedLatestPassport) return;
-  const rows = Array.from(formItemsContainer.querySelectorAll('.item-row'));
-  if (!rows.length) return;
-  let targetIdx = rows.findIndex((row) => !row.querySelector('[data-field="measurement_specs"]')?.value.trim());
-  if (targetIdx === -1) targetIdx = 0;
-
-  const applied = applyPassportToItemRow(matchedLatestPassport, rows[targetIdx]);
-  if (!applied) return;
-
-  const feedbackEl = document.getElementById('passport-autofill-feedback');
-  if (feedbackEl) {
-    feedbackEl.textContent = t('passport.autofillApplied', { number: targetIdx + 1 });
-    feedbackEl.classList.remove('hidden');
-  }
 }
 
 async function openOrderModal(existingOrder = null, draftOverride = null) {
@@ -4421,6 +4476,15 @@ function appendItemRow(itemData = {}, signedUrlMap = {}) {
             <i data-lucide="ruler" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
             <span data-saved-meas-btn-label>${escapeHTML(getSavedMeasurementsButtonText())}</span>
           </button>
+          <button
+            type="button"
+            data-add-saved-measurement
+            aria-label="${escapeHTML(t('passport.addNewAria'))}"
+            title="${escapeHTML(t('passport.addNewTitle'))}"
+            class="mt-btn-icon mt-btn-secondary shrink-0"
+          >
+            <i data-lucide="plus" class="w-4 h-4" aria-hidden="true"></i>
+          </button>
         </div>
         <p data-item-meas-feedback role="status" aria-live="polite" class="hidden mt-1.5 text-xs font-semibold mt-success-text"></p>
       </div>
@@ -4518,7 +4582,15 @@ function appendItemRow(itemData = {}, signedUrlMap = {}) {
     toggleMeasBtn.setAttribute('aria-expanded', 'true');
   });
 
+  card.querySelector('[data-add-saved-measurement]')?.addEventListener('click', () => {
+    openAddMeasurementFromOrderForm(card);
+  });
+
   measPicker?.addEventListener('click', (event) => {
+    if (event.target.closest('[data-add-saved-measurement]')) {
+      openAddMeasurementFromOrderForm(card);
+      return;
+    }
     if (event.target.closest('[data-close-meas-picker]')) {
       measPicker.classList.add('hidden');
       toggleMeasBtn?.setAttribute('aria-expanded', 'false');
