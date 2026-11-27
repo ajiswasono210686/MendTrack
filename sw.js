@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mendtrack-shell-v15-stage3-mailin-qr-passport';
+const CACHE_NAME = 'mendtrack-shell-v17-schedule-orders';
 const APP_SHELL = [
   '/admin.html',
   '/index.html',
