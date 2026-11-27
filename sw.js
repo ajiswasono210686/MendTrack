@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mendtrack-shell-v24-unified-workflow';
+const CACHE_NAME = 'mendtrack-shell-v25-subtask-ready-gate';
 const APP_SHELL = [
   '/admin.html',
   '/index.html',
