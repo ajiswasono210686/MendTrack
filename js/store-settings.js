@@ -242,3 +242,13 @@ export async function updateWorkstation(tenantId, id, fields) {
     .eq('tenant_id', tenantId);
   if (error) throw error;
 }
+
+export async function deleteWorkstation(tenantId, id) {
+  if (!tenantId) throw new Error(t('common.noActiveTenant'));
+  const { error } = await supabase
+    .from('workstations')
+    .delete()
+    .eq('id', id)
+    .eq('tenant_id', tenantId);
+  if (error) throw error;
+}

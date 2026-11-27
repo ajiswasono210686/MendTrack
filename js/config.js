@@ -17,29 +17,15 @@ export const ORDER_STEPS = [
     key: 'received',
     label: 'Diterima',
     shortLabel: 'Diterima',
-    description: 'Item telah diterima dan dicatat oleh workshop.',
+    description: 'Order telah diterima dan masuk antrean workshop.',
     icon: 'package-check',
   },
   {
-    key: 'queued',
-    label: 'Antrean',
-    shortLabel: 'Antrean',
-    description: 'Menunggu giliran pengerjaan di meja reparasi.',
-    icon: 'clock',
-  },
-  {
     key: 'in_progress',
-    label: 'Proses Pengerjaan',
-    shortLabel: 'Dikerjakan',
+    label: 'Proses',
+    shortLabel: 'Proses',
     description: 'Sedang dalam proses jahit, reparasi, atau custom.',
     icon: 'scissors',
-  },
-  {
-    key: 'qc',
-    label: 'Quality Check',
-    shortLabel: 'QC',
-    description: 'Pemeriksaan detail jahitan, ukuran, dan kebersihan akhir.',
-    icon: 'shield-check',
   },
   {
     key: 'ready',
@@ -47,6 +33,13 @@ export const ORDER_STEPS = [
     shortLabel: 'Siap Diambil',
     description: 'Pengerjaan selesai. Silakan ambil di workshop.',
     icon: 'shopping-bag',
+  },
+  {
+    key: 'completed',
+    label: 'Selesai',
+    shortLabel: 'Selesai',
+    description: 'Order telah selesai dan diserahkan ke pelanggan.',
+    icon: 'check-circle-2',
   },
 ];
 

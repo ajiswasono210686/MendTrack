@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mendtrack-shell-v23-stage5-audit-fixes';
+const CACHE_NAME = 'mendtrack-shell-v24-unified-workflow';
 const APP_SHELL = [
   '/admin.html',
   '/index.html',

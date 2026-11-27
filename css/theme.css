@@ -2492,7 +2492,7 @@ html[data-theme="dark"] .mt-ws-chip.is-current {
   font-weight: 400;
 }
 
-/* Workstation filter select responsive width */
+/* Workflow filter select responsive width */
 .mt-filter-col {
   width: 100%;
 }
@@ -2501,6 +2501,82 @@ html[data-theme="dark"] .mt-ws-chip.is-current {
   .mt-filter-col {
     width: 13rem;
   }
+
+  .mt-filter-col-wide {
+    width: 16rem;
+  }
+}
+
+/* Workflow Settings: Main Tasks Ledger */
+.mt-workflow-main-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+@media (min-width: 640px) {
+  .mt-workflow-main-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .mt-workflow-main-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.mt-workflow-main-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--mt-border);
+  background-color: var(--mt-surface-muted);
+}
+
+.mt-workflow-main-item.is-parent {
+  border-color: var(--mt-accent);
+  background-color: var(--mt-surface);
+}
+
+.mt-workflow-step-num {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  background-color: var(--mt-ink);
+  color: var(--mt-surface);
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.mt-workflow-main-item.is-parent .mt-workflow-step-num {
+  background-color: var(--mt-accent);
+  color: var(--mt-btn-primary-ink);
+}
+
+.mt-workflow-tag {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--mt-text-muted);
+}
+
+.mt-workflow-tag.is-accent {
+  color: var(--mt-accent);
+}
+
+html[data-theme="dark"] .mt-workflow-tag.is-accent {
+  color: var(--mt-accent-text);
 }
 
 

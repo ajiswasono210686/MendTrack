@@ -98,12 +98,6 @@ const MOCK_TRACKING_DATA = {
     },
     {
       id: 'log-2',
-      status: 'queued',
-      log_note: 'Order masuk dalam antrean pengerjaan',
-      created_at: new Date(Date.now() - 43200000).toISOString(),
-    },
-    {
-      id: 'log-3',
       status: 'in_progress',
       log_note: 'Sedang dalam proses pengerjaan',
       created_at: new Date(Date.now() - 7200000).toISOString(),
@@ -655,8 +649,15 @@ function renderOrderDetail(payload) {
   const deadlineInfo = getDeadlineStatus(order.estimated_done_date);
   const isDoneStage = ['ready', 'shipped', 'completed'].includes(order.status);
 
-  const lastStepKey = orderSteps[orderSteps.length - 1]?.key || 'ready';
-  const effectiveStatus = order.status === 'completed' ? lastStepKey : order.status;
+  const normalizeStepKey = (rawStatus) => {
+    if (rawStatus === 'awaiting_package' || rawStatus === 'queued') return 'received';
+    if (rawStatus === 'qc') return 'in_progress';
+    if (rawStatus === 'shipped') return 'completed';
+    return rawStatus;
+  };
+
+  const isCompletedOrder = order.status === 'completed' || order.status === 'shipped';
+  const effectiveStatus = normalizeStepKey(order.status);
   const currentStepIdx = Math.max(
     0,
     orderSteps.findIndex((s) => s.key === effectiveStatus)
@@ -664,13 +665,15 @@ function renderOrderDetail(payload) {
 
   const statusTimestamps = {};
   logs.forEach((log) => {
+    const normalized = normalizeStepKey(log.status);
     statusTimestamps[log.status] = log.created_at;
+    if (!statusTimestamps[normalized]) statusTimestamps[normalized] = log.created_at;
   });
 
   const stepperHTML = orderSteps
     .map((step, idx) => {
-      const isCompleted = order.status === 'completed' || idx < currentStepIdx;
-      const isCurrent = order.status !== 'completed' && idx === currentStepIdx;
+      const isCompleted = isCompletedOrder || idx < currentStepIdx;
+      const isCurrent = !isCompletedOrder && idx === currentStepIdx;
       const stepTime = statusTimestamps[step.key];
 
       const dotState = isCompleted ? 'is-done' : isCurrent ? 'is-current' : '';
@@ -765,7 +768,8 @@ function renderOrderDetail(payload) {
           <span>${escapeHTML(t('tracker.mailInHeading'))}</span>
         </h3>
         ${
-          order.status === 'awaiting_package' && publicStoreSettings.ADDRESS
+          (order.status === 'awaiting_package' || (order.status === 'received' && !order.inbound_tracking)) &&
+          publicStoreSettings.ADDRESS
             ? `<div class="mt-notice-warn p-3 text-xs space-y-1">
                 <p class="font-semibold">${escapeHTML(t('tracker.shipToWorkshopHint', { ticket: order.ticket_code }))}</p>
                 <p class="font-medium">${escapeHTML(publicStoreSettings.NAME)} · ${escapeHTML(publicStoreSettings.ADDRESS)}</p>
