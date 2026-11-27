@@ -4286,7 +4286,7 @@ function renderOrdersList() {
               ${
                 wsStats.total > 0
                   ? `<button type="button" data-toggle-ws-checklist="${order.id}" aria-expanded="${isWsExpanded ? 'true' : 'false'}" class="mt-btn mt-btn-secondary text-xs">
-                      <i data-lucide="cog" class="w-4 h-4" aria-hidden="true"></i>
+                      <i data-lucide="workflow" class="w-4 h-4" aria-hidden="true"></i>
                       <span>${escapeHTML(t('workstations.toggleChecklistBtn', { done: wsStats.done, total: wsStats.total }))}</span>
                     </button>`
                   : ''
