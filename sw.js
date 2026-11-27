@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mendtrack-shell-v19-clean-meas-picker';
+const CACHE_NAME = 'mendtrack-shell-v21-stage4-audit-fixes';
 const APP_SHELL = [
   '/admin.html',
   '/index.html',
@@ -9,6 +9,7 @@ const APP_SHELL = [
   '/js/sidebar.js',
   '/js/i18n.js',
   '/js/qr-svg.js',
+  '/js/pin-canvas.js',
   '/js/config.js',
   '/js/utils.js',
   '/js/store-settings.js',

@@ -117,17 +117,27 @@ export async function fetchServices(tenantId) {
   if (!tenantId) return [];
   const { data, error } = await supabase
     .from('services')
-    .select('id,tenant_id,name,estimated_minutes,service_category,is_active,sort_order')
+    .select('id,tenant_id,name,estimated_minutes,service_category,base_price,is_active,sort_order')
     .eq('tenant_id', tenantId)
     .order('sort_order')
     .order('name');
   if (error) throw error;
-  return data || [];
+  return (data || []).map((svc) => ({
+    ...svc,
+    base_price: Math.max(0, Number(svc.base_price || 0)),
+  }));
 }
 
-export async function createService(tenantId, name, estimatedMinutes, serviceCategory = 'reparasi') {
+export async function createService(
+  tenantId,
+  name,
+  estimatedMinutes,
+  serviceCategory = 'reparasi',
+  basePrice = 0
+) {
   if (!tenantId) throw new Error(t('common.noActiveTenant'));
   const category = serviceCategory === 'custom' ? 'custom' : 'reparasi';
+  const safePrice = Number.isFinite(Number(basePrice)) && Number(basePrice) > 0 ? Number(basePrice) : 0;
   const { data, error } = await supabase
     .from('services')
     .insert({
@@ -135,6 +145,7 @@ export async function createService(tenantId, name, estimatedMinutes, serviceCat
       name,
       estimated_minutes: estimatedMinutes,
       service_category: category,
+      base_price: safePrice,
       is_active: true,
     })
     .select()
@@ -143,15 +154,24 @@ export async function createService(tenantId, name, estimatedMinutes, serviceCat
   return data;
 }
 
-export async function updateService(tenantId, id, name, estimatedMinutes, serviceCategory = 'reparasi') {
+export async function updateService(
+  tenantId,
+  id,
+  name,
+  estimatedMinutes,
+  serviceCategory = 'reparasi',
+  basePrice = 0
+) {
   if (!tenantId) throw new Error(t('common.noActiveTenant'));
   const category = serviceCategory === 'custom' ? 'custom' : 'reparasi';
+  const safePrice = Number.isFinite(Number(basePrice)) && Number(basePrice) > 0 ? Number(basePrice) : 0;
   const { error } = await supabase
     .from('services')
     .update({
       name,
       estimated_minutes: estimatedMinutes,
       service_category: category,
+      base_price: safePrice,
       updated_at: new Date().toISOString(),
     })
     .eq('id', id)

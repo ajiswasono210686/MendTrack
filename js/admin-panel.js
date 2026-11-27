@@ -45,6 +45,7 @@ import {
   LOCALE_STORAGE_KEY,
   getStatusMeta,
   getOrderTypeMeta,
+  getQuoteStatusMeta,
   getDenimFabricLabel,
   getPaymentStatusMeta,
   getCashCategories,
@@ -53,6 +54,7 @@ import {
   getServiceCategoryLabel,
 } from './i18n.js';
 import { renderQrSvg } from './qr-svg.js';
+import { createPinCanvas } from './pin-canvas.js';
 
 const PENDING_ADMIN_TICKET_KEY = 'mendtrack_pending_admin_ticket';
 const QR_TAG_FORMAT_KEY = 'mendtrack-qr-tag-format';
@@ -85,6 +87,13 @@ let workshopSettings = { ...DEFAULT_STORE_SETTINGS };
 let activeServiceCatalog = [];
 let modalTriggerStack = [];
 let itemRowCounter = 0;
+
+let allQuoteRequests = [];
+let quoteStatusFilter = 'all';
+let quoteSearchQuery = '';
+let activeQuoteDetail = null;
+let activeQuotePinCanvas = null;
+let quoteItemRowCounter = 0;
 
 function detectBrowserTimezone() {
   try {
@@ -143,7 +152,17 @@ function syncCurrencyInputs(root = document) {
 }
 
 function getPageHeading(page) {
-  const key = ['orders', 'customers', 'schedule', 'cash', 'reports', 'services', 'measurements', 'archive'].includes(page)
+  const key = [
+    'orders',
+    'quotes',
+    'customers',
+    'schedule',
+    'cash',
+    'reports',
+    'services',
+    'measurements',
+    'archive',
+  ].includes(page)
     ? page
     : 'orders';
   return {
@@ -170,6 +189,14 @@ function applyWorkspaceLocalization() {
     renderOrdersList();
     renderArchiveOrders();
     checkSavedDraftBanner();
+    updateQuotesSidebarBadge();
+    if (currentAppPage === 'quotes') renderQuoteRequestsList();
+    const quoteModalEl = document.getElementById('quote-detail-modal');
+    if (activeQuoteDetail && quoteModalEl && !quoteModalEl.classList.contains('hidden')) {
+      renderPublishedQuoteBox(activeQuoteDetail);
+      activeQuotePinCanvas?.rerender();
+      recalculateQuoteBuilderTotal();
+    }
     if (currentAppPage === 'customers') renderCustomersList();
     if (currentAppPage === 'cash') renderCash();
     if (currentAppPage === 'reports') renderReports();
@@ -185,6 +212,17 @@ function getActiveTenantId() {
 function getPublicTrackingUrl() {
   const slug = activeTenant?.slug || workshopSettings.SLUG || '';
   return slug ? `${window.location.origin}/t/${encodeURIComponent(slug)}` : `${window.location.origin}/`;
+}
+
+function getPublicQuoteUrl() {
+  const slug = activeTenant?.slug || workshopSettings.SLUG || '';
+  return slug ? `${window.location.origin}/t/${encodeURIComponent(slug)}?tab=quote` : `${window.location.origin}/`;
+}
+
+function getQuoteApprovalUrl(token) {
+  const slug = activeTenant?.slug || workshopSettings.SLUG || '';
+  if (!slug || !token) return getPublicTrackingUrl();
+  return `${window.location.origin}/t/${encodeURIComponent(slug)}?quote=${encodeURIComponent(token)}`;
 }
 
 function getAdminRedirectUrl() {
@@ -245,6 +283,8 @@ function openStoreSettings() {
   populateRegionalSelects(workshopSettings.TIMEZONE);
   const trackUrlInput = document.getElementById('store-tracking-url-display');
   if (trackUrlInput) trackUrlInput.value = getPublicTrackingUrl();
+  const quoteUrlInput = document.getElementById('store-quote-url-display');
+  if (quoteUrlInput) quoteUrlInput.value = getPublicQuoteUrl();
   document.getElementById('store-logo-input').value = '';
   document.getElementById('store-name-input').value = workshopSettings.NAME;
   document.getElementById('store-address-input').value = workshopSettings.ADDRESS;
@@ -309,10 +349,15 @@ async function renderServicesList() {
           minutes: service.estimated_minutes % 60,
         });
         const categoryLabel = getServiceCategoryLabel(service.service_category);
+        const basePrice = Math.max(0, Number(service.base_price || 0));
+        const priceLabel =
+          basePrice > 0
+            ? t('services.startingFrom', { price: formatCurrency(basePrice) })
+            : t('services.dynamicPrice');
         return `<div class="mt-card p-3 flex flex-wrap items-center justify-between gap-2 ${service.is_active ? '' : 'opacity-65'}">
           <div class="min-w-0">
             <p class="text-sm font-semibold mt-text">${escapeHTML(service.name)}</p>
-            <p class="text-xs mt-muted font-mono-code">${escapeHTML(categoryLabel)} · ${escapeHTML(duration)} · ${escapeHTML(service.is_active ? t('common.active') : t('common.inactive'))}</p>
+            <p class="text-xs mt-muted font-mono-code">${escapeHTML(categoryLabel)} · ${escapeHTML(duration)} · ${escapeHTML(priceLabel)} · ${escapeHTML(service.is_active ? t('common.active') : t('common.inactive'))}</p>
           </div>
           <div class="flex gap-2 shrink-0">
             ${
@@ -346,6 +391,12 @@ function openServiceEditModal(service) {
   document.getElementById('edit-service-category').value =
     service.service_category === 'custom' ? 'custom' : 'reparasi';
   document.getElementById('edit-service-minutes').value = String(service.estimated_minutes || 1);
+  const editPriceInput = document.getElementById('edit-service-base-price');
+  if (editPriceInput) {
+    const bp = Math.max(0, Number(service.base_price || 0));
+    editPriceInput.value = bp > 0 ? String(bp) : '';
+  }
+  syncCurrencyInputs(modal);
   modal.classList.remove('hidden');
   document.getElementById('edit-service-name')?.focus();
   if (window.lucide) window.lucide.createIcons();
@@ -363,6 +414,8 @@ async function handleServiceEditSubmit(event) {
   const name = document.getElementById('edit-service-name')?.value.trim() || '';
   const category = document.getElementById('edit-service-category')?.value === 'custom' ? 'custom' : 'reparasi';
   const totalMinutes = Number(document.getElementById('edit-service-minutes')?.value || 0);
+  const rawBasePrice = document.getElementById('edit-service-base-price')?.value ?? '';
+  const basePrice = rawBasePrice === '' ? 0 : Math.max(0, roundCurrencyAmount(Number(rawBasePrice)));
 
   if (!id) return;
   if (!name) {
@@ -384,7 +437,7 @@ async function handleServiceEditSubmit(event) {
   try {
     const tenantId = getActiveTenantId();
     if (!tenantId) throw new Error(t('common.noActiveTenant'));
-    await updateService(tenantId, id, name, totalMinutes, category);
+    await updateService(tenantId, id, name, totalMinutes, category, basePrice);
     closeServiceEditModal();
     await renderServicesList();
     await loadWorkloadServices();
@@ -512,7 +565,7 @@ function showAppPage(page) {
   if (titleEl) titleEl.textContent = heading.title;
   if (subtitleEl) subtitleEl.textContent = heading.subtitle;
 
-  const ids = ['reports-page', 'schedule-page', 'services-page', 'measurements-page', 'cash-page', 'archive-page'];
+  const ids = ['reports-page', 'schedule-page', 'services-page', 'measurements-page', 'cash-page', 'archive-page', 'quotes-page'];
   ids.forEach((id) => document.getElementById(id)?.classList.add('hidden'));
 
   document.getElementById('dashboard-metrics-section')?.classList.toggle('hidden', page !== 'orders');
@@ -522,6 +575,7 @@ function showAppPage(page) {
   document.getElementById('daily-workload-section')?.classList.toggle('hidden', page !== 'schedule');
 
   const pageMap = {
+    quotes: 'quotes-page',
     reports: 'reports-page',
     schedule: 'schedule-page',
     services: 'services-page',
@@ -540,8 +594,10 @@ function showAppPage(page) {
     else btn.removeAttribute('aria-current');
   });
 
+  if (page === 'quotes') fetchQuoteRequests();
   if (page === 'customers') fetchCustomers();
   if (page === 'services') {
+    syncCurrencyInputs(document.getElementById('services-page'));
     renderServicesList();
     loadWorkloadServices();
   }
@@ -1344,6 +1400,12 @@ function showOnboardingError(msg) {
 function resetTenantState() {
   activeTenant = null;
   allOrders = [];
+  allQuoteRequests = [];
+  activeQuoteDetail = null;
+  activeQuotePinCanvas = null;
+  quoteStatusFilter = 'all';
+  quoteSearchQuery = '';
+  updateQuotesSidebarBadge();
   customerRecords = [];
   workloadServices = [];
   activeServiceCatalog = [];
@@ -1377,6 +1439,8 @@ function resetTenantState() {
   paymentModal?.classList.add('hidden');
   receiptModal?.classList.add('hidden');
   document.getElementById('qr-tag-modal')?.classList.add('hidden');
+  document.getElementById('quote-detail-modal')?.classList.add('hidden');
+  document.getElementById('admin-photo-lightbox')?.classList.add('hidden');
   document.getElementById('outbound-shipment-modal')?.classList.add('hidden');
   document.getElementById('store-settings-modal')?.classList.add('hidden');
   document.getElementById('service-edit-modal')?.classList.add('hidden');
@@ -1458,6 +1522,8 @@ async function enterWorkspace(tenant) {
 
   if (switchedTenant) {
     allOrders = [];
+    allQuoteRequests = [];
+    activeQuoteDetail = null;
     customerRecords = [];
     workloadServices = [];
     activeServiceCatalog = [];
@@ -1470,6 +1536,7 @@ async function enterWorkspace(tenant) {
   await loadWorkloadServices();
   await fetchOrders();
   await fetchCustomers();
+  await fetchQuoteRequests({ silent: true });
   consumePendingDeepLinkTicket();
 }
 
@@ -1657,6 +1724,16 @@ function closeActiveDialogOnEscape() {
     closeOutboundShipmentModal();
     return;
   }
+  const adminPhotoLightbox = document.getElementById('admin-photo-lightbox');
+  if (adminPhotoLightbox && !adminPhotoLightbox.classList.contains('hidden')) {
+    closeAdminPhotoLightbox();
+    return;
+  }
+  const quoteDetailModal = document.getElementById('quote-detail-modal');
+  if (quoteDetailModal && !quoteDetailModal.classList.contains('hidden')) {
+    closeQuoteDetailModal();
+    return;
+  }
   const qrTagModal = document.getElementById('qr-tag-modal');
   if (qrTagModal && !qrTagModal.classList.contains('hidden')) {
     closeQrTagModal();
@@ -1835,6 +1912,22 @@ function bindGlobalEvents() {
     try {
       await navigator.clipboard.writeText(url);
       const btn = document.getElementById('copy-store-track-url-btn');
+      if (btn) {
+        btn.textContent = t('common.copied');
+        setTimeout(() => {
+          btn.textContent = t('common.copy');
+        }, 1500);
+      }
+    } catch (_) {
+      alert(t('settings.copyUrlAlert', { url }));
+    }
+  });
+
+  document.getElementById('copy-store-quote-url-btn')?.addEventListener('click', async () => {
+    const url = getPublicQuoteUrl();
+    try {
+      await navigator.clipboard.writeText(url);
+      const btn = document.getElementById('copy-store-quote-url-btn');
       if (btn) {
         btn.textContent = t('common.copied');
         setTimeout(() => {
@@ -2132,11 +2225,14 @@ function bindGlobalEvents() {
     const categoryInput = document.getElementById('service-category-input');
     const hoursInput = document.getElementById('service-hours-input');
     const minutesInput = document.getElementById('service-minutes-input');
+    const basePriceInput = document.getElementById('service-base-price-input');
     const hours = Number(hoursInput.value || 0);
     const minutes = Number(minutesInput.value || 0);
     const total = hours * 60 + minutes;
     const name = nameInput.value.trim();
     const category = categoryInput?.value === 'custom' ? 'custom' : 'reparasi';
+    const rawBasePrice = basePriceInput?.value ?? '';
+    const basePrice = rawBasePrice === '' ? 0 : Math.max(0, roundCurrencyAmount(Number(rawBasePrice)));
     if (!name) {
       alert(t('services.nameRequired'));
       nameInput.focus();
@@ -2151,11 +2247,12 @@ function bindGlobalEvents() {
     try {
       const tenantId = getActiveTenantId();
       if (!tenantId) throw new Error(t('common.noActiveTenant'));
-      await createService(tenantId, name, total, category);
+      await createService(tenantId, name, total, category, basePrice);
       nameInput.value = '';
       if (categoryInput) categoryInput.value = 'reparasi';
       hoursInput.value = '1';
       minutesInput.value = '0';
+      if (basePriceInput) basePriceInput.value = '';
       await renderServicesList();
       await loadWorkloadServices();
       renderWorkloadCalendar();
@@ -2297,11 +2394,8 @@ function bindGlobalEvents() {
       triggerAutoSaveDraft();
     }
   });
-  document.getElementById('order-modal-qr-tag-btn')?.addEventListener('click', () => {
-    const id = document.getElementById('form-order-id')?.value.trim();
-    const order = id ? allOrders.find((item) => item.id === id) : null;
-    if (order) openQrTagModal(order);
-  });
+
+  bindQuoteRequestsEvents();
 
   const customerPhoneInput = document.getElementById('form-customer-phone');
   customerPhoneInput?.addEventListener(
@@ -4297,7 +4391,6 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
     ? t('orderForm.editTitle', { code: existingOrder.ticket_code })
     : t('orderForm.newTitle');
   document.getElementById('form-order-id').value = isEdit ? existingOrder.id : '';
-  document.getElementById('order-modal-qr-tag-btn')?.classList.toggle('hidden', !isEdit);
 
   formItemsContainer.innerHTML = '';
   clearEstimatedDateError();
@@ -4550,7 +4643,37 @@ function appendItemRow(itemData = {}, signedUrlMap = {}) {
     triggerAutoSaveDraft();
   });
 
-  card.querySelector('.item-price-input').addEventListener('input', () => {
+  const priceInputEl = card.querySelector('.item-price-input');
+  const serviceInputEl = card.querySelector('[data-field="service_type"]');
+
+  const maybeAutofillOrderItemPrice = () => {
+    if (!priceInputEl || !serviceInputEl) return;
+    const matched = findActiveServiceByName(serviceInputEl.value);
+    if (!matched || Number(matched.base_price || 0) <= 0) return;
+    const currentRaw = priceInputEl.value.trim();
+    const currentNum = Number(currentRaw || 0);
+    const lastAuto = priceInputEl.dataset.lastAutoPrice;
+    const canAutofill =
+      currentRaw === '' || currentNum === 0 || (lastAuto !== undefined && String(currentNum) === lastAuto);
+    if (canAutofill) {
+      const nextPrice = roundCurrencyAmount(Number(matched.base_price));
+      priceInputEl.value = String(nextPrice);
+      priceInputEl.dataset.lastAutoPrice = String(nextPrice);
+      recalculateFormTotals();
+      triggerAutoSaveDraft();
+    }
+  };
+
+  serviceInputEl?.addEventListener('change', maybeAutofillOrderItemPrice);
+  serviceInputEl?.addEventListener('input', maybeAutofillOrderItemPrice);
+
+  priceInputEl.addEventListener('input', () => {
+    if (
+      priceInputEl.dataset.lastAutoPrice !== undefined &&
+      String(Number(priceInputEl.value || 0)) !== priceInputEl.dataset.lastAutoPrice
+    ) {
+      delete priceInputEl.dataset.lastAutoPrice;
+    }
     recalculateFormTotals();
     triggerAutoSaveDraft();
   });
@@ -5246,4 +5369,665 @@ function handleSendReceiptViaWA() {
 
   // Same-tab navigation lets Android Chrome hand wa.me links directly to the WhatsApp app.
   window.location.href = buildWhatsAppLink(o.customer_phone, receiptText);
+}
+
+// Stage 4: Hybrid Pricing Lookup & Admin Quote Requests Queue / Builder
+function findActiveServiceByName(rawName) {
+  const target = String(rawName || '').trim().toLocaleLowerCase();
+  if (!target) return null;
+  return (
+    activeServiceCatalog.find(
+      (svc) => String(svc.name || '').trim().toLocaleLowerCase() === target
+    ) || null
+  );
+}
+
+function updateQuotesSidebarBadge() {
+  const badge = document.getElementById('sidebar-quotes-badge');
+  if (!badge) return;
+  const pendingCount = allQuoteRequests.filter(
+    (q) => q.status === 'new' || q.status === 'revision_requested'
+  ).length;
+  badge.textContent = String(pendingCount);
+  badge.classList.toggle('hidden', pendingCount <= 0);
+}
+
+async function fetchQuoteRequests(options = {}) {
+  const tenantId = getActiveTenantId();
+  if (!tenantId) return;
+  const listEl = document.getElementById('quotes-list-container');
+  if (!options.silent && listEl && currentAppPage === 'quotes') {
+    listEl.innerHTML = `<p class="text-sm mt-muted" role="status">${escapeHTML(t('quotes.loading'))}</p>`;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('quote_requests')
+      .select(
+        'id, tenant_id, quote_code, approval_token, status, customer_name, customer_phone, order_type, garment_name, requested_service, customer_notes, intake_photo_path, damage_pins, quoted_items, quoted_total, estimated_days, estimated_done_date, workshop_notes, customer_decision_note, quoted_at, decided_at, converted_order_id, created_at, updated_at'
+      )
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    allQuoteRequests = data || [];
+    updateQuotesSidebarBadge();
+    if (currentAppPage === 'quotes') {
+      renderQuoteRequestsList();
+    }
+  } catch (err) {
+    console.error('Gagal memuat permintaan quote:', err);
+    if (!options.silent && listEl && currentAppPage === 'quotes') {
+      listEl.innerHTML = `<div class="mt-notice-error p-4 text-sm">${escapeHTML(
+        t('quotes.loadFailed', { message: err.message || '' })
+      )}</div>`;
+    }
+  }
+}
+
+function renderQuoteRequestsList() {
+  const listEl = document.getElementById('quotes-list-container');
+  if (!listEl) return;
+
+  const filtered = allQuoteRequests.filter((q) => {
+    if (quoteStatusFilter !== 'all' && q.status !== quoteStatusFilter) return false;
+    if (quoteSearchQuery) {
+      const hay = [q.quote_code, q.customer_name, q.customer_phone, q.garment_name, q.requested_service]
+        .join(' ')
+        .toLowerCase();
+      if (!hay.includes(quoteSearchQuery)) return false;
+    }
+    return true;
+  });
+
+  if (!filtered.length) {
+    listEl.innerHTML = `<div class="mt-card p-8 text-center text-sm mt-muted">${escapeHTML(t('quotes.empty'))}</div>`;
+    return;
+  }
+
+  listEl.innerHTML = filtered
+    .map((q) => {
+      const statusMeta = getQuoteStatusMeta(q.status);
+      const isMailIn = q.order_type === 'mail_in';
+      const typeMeta = getOrderTypeMeta(q.order_type);
+      const pinCount = Array.isArray(q.damage_pins) ? q.damage_pins.length : 0;
+      const totalNum = Number(q.quoted_total || 0);
+      const convertedOrder = q.converted_order_id
+        ? allOrders.find((o) => o.id === q.converted_order_id)
+        : null;
+      const actionLabel =
+        q.status === 'new' || q.status === 'revision_requested'
+          ? t('quotes.reviewBtn')
+          : t('quotes.viewBtn');
+
+      return `<article class="mt-card p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div class="min-w-0 space-y-1">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="font-mono-code font-bold text-sm mt-text">${escapeHTML(q.quote_code)}</span>
+            <span class="${statusMeta.badgeClass}">
+              <span class="${statusMeta.dotClass}" aria-hidden="true"></span>
+              <span>${escapeHTML(statusMeta.label)}</span>
+            </span>
+            ${isMailIn ? `<span class="${typeMeta.badgeClass}">${escapeHTML(typeMeta.label)}</span>` : ''}
+            ${
+              convertedOrder
+                ? `<span class="font-mono-code text-xs font-semibold mt-success-text">${escapeHTML(convertedOrder.ticket_code)}</span>`
+                : ''
+            }
+          </div>
+          <p class="text-sm font-semibold mt-text">${escapeHTML(q.customer_name)} <span class="font-mono-code text-xs mt-muted font-medium">+${escapeHTML(q.customer_phone)}</span></p>
+          <p class="text-xs mt-muted">
+            <strong class="mt-text">${escapeHTML(q.garment_name)}</strong>
+            ${q.requested_service ? ` · ${escapeHTML(q.requested_service)}` : ''}
+            · ${escapeHTML(t('quotes.pinCount', { count: pinCount }))}
+            · ${escapeHTML(formatDateID(q.created_at, true))}
+          </p>
+          ${
+            q.status === 'revision_requested' && q.customer_decision_note
+              ? `<p class="text-xs mt-accent font-medium pt-0.5">${escapeHTML(t('quotes.revisionAlertTitle'))}: "${escapeHTML(q.customer_decision_note)}"</p>`
+              : ''
+          }
+        </div>
+        <div class="mt-quote-card-side shrink-0">
+          <p class="font-mono-code text-sm font-bold ${totalNum > 0 ? 'mt-text' : 'mt-muted'}">
+            ${escapeHTML(totalNum > 0 ? formatCurrency(totalNum) : t('quotes.noTotalYet'))}
+          </p>
+          <button type="button" data-open-quote="${q.id}" class="mt-btn ${q.status === 'new' || q.status === 'revision_requested' ? 'mt-btn-primary' : 'mt-btn-secondary'} text-xs">
+            <span>${escapeHTML(actionLabel)}</span>
+          </button>
+        </div>
+      </article>`;
+    })
+    .join('');
+
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function openAdminPhotoLightbox(url, titleText = '') {
+  const modal = document.getElementById('admin-photo-lightbox');
+  const img = document.getElementById('admin-photo-lightbox-img');
+  const titleEl = document.getElementById('admin-photo-lightbox-title');
+  if (!modal || !img || !url) return;
+  rememberTrigger();
+  img.src = url;
+  if (titleEl && titleText) titleEl.textContent = titleText;
+  modal.classList.remove('hidden');
+  document.getElementById('close-admin-photo-lightbox')?.focus();
+}
+
+function closeAdminPhotoLightbox() {
+  const modal = document.getElementById('admin-photo-lightbox');
+  const img = document.getElementById('admin-photo-lightbox-img');
+  modal?.classList.add('hidden');
+  if (img) img.src = '';
+  restoreTriggerFocus();
+}
+
+function recalculateQuoteBuilderTotal() {
+  const container = document.getElementById('quote-builder-items');
+  const totalEl = document.getElementById('quote-builder-total');
+  if (!container || !totalEl) return 0;
+  let total = 0;
+  container.querySelectorAll('[data-qfield="price"]').forEach((input) => {
+    const val = Number(input.value || 0);
+    if (Number.isFinite(val) && val > 0) total += val;
+  });
+  total = roundCurrencyAmount(total);
+  totalEl.textContent = formatCurrency(total);
+  return total;
+}
+
+function appendQuoteBuilderItemRow(itemData = {}, readonlyMode = false) {
+  const container = document.getElementById('quote-builder-items');
+  if (!container) return;
+  const uid = ++quoteItemRowCounter;
+  const currencyMeta = getCurrencyMeta();
+
+  const serviceNames = [...activeServiceCatalog.map((s) => s.name)];
+  if (itemData.service_type && !serviceNames.includes(itemData.service_type)) {
+    serviceNames.push(itemData.service_type);
+  }
+  const datalistHTML = serviceNames
+    .map((name) => `<option value="${escapeHTML(name)}"></option>`)
+    .join('');
+
+  const row = document.createElement('div');
+  row.className = 'quote-item-row mt-card-muted p-3 space-y-2.5';
+  row.innerHTML = `
+    <div class="flex items-center justify-between gap-2">
+      <span class="text-xs font-mono-code font-bold mt-accent quote-item-label">${escapeHTML(t('common.itemLabel', { number: container.children.length + 1 }))}</span>
+      ${
+        readonlyMode
+          ? ''
+          : `<button type="button" data-remove-quote-item class="mt-btn mt-btn-danger-ghost text-xs">${escapeHTML(t('quotes.removeItemBtn'))}</button>`
+      }
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div>
+        <label for="q-garment-${uid}" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('orderForm.garmentLabel'))}</label>
+        <input id="q-garment-${uid}" type="text" required data-qfield="garment_name" value="${escapeHTML(itemData.garment_name || '')}" ${readonlyMode ? 'readonly disabled' : ''} class="mt-input text-xs" />
+      </div>
+      <div>
+        <label for="q-service-${uid}" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('orderForm.serviceLabel'))}</label>
+        <input id="q-service-${uid}" type="text" required list="q-svc-presets-${uid}" data-qfield="service_type" value="${escapeHTML(itemData.service_type || '')}" ${readonlyMode ? 'readonly disabled' : ''} class="mt-input text-xs" />
+        <datalist id="q-svc-presets-${uid}">${datalistHTML}</datalist>
+      </div>
+    </div>
+    <div>
+      <label for="q-price-${uid}" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('orderForm.itemPricePrefix'))}<span data-currency-label>${escapeHTML(currencyMeta.shortLabel)}</span>) *</label>
+      <input id="q-price-${uid}" type="number" required data-currency-input="nonneg" inputmode="${currencyMeta.decimals > 0 ? 'decimal' : 'numeric'}" min="0" step="${escapeHTML(currencyMeta.step)}" data-qfield="price" value="${Number(itemData.price || 0)}" ${readonlyMode ? 'readonly disabled' : ''} class="mt-input font-mono-code text-right font-semibold text-xs" />
+    </div>
+  `;
+
+  if (!readonlyMode) {
+    const svcInput = row.querySelector('[data-qfield="service_type"]');
+    const priceInput = row.querySelector('[data-qfield="price"]');
+    const maybeAutofillQuotePrice = () => {
+      const matched = findActiveServiceByName(svcInput.value);
+      if (!matched || Number(matched.base_price || 0) <= 0) return;
+      const curRaw = priceInput.value.trim();
+      const curNum = Number(curRaw || 0);
+      const lastAuto = priceInput.dataset.lastAutoPrice;
+      if (curRaw === '' || curNum === 0 || (lastAuto !== undefined && String(curNum) === lastAuto)) {
+        const nextPrice = roundCurrencyAmount(Number(matched.base_price));
+        priceInput.value = String(nextPrice);
+        priceInput.dataset.lastAutoPrice = String(nextPrice);
+        recalculateQuoteBuilderTotal();
+      }
+    };
+    svcInput?.addEventListener('change', maybeAutofillQuotePrice);
+    svcInput?.addEventListener('input', maybeAutofillQuotePrice);
+    priceInput?.addEventListener('input', () => {
+      if (
+        priceInput.dataset.lastAutoPrice !== undefined &&
+        String(Number(priceInput.value || 0)) !== priceInput.dataset.lastAutoPrice
+      ) {
+        delete priceInput.dataset.lastAutoPrice;
+      }
+      recalculateQuoteBuilderTotal();
+    });
+    row.querySelector('[data-remove-quote-item]')?.addEventListener('click', () => {
+      if (container.children.length <= 1) {
+        alert(t('quotes.minOneItem'));
+        return;
+      }
+      row.remove();
+      container.querySelectorAll('.quote-item-label').forEach((el, idx) => {
+        el.textContent = t('common.itemLabel', { number: idx + 1 });
+      });
+      recalculateQuoteBuilderTotal();
+    });
+  }
+
+  container.appendChild(row);
+  recalculateQuoteBuilderTotal();
+}
+
+function renderPublishedQuoteBox(quote) {
+  const box = document.getElementById('quote-published-link-box');
+  const urlInput = document.getElementById('quote-approval-url-input');
+  const waLink = document.getElementById('quote-send-wa-link');
+  if (!box || !urlInput || !waLink) return;
+
+  const canShowLink = quote && ['quoted', 'revision_requested', 'approved'].includes(quote.status);
+  box.classList.toggle('hidden', !canShowLink);
+  if (!canShowLink) return;
+
+  const approvalUrl = getQuoteApprovalUrl(quote.approval_token);
+  urlInput.value = approvalUrl;
+
+  const items = Array.isArray(quote.quoted_items) ? quote.quoted_items : [];
+  const itemsText = items
+    .map((it, idx) => `${idx + 1}. ${it.garment_name} (${it.service_type}) - ${formatCurrency(it.price)}`)
+    .join('\n');
+  let durationLine = '';
+  if (quote.estimated_done_date) {
+    durationLine = t('quotes.waDurationDate', { date: formatDateID(quote.estimated_done_date) });
+  } else if (quote.estimated_days) {
+    durationLine = t('quotes.waDurationDays', { days: quote.estimated_days });
+  }
+
+  const msg = t('quotes.waMessage', {
+    customer: quote.customer_name,
+    store: workshopSettings.NAME,
+    code: quote.quote_code,
+    garment: quote.garment_name,
+    items: itemsText,
+    total: formatCurrency(quote.quoted_total || 0),
+    durationLine,
+    url: approvalUrl,
+  });
+  waLink.href = buildWhatsAppLink(quote.customer_phone, msg);
+}
+
+async function openQuoteDetailModal(quote) {
+  const modal = document.getElementById('quote-detail-modal');
+  const tenantId = getActiveTenantId();
+  if (!modal || !quote || !tenantId) return;
+  rememberTrigger();
+  activeQuoteDetail = quote;
+
+  try {
+    activeServiceCatalog = (await fetchServices(tenantId)).filter((s) => s.is_active);
+  } catch {
+    // Keep last loaded catalog if refresh fails.
+  }
+
+  const statusMeta = getQuoteStatusMeta(quote.status);
+  const typeMeta = getOrderTypeMeta(quote.order_type);
+  const isApproved = quote.status === 'approved';
+
+  document.getElementById('quote-detail-subtitle').textContent = `${quote.quote_code} · ${formatDateID(quote.created_at, true)}`;
+
+  const decisionAlert = document.getElementById('quote-detail-decision-alert');
+  if (decisionAlert) {
+    if (quote.status === 'revision_requested') {
+      decisionAlert.className = 'mt-notice-warn p-3.5 text-xs space-y-1';
+      decisionAlert.innerHTML = `<p class="font-bold">${escapeHTML(t('quotes.revisionAlertTitle'))}</p>${
+        quote.customer_decision_note ? `<p>${escapeHTML(quote.customer_decision_note)}</p>` : ''
+      }`;
+    } else if (quote.status === 'rejected') {
+      decisionAlert.className = 'mt-notice-error p-3.5 text-xs space-y-1';
+      decisionAlert.innerHTML = `<p class="font-bold">${escapeHTML(t('quotes.rejectedAlertTitle'))}</p>${
+        quote.customer_decision_note ? `<p>${escapeHTML(quote.customer_decision_note)}</p>` : ''
+      }`;
+    } else {
+      decisionAlert.className = 'hidden';
+      decisionAlert.innerHTML = '';
+    }
+  }
+
+  const metaEl = document.getElementById('quote-detail-meta');
+  if (metaEl) {
+    metaEl.innerHTML = `
+      <div class="flex items-center gap-2 flex-wrap">
+        <span class="${statusMeta.badgeClass}">
+          <span class="${statusMeta.dotClass}" aria-hidden="true"></span>
+          <span>${escapeHTML(statusMeta.label)}</span>
+        </span>
+        <span class="${typeMeta.badgeClass}">${escapeHTML(typeMeta.label)}</span>
+      </div>
+      <p class="font-bold mt-text">${escapeHTML(quote.customer_name)}</p>
+      <p class="font-mono-code text-xs mt-muted">+${escapeHTML(quote.customer_phone)}</p>
+      <p class="text-sm mt-text pt-1"><strong>${escapeHTML(quote.garment_name)}</strong></p>
+      ${
+        quote.requested_service
+          ? `<p class="text-xs mt-muted">${escapeHTML(t('quotes.requestedService'))}: <strong class="mt-text">${escapeHTML(quote.requested_service)}</strong></p>`
+          : ''
+      }
+      ${
+        quote.customer_notes
+          ? `<p class="text-xs mt-muted">${escapeHTML(t('quotes.customerNotes'))}: <span class="mt-text">${escapeHTML(quote.customer_notes)}</span></p>`
+          : ''
+      }
+    `;
+  }
+
+  // Converted order banner
+  const convertedBanner = document.getElementById('quote-converted-banner');
+  if (convertedBanner) {
+    if (isApproved && quote.converted_order_id) {
+      let ord = allOrders.find((o) => o.id === quote.converted_order_id);
+      if (!ord) {
+        await fetchOrders();
+        ord = allOrders.find((o) => o.id === quote.converted_order_id);
+      }
+      const ticketLabel = ord?.ticket_code || '';
+      convertedBanner.classList.remove('hidden');
+      convertedBanner.innerHTML = `
+        <p class="text-sm font-bold">${escapeHTML(t('quotes.convertedHeading'))}</p>
+        <p class="text-xs">${escapeHTML(t('quotes.convertedDesc'))}</p>
+        ${
+          ord
+            ? `<button type="button" id="open-converted-order-btn" class="mt-btn mt-btn-primary text-xs">
+                <i data-lucide="external-link" class="w-4 h-4" aria-hidden="true"></i>
+                <span>${escapeHTML(t('quotes.openOrderBtn', { ticket: ticketLabel }))}</span>
+              </button>`
+            : ''
+        }
+      `;
+      document.getElementById('open-converted-order-btn')?.addEventListener('click', () => {
+        closeQuoteDetailModal();
+        if (ord) focusOrderFromExternalLink(ord);
+      });
+    } else {
+      convertedBanner.classList.add('hidden');
+      convertedBanner.innerHTML = '';
+    }
+  }
+
+  renderPublishedQuoteBox(quote);
+
+  // Populate Quote Builder items
+  const itemsWrap = document.getElementById('quote-builder-items');
+  if (itemsWrap) itemsWrap.innerHTML = '';
+  const existingItems = Array.isArray(quote.quoted_items) && quote.quoted_items.length > 0
+    ? quote.quoted_items
+    : [
+        {
+          garment_name: quote.garment_name,
+          service_type: quote.requested_service || '',
+          price: (() => {
+            const matched = findActiveServiceByName(quote.requested_service || '');
+            return matched && Number(matched.base_price || 0) > 0 ? Number(matched.base_price) : 0;
+          })(),
+        },
+      ];
+  existingItems.forEach((it) => appendQuoteBuilderItemRow(it, isApproved));
+
+  const estDaysInput = document.getElementById('quote-est-days-input');
+  const estDateInput = document.getElementById('quote-est-date-input');
+  const notesInput = document.getElementById('quote-workshop-notes-input');
+  const addItemBtn = document.getElementById('add-quote-item-btn');
+  const actionsWrap = document.getElementById('quote-builder-actions');
+  const publishBtn = document.getElementById('publish-quote-btn');
+
+  if (estDaysInput) {
+    estDaysInput.value = quote.estimated_days ? String(quote.estimated_days) : '';
+    estDaysInput.disabled = isApproved;
+  }
+  if (estDateInput) {
+    estDateInput.value = quote.estimated_done_date || '';
+    estDateInput.disabled = isApproved;
+  }
+  if (notesInput) {
+    notesInput.value = quote.workshop_notes || '';
+    notesInput.disabled = isApproved;
+  }
+  addItemBtn?.classList.toggle('hidden', isApproved);
+  actionsWrap?.classList.toggle('hidden', isApproved);
+  if (publishBtn) {
+    const labelSpan = publishBtn.querySelector('span');
+    if (labelSpan) {
+      labelSpan.textContent =
+        quote.status === 'quoted' || quote.status === 'revision_requested'
+          ? t('quotes.republishBtn')
+          : t('quotes.publishBtn');
+    }
+  }
+
+  // Signed photo + pin canvas
+  const pinCanvasEl = document.getElementById('quote-detail-pin-canvas');
+  if (pinCanvasEl) {
+    pinCanvasEl.innerHTML = `<p class="text-xs mt-muted" role="status">${escapeHTML(t('quotes.loading'))}</p>`;
+  }
+
+  syncCurrencyInputs(modal);
+  modal.classList.remove('hidden');
+  document.getElementById('close-quote-detail-btn')?.focus();
+  if (window.lucide) window.lucide.createIcons();
+
+  if (pinCanvasEl) {
+    const signedMap = quote.intake_photo_path ? await signGarmentPhotoPaths([quote.intake_photo_path]) : {};
+    const signedUrl = quote.intake_photo_path ? signedMap[quote.intake_photo_path] || '' : '';
+    if (signedUrl) {
+      activeQuotePinCanvas = createPinCanvas(pinCanvasEl, {
+        mode: 'readonly',
+        imageUrl: signedUrl,
+        imageAlt: quote.garment_name,
+        pins: Array.isArray(quote.damage_pins) ? quote.damage_pins : [],
+        onZoom: (url) => openAdminPhotoLightbox(url, `${quote.quote_code} · ${quote.garment_name}`),
+      });
+    } else {
+      pinCanvasEl.innerHTML = `<p class="text-xs mt-muted mt-card-muted p-4">${escapeHTML(t('quotes.photoUnavailable'))}</p>`;
+    }
+  }
+}
+
+function focusOrderFromExternalLink(order) {
+  if (!order) return;
+  focusedOrderId = order.id;
+  if (order.status === 'completed') {
+    showAppPage('archive');
+  } else {
+    showAppPage('orders');
+    renderOrdersList();
+  }
+  setTimeout(() => {
+    const el = document.querySelector(
+      `[data-order-card-id="${order.id}"], [data-archive-order-id="${order.id}"]`
+    );
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 120);
+}
+
+function closeQuoteDetailModal() {
+  document.getElementById('quote-detail-modal')?.classList.add('hidden');
+  activeQuoteDetail = null;
+  activeQuotePinCanvas = null;
+  restoreTriggerFocus();
+}
+
+async function handlePublishQuoteSubmit(event) {
+  event.preventDefault();
+  const tenantId = getActiveTenantId();
+  if (!tenantId || !activeQuoteDetail || activeQuoteDetail.status === 'approved') return;
+
+  const container = document.getElementById('quote-builder-items');
+  const rows = Array.from(container?.querySelectorAll('.quote-item-row') || []);
+  if (!rows.length) {
+    alert(t('quotes.minOneItem'));
+    return;
+  }
+
+  const quotedItems = [];
+  for (const row of rows) {
+    const garmentName = row.querySelector('[data-qfield="garment_name"]')?.value.trim() || '';
+    const serviceType = row.querySelector('[data-qfield="service_type"]')?.value.trim() || '';
+    const price = Math.max(0, roundCurrencyAmount(Number(row.querySelector('[data-qfield="price"]')?.value || 0)));
+    if (!garmentName || !serviceType) return;
+    quotedItems.push({
+      garment_name: garmentName,
+      service_type: serviceType,
+      price,
+      measurement_specs: {},
+    });
+  }
+
+  const quotedTotal = roundCurrencyAmount(quotedItems.reduce((sum, it) => sum + it.price, 0));
+  const estDaysRaw = document.getElementById('quote-est-days-input')?.value.trim() || '';
+  const estimatedDays = estDaysRaw ? Math.max(1, parseInt(estDaysRaw, 10)) : null;
+  const estimatedDoneDate = document.getElementById('quote-est-date-input')?.value || null;
+  const workshopNotes = document.getElementById('quote-workshop-notes-input')?.value.trim() || null;
+
+  const publishBtn = document.getElementById('publish-quote-btn');
+  if (publishBtn) {
+    publishBtn.disabled = true;
+    const span = publishBtn.querySelector('span');
+    if (span) span.textContent = t('quotes.publishingBtn');
+  }
+
+  try {
+    const { data: updated, error } = await supabase
+      .from('quote_requests')
+      .update({
+        quoted_items: quotedItems,
+        quoted_total: quotedTotal,
+        estimated_days: Number.isInteger(estimatedDays) ? estimatedDays : null,
+        estimated_done_date: estimatedDoneDate,
+        workshop_notes: workshopNotes,
+        status: 'quoted',
+        quoted_at: new Date().toISOString(),
+      })
+      .eq('id', activeQuoteDetail.id)
+      .eq('tenant_id', tenantId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    activeQuoteDetail = updated;
+    const idx = allQuoteRequests.findIndex((q) => q.id === updated.id);
+    if (idx >= 0) allQuoteRequests[idx] = updated;
+    updateQuotesSidebarBadge();
+    renderQuoteRequestsList();
+    renderPublishedQuoteBox(updated);
+    alert(t('quotes.publishedToast'));
+  } catch (err) {
+    alert(err.message || t('common.genericError'));
+  } finally {
+    if (publishBtn) {
+      publishBtn.disabled = false;
+      const span = publishBtn.querySelector('span');
+      if (span) span.textContent = t('quotes.republishBtn');
+    }
+  }
+}
+
+async function handleRejectQuoteClick() {
+  const tenantId = getActiveTenantId();
+  if (!tenantId || !activeQuoteDetail || activeQuoteDetail.status === 'approved') return;
+  if (!confirm(t('quotes.rejectConfirm'))) return;
+
+  try {
+    const { data: updated, error } = await supabase
+      .from('quote_requests')
+      .update({
+        status: 'rejected',
+        decided_at: new Date().toISOString(),
+      })
+      .eq('id', activeQuoteDetail.id)
+      .eq('tenant_id', tenantId)
+      .select()
+      .single();
+
+    if (error) throw error;
+    const idx = allQuoteRequests.findIndex((q) => q.id === updated.id);
+    if (idx >= 0) allQuoteRequests[idx] = updated;
+    updateQuotesSidebarBadge();
+    renderQuoteRequestsList();
+    closeQuoteDetailModal();
+    alert(t('quotes.rejectedToast'));
+  } catch (err) {
+    alert(err.message || t('common.genericError'));
+  }
+}
+
+function bindQuoteRequestsEvents() {
+  document.getElementById('quotes-filter-pills')?.addEventListener('click', (event) => {
+    const pill = event.target.closest('[data-quote-status-filter]');
+    if (!pill) return;
+    quoteStatusFilter = pill.getAttribute('data-quote-status-filter') || 'all';
+    document.querySelectorAll('[data-quote-status-filter]').forEach((btn) => {
+      const active = btn === pill;
+      btn.classList.toggle('is-active', active);
+      btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    renderQuoteRequestsList();
+  });
+
+  document.getElementById('quotes-search-input')?.addEventListener(
+    'input',
+    debounce((event) => {
+      quoteSearchQuery = event.target.value.trim().toLowerCase();
+      renderQuoteRequestsList();
+    }, 200)
+  );
+
+  document.getElementById('refresh-quotes-btn')?.addEventListener('click', () => {
+    fetchQuoteRequests();
+  });
+
+  document.getElementById('quotes-list-container')?.addEventListener('click', (event) => {
+    const btn = event.target.closest('[data-open-quote]');
+    if (!btn) return;
+    const q = allQuoteRequests.find((item) => item.id === btn.getAttribute('data-open-quote'));
+    if (q) openQuoteDetailModal(q);
+  });
+
+  document.getElementById('close-quote-detail-btn')?.addEventListener('click', closeQuoteDetailModal);
+  document.getElementById('quote-detail-modal')?.addEventListener('click', (event) => {
+    if (event.target.id === 'quote-detail-modal') closeQuoteDetailModal();
+  });
+
+  document.getElementById('add-quote-item-btn')?.addEventListener('click', () => {
+    appendQuoteBuilderItemRow(
+      { garment_name: activeQuoteDetail?.garment_name || '', service_type: '', price: 0 },
+      false
+    );
+  });
+
+  document.getElementById('quote-builder-form')?.addEventListener('submit', handlePublishQuoteSubmit);
+  document.getElementById('reject-quote-btn')?.addEventListener('click', handleRejectQuoteClick);
+
+  document.getElementById('copy-quote-approval-url-btn')?.addEventListener('click', async () => {
+    const url = document.getElementById('quote-approval-url-input')?.value || '';
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      const btn = document.getElementById('copy-quote-approval-url-btn');
+      if (btn) {
+        btn.textContent = t('common.copied');
+        setTimeout(() => {
+          btn.textContent = t('quotes.copyLinkBtn');
+        }, 1500);
+      }
+    } catch {
+      alert(url);
+    }
+  });
+
+  document.getElementById('close-admin-photo-lightbox')?.addEventListener('click', closeAdminPhotoLightbox);
+  document.getElementById('admin-photo-lightbox')?.addEventListener('click', (event) => {
+    if (event.target.id === 'admin-photo-lightbox') closeAdminPhotoLightbox();
+  });
 }

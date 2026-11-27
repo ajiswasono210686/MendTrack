@@ -132,6 +132,28 @@ Deno.serve(async (req: Request) => {
   }
 
   if (action === "profile") {
+    const { data: servicesData, error: servicesError } = await supabaseAdmin
+      .from("services")
+      .select("id, name, service_category, estimated_minutes, base_price")
+      .eq("tenant_id", tenant.id)
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true });
+
+    if (servicesError) {
+      console.error("public-tracker services query failed:", servicesError.message);
+    }
+
+    const services = Array.isArray(servicesData)
+      ? servicesData.map((svc) => ({
+          id: svc.id,
+          name: svc.name,
+          service_category: svc.service_category || "reparasi",
+          estimated_minutes: Number(svc.estimated_minutes || 60),
+          base_price: Math.max(0, Number(svc.base_price || 0)),
+        }))
+      : [];
+
     return jsonResponse(
       {
         found: true,
@@ -147,6 +169,7 @@ Deno.serve(async (req: Request) => {
           currency: tenant.currency || "IDR",
           timezone: tenant.timezone || "Asia/Jakarta",
         },
+        services,
       },
       origin
     );
