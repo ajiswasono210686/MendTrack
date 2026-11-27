@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mendtrack-shell-v25-subtask-ready-gate';
+const CACHE_NAME = 'mendtrack-shell-v26-pwa-fresh-cache';
 const APP_SHELL = [
   '/admin.html',
   '/index.html',
@@ -52,11 +52,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-first for HTML/JS/CSS so normal reloads pick up fixes; cache fallback covers offline use.
+  // Network-first (bypassing stale HTTP disk cache) for HTML/JS/CSS so PWA reloads immediately pick up new deploys.
   const isAppCode = request.mode === 'navigate' || /\.(?:html|js|css|webmanifest)$/.test(url.pathname);
   if (isAppCode) {
     event.respondWith(
-      fetch(request)
+      fetch(request, { cache: 'no-cache' })
         .then((response) => {
           if (response && response.ok) {
             const copy = response.clone();

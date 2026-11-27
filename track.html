@@ -357,7 +357,20 @@
     </div>
   </div>
 
-  <script>if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(console.warn));</script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      const hadController = Boolean(navigator.serviceWorker.controller);
+      let swReloading = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!hadController || swReloading) return;
+        swReloading = true;
+        window.location.reload();
+      });
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" }).then((reg) => reg.update()).catch(console.warn);
+      });
+    }
+  </script>
   <script src="/js/theme-toggle.js" defer></script>
   <script type="module" src="/js/public-tracker.js"></script>
 </body>
