@@ -28,6 +28,9 @@ import {
   updateService,
   deactivateService,
   activateService,
+  fetchWorkstations,
+  createWorkstation,
+  updateWorkstation,
 } from './store-settings.js';
 import {
   t,
@@ -52,14 +55,21 @@ import {
   getCashCategoryLabel,
   getPaymentMethodLabel,
   getServiceCategoryLabel,
+  getRoleMeta,
+  getInvitationStatusMeta,
 } from './i18n.js';
 import { renderQrSvg } from './qr-svg.js';
 import { createPinCanvas } from './pin-canvas.js';
 
 const PENDING_ADMIN_TICKET_KEY = 'mendtrack_pending_admin_ticket';
+const PENDING_ADMIN_INVITE_KEY = 'mendtrack_pending_admin_invite';
+const ACTIVE_TENANT_STORAGE_PREFIX = 'mendtrack_active_tenant_v1';
 const QR_TAG_FORMAT_KEY = 'mendtrack-qr-tag-format';
 
+let activeSessionUser = null;
+let activeMemberships = [];
 let activeTenant = null;
+let activeRole = 'staff';
 let pendingVerifyEmail = '';
 let authResolutionSeq = 0;
 let onboardingSlugTouched = false;
@@ -72,6 +82,7 @@ let workloadDateFilter = null;
 let searchQuery = '';
 let orderStatusFilter = 'all';
 let orderTypeFilter = 'all';
+let orderWorkstationFilter = 'all';
 let focusedOrderId = null;
 let currentReceiptOrder = null;
 let currentQrTagOrder = null;
@@ -85,6 +96,12 @@ let workloadSelectedDate = toLocalDateKey(workloadToday);
 
 let workshopSettings = { ...DEFAULT_STORE_SETTINGS };
 let activeServiceCatalog = [];
+let workshopWorkstations = [];
+let tenantStaffLabels = [];
+let teamDataCache = { caller_role: null, members: [], invitations: [] };
+let expandedWorkstationOrderIds = new Set();
+let activeStaffOrderDetailId = null;
+let pendingInviteNotice = null;
 let modalTriggerStack = [];
 let itemRowCounter = 0;
 
@@ -151,6 +168,135 @@ function syncCurrencyInputs(root = document) {
   });
 }
 
+function getActiveRole() {
+  return activeRole === 'owner' || activeRole === 'admin' ? activeRole : 'staff';
+}
+
+function isOwnerRole() {
+  return getActiveRole() === 'owner';
+}
+
+function isAdminOrOwnerRole() {
+  const role = getActiveRole();
+  return role === 'owner' || role === 'admin';
+}
+
+function isStaffRole() {
+  return getActiveRole() === 'staff';
+}
+
+function canAccessPage(page) {
+  const role = getActiveRole();
+  if (page === 'orders' || page === 'schedule') return true;
+  if (page === 'reports') return role === 'owner';
+  if (['quotes', 'customers', 'cash', 'services', 'measurements', 'workstations', 'archive', 'team'].includes(page)) {
+    return role === 'owner' || role === 'admin';
+  }
+  return false;
+}
+
+function canOpenStoreSettings() {
+  return isOwnerRole();
+}
+
+function canDeleteOrders() {
+  return isOwnerRole();
+}
+
+function canDeleteCash() {
+  return isOwnerRole();
+}
+
+function getPreferredTenantKey(userId) {
+  const clean = String(userId || '').trim();
+  return clean ? `${ACTIVE_TENANT_STORAGE_PREFIX}:${clean}` : null;
+}
+
+function savePreferredTenantId(userId, tenantId) {
+  const key = getPreferredTenantKey(userId);
+  if (!key || !tenantId) return;
+  try {
+    localStorage.setItem(key, String(tenantId));
+  } catch (_) {}
+}
+
+function loadPreferredTenantId(userId) {
+  const key = getPreferredTenantKey(userId);
+  if (!key) return null;
+  try {
+    return localStorage.getItem(key) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function applyRoleNavigationGating() {
+  const staff = isStaffRole();
+  const adminOrOwner = isAdminOrOwnerRole();
+  const owner = isOwnerRole();
+
+  const roleBadge = document.getElementById('sidebar-role-badge');
+  if (roleBadge) {
+    if (activeTenant) {
+      const meta = getRoleMeta(getActiveRole());
+      roleBadge.className = `mt-sb-role-wrap ${meta.badgeClass}`;
+      roleBadge.textContent = meta.label;
+      roleBadge.setAttribute('aria-label', t('role.badgeAria', { role: meta.label }));
+    } else {
+      roleBadge.classList.add('hidden');
+    }
+  }
+
+  document.getElementById('sidebar-new-order-btn')?.classList.toggle('hidden', !adminOrOwner);
+  document.getElementById('open-new-order-btn')?.classList.toggle('hidden', !adminOrOwner);
+  document.getElementById('bottom-nav-customers')?.classList.toggle('hidden', !adminOrOwner);
+  document.getElementById('open-store-settings-btn')?.classList.toggle('hidden', !owner);
+  document.getElementById('sidebar-settings-group-label')?.classList.toggle('hidden', !adminOrOwner);
+
+  document.querySelectorAll('#admin-sidebar [data-app-page]').forEach((btn) => {
+    const page = btn.dataset.appPage;
+    btn.classList.toggle('hidden', !canAccessPage(page));
+  });
+
+  document.getElementById('metric-unpaid-card')?.classList.toggle('hidden', staff);
+  const activeCard = document.getElementById('metric-active-card');
+  if (activeCard) {
+    activeCard.classList.toggle('lg:col-span-6', staff);
+    activeCard.classList.toggle('lg:col-span-3', !staff);
+  }
+}
+
+function renderWorkspaceSwitchers() {
+  const hasMultiple = activeMemberships.length > 1;
+  const pairs = [
+    ['sidebar-workspace-switcher', 'sidebar-workspace-select'],
+    ['mobile-workspace-switcher', 'mobile-workspace-select'],
+  ];
+  const optionsHTML = activeMemberships
+    .map((m) => {
+      const tenant = m.tenants;
+      const roleLabel = getRoleMeta(m.role).label;
+      const label = t('workspace.roleSuffix', { name: tenant?.name || 'Workshop', role: roleLabel });
+      return `<option value="${escapeHTML(m.tenant_id)}"${m.tenant_id === activeTenant?.id ? ' selected' : ''}>${escapeHTML(label)}</option>`;
+    })
+    .join('');
+
+  document.getElementById('mobile-topbar-store-name')?.classList.toggle('hidden', hasMultiple);
+
+  pairs.forEach(([wrapId, selectId]) => {
+    const wrap = document.getElementById(wrapId);
+    const select = document.getElementById(selectId);
+    if (!wrap || !select) return;
+    wrap.classList.toggle('hidden', !hasMultiple);
+    if (hasMultiple) {
+      select.innerHTML = optionsHTML;
+      select.value = activeTenant?.id || activeMemberships[0]?.tenant_id || '';
+    } else {
+      select.innerHTML = '';
+    }
+  });
+}
+
 function getPageHeading(page) {
   const key = [
     'orders',
@@ -161,13 +307,15 @@ function getPageHeading(page) {
     'reports',
     'services',
     'measurements',
+    'workstations',
     'archive',
+    'team',
   ].includes(page)
     ? page
     : 'orders';
   return {
     title: t(`page.${key}.title`),
-    subtitle: t(`page.${key}.subtitle`),
+    subtitle: key === 'orders' && isStaffRole() ? t('page.orders.subtitleStaff') : t(`page.${key}.subtitle`),
   };
 }
 
@@ -184,24 +332,36 @@ function applyWorkspaceLocalization() {
 
   if (activeTenant) {
     if (adminDocHeading) adminDocHeading.textContent = t('admin.docHeadingWorkspace', { name: workshopSettings.NAME });
+    applyRoleNavigationGating();
+    renderWorkspaceSwitchers();
+    populateWorkstationFilterSelect();
     updateDashboardMetrics();
     renderWorkloadCalendar();
     renderOrdersList();
     renderArchiveOrders();
-    checkSavedDraftBanner();
-    updateQuotesSidebarBadge();
-    if (currentAppPage === 'quotes') renderQuoteRequestsList();
+    if (isAdminOrOwnerRole()) {
+      checkSavedDraftBanner();
+      updateQuotesSidebarBadge();
+    }
+    if (currentAppPage === 'quotes' && isAdminOrOwnerRole()) renderQuoteRequestsList();
     const quoteModalEl = document.getElementById('quote-detail-modal');
     if (activeQuoteDetail && quoteModalEl && !quoteModalEl.classList.contains('hidden')) {
       renderPublishedQuoteBox(activeQuoteDetail);
       activeQuotePinCanvas?.rerender();
       recalculateQuoteBuilderTotal();
     }
-    if (currentAppPage === 'customers') renderCustomersList();
-    if (currentAppPage === 'cash') renderCash();
-    if (currentAppPage === 'reports') renderReports();
-    if (currentAppPage === 'services') renderServicesList();
-    if (currentAppPage === 'measurements') renderMeasurementTemplateSettings();
+    if (currentAppPage === 'customers' && isAdminOrOwnerRole()) renderCustomersList();
+    if (currentAppPage === 'cash' && isAdminOrOwnerRole()) renderCash();
+    if (currentAppPage === 'reports' && isOwnerRole()) renderReports();
+    if (currentAppPage === 'services' && isAdminOrOwnerRole()) renderServicesList();
+    if (currentAppPage === 'measurements' && isAdminOrOwnerRole()) renderMeasurementTemplateSettings();
+    if (currentAppPage === 'workstations' && isAdminOrOwnerRole()) renderWorkstationsManagementList();
+    if (currentAppPage === 'team' && isAdminOrOwnerRole()) renderTeamPage();
+    const staffModalEl = document.getElementById('staff-order-detail-modal');
+    if (activeStaffOrderDetailId && staffModalEl && !staffModalEl.classList.contains('hidden')) {
+      const target = allOrders.find((o) => o.id === activeStaffOrderDetailId);
+      if (target) openStaffOrderDetailModal(target, { preserveTrigger: true });
+    }
   }
 }
 
@@ -276,6 +436,10 @@ function applyStoreSettings() {
 }
 
 function openStoreSettings() {
+  if (!canOpenStoreSettings()) {
+    alert(t('rbac.ownerOnly'));
+    return;
+  }
   const modal = document.getElementById('store-settings-modal');
   if (!modal) return;
   rememberTrigger();
@@ -558,21 +722,35 @@ function mountSeparatedManagementPages() {
 }
 
 function showAppPage(page) {
-  currentAppPage = page || 'orders';
+  let targetPage = page || 'orders';
+  if (!canAccessPage(targetPage)) {
+    targetPage = 'orders';
+  }
+  currentAppPage = targetPage;
   const heading = getPageHeading(currentAppPage);
   const titleEl = document.getElementById('workspace-page-title');
   const subtitleEl = document.getElementById('workspace-page-subtitle');
   if (titleEl) titleEl.textContent = heading.title;
   if (subtitleEl) subtitleEl.textContent = heading.subtitle;
 
-  const ids = ['reports-page', 'schedule-page', 'services-page', 'measurements-page', 'cash-page', 'archive-page', 'quotes-page'];
+  const ids = [
+    'reports-page',
+    'schedule-page',
+    'services-page',
+    'measurements-page',
+    'workstations-page',
+    'cash-page',
+    'archive-page',
+    'quotes-page',
+    'team-page',
+  ];
   ids.forEach((id) => document.getElementById(id)?.classList.add('hidden'));
 
-  document.getElementById('dashboard-metrics-section')?.classList.toggle('hidden', page !== 'orders');
-  document.getElementById('orders-filter-section')?.classList.toggle('hidden', page !== 'orders');
-  ordersListContainer?.classList.toggle('hidden', page !== 'orders');
-  customersSection?.classList.toggle('hidden', page !== 'customers');
-  document.getElementById('daily-workload-section')?.classList.toggle('hidden', page !== 'schedule');
+  document.getElementById('dashboard-metrics-section')?.classList.toggle('hidden', targetPage !== 'orders');
+  document.getElementById('orders-filter-section')?.classList.toggle('hidden', targetPage !== 'orders');
+  ordersListContainer?.classList.toggle('hidden', targetPage !== 'orders');
+  customersSection?.classList.toggle('hidden', targetPage !== 'customers');
+  document.getElementById('daily-workload-section')?.classList.toggle('hidden', targetPage !== 'schedule');
 
   const pageMap = {
     quotes: 'quotes-page',
@@ -580,31 +758,35 @@ function showAppPage(page) {
     schedule: 'schedule-page',
     services: 'services-page',
     measurements: 'measurements-page',
+    workstations: 'workstations-page',
     cash: 'cash-page',
     archive: 'archive-page',
+    team: 'team-page',
   };
-  if (pageMap[page]) document.getElementById(pageMap[page])?.classList.remove('hidden');
+  if (pageMap[targetPage]) document.getElementById(pageMap[targetPage])?.classList.remove('hidden');
 
   document.querySelectorAll('[data-app-page], #bottom-nav-orders, #bottom-nav-customers').forEach((btn) => {
     const key =
       btn.dataset.appPage ||
       (btn.id === 'bottom-nav-orders' ? 'orders' : btn.id === 'bottom-nav-customers' ? 'customers' : '');
-    btn.classList.toggle('is-active', key === page);
-    if (key === page) btn.setAttribute('aria-current', 'page');
+    btn.classList.toggle('is-active', key === targetPage);
+    if (key === targetPage) btn.setAttribute('aria-current', 'page');
     else btn.removeAttribute('aria-current');
   });
 
-  if (page === 'quotes') fetchQuoteRequests();
-  if (page === 'customers') fetchCustomers();
-  if (page === 'services') {
+  if (targetPage === 'quotes') fetchQuoteRequests();
+  if (targetPage === 'customers') fetchCustomers();
+  if (targetPage === 'services') {
     syncCurrencyInputs(document.getElementById('services-page'));
     renderServicesList();
     loadWorkloadServices();
   }
-  if (page === 'measurements') renderMeasurementTemplateSettings();
-  if (page === 'reports') renderReports();
-  if (page === 'cash') renderCash();
-  if (page === 'archive') renderArchiveOrders();
+  if (targetPage === 'measurements') renderMeasurementTemplateSettings();
+  if (targetPage === 'workstations') loadWorkstationsPage();
+  if (targetPage === 'team') loadTeamPage();
+  if (targetPage === 'reports') renderReports();
+  if (targetPage === 'cash') renderCash();
+  if (targetPage === 'archive') renderArchiveOrders();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -645,6 +827,7 @@ function renderArchiveOrders() {
 }
 
 async function renderReports() {
+  if (!isOwnerRole()) return;
   const target = document.getElementById('reports-content');
   if (!target) return;
   const period = document.getElementById('report-period')?.value || 'week';
@@ -1058,6 +1241,7 @@ function renderWorkloadSelectedOrders(dateKey) {
         estMinutes > 0
           ? t('workload.estDuration', { duration: formatWorkloadDuration(estMinutes) })
           : t('workload.estUnset');
+      const staff = isStaffRole();
 
       return `
         <article class="mt-card p-4 space-y-3">
@@ -1073,13 +1257,16 @@ function renderWorkloadSelectedOrders(dateKey) {
               </div>
               <p class="mt-1 text-xs sm:text-sm mt-muted">
                 <span class="font-semibold mt-text">${escapeHTML(order.customer_name)}</span>
-                <span aria-hidden="true"> · </span>
-                <span class="font-mono-code text-xs">+${escapeHTML(order.customer_phone)}</span>
+                ${
+                  !staff && order.customer_phone
+                    ? `<span aria-hidden="true"> · </span><span class="font-mono-code text-xs">+${escapeHTML(order.customer_phone)}</span>`
+                    : ''
+                }
               </p>
             </div>
             <div class="sm:text-right shrink-0">
               <p class="font-mono-code text-xs font-semibold mt-text">${escapeHTML(durationLabel)}</p>
-              <p class="font-mono-code text-xs mt-muted">${escapeHTML(formatCurrency(order.total_amount))}</p>
+              ${!staff ? `<p class="font-mono-code text-xs mt-muted">${escapeHTML(formatCurrency(order.total_amount))}</p>` : ''}
             </div>
           </div>
           <div class="flex flex-wrap gap-1.5">${itemSummary}</div>
@@ -1115,8 +1302,17 @@ async function loadWorkloadServices() {
     return;
   }
   try {
-    workloadServices = await fetchServices(tenantId);
-    activeServiceCatalog = workloadServices.filter((service) => service.is_active);
+    if (isStaffRole()) {
+      const { data, error } = await supabase.rpc('get_staff_workload_services', {
+        p_tenant_id: tenantId,
+      });
+      if (error) throw error;
+      workloadServices = Array.isArray(data) ? data : [];
+      activeServiceCatalog = workloadServices.filter((service) => service.is_active);
+    } else {
+      workloadServices = await fetchServices(tenantId);
+      activeServiceCatalog = workloadServices.filter((service) => service.is_active);
+    }
   } catch (error) {
     console.warn('Katalog estimasi beban kerja gagal dimuat:', error);
     workloadServices = [];
@@ -1189,10 +1385,85 @@ function capturePendingDeepLinkTicket() {
   } catch (_) {}
 }
 
+function capturePendingInviteToken() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const raw = String(params.get('invite') || '').trim();
+    if (raw) {
+      sessionStorage.setItem(PENDING_ADMIN_INVITE_KEY, raw);
+    }
+  } catch (_) {}
+}
+
+function getPendingInviteToken() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const urlToken = String(params.get('invite') || '').trim();
+    const storedToken = String(sessionStorage.getItem(PENDING_ADMIN_INVITE_KEY) || '').trim();
+    return urlToken || storedToken || '';
+  } catch (_) {
+    return '';
+  }
+}
+
+function clearPendingInviteToken(cleanUrlParam = true) {
+  try {
+    sessionStorage.removeItem(PENDING_ADMIN_INVITE_KEY);
+    if (cleanUrlParam) {
+      const cleanUrl = new URL(window.location.href);
+      if (cleanUrl.searchParams.has('invite')) {
+        cleanUrl.searchParams.delete('invite');
+        window.history.replaceState({}, '', cleanUrl.pathname + cleanUrl.search + cleanUrl.hash);
+      }
+    }
+  } catch (_) {}
+}
+
+function mapInviteErrorMessage(rawMessage) {
+  const msg = String(rawMessage || '');
+  if (msg.includes('EMAIL_MISMATCH')) return { text: t('invite.emailMismatch'), isMismatch: true };
+  if (msg.includes('INVITE_EXPIRED')) return { text: t('invite.expired'), isMismatch: false };
+  if (msg.includes('INVITE_REVOKED')) return { text: t('invite.revoked'), isMismatch: false };
+  if (msg.includes('INVITE_ACCEPTED')) return { text: t('invite.alreadyUsed'), isMismatch: false };
+  if (msg.includes('INVITE_INVALID')) return { text: t('invite.invalid'), isMismatch: false };
+  return { text: t('invite.acceptFailed', { message: msg || t('common.genericError') }), isMismatch: false };
+}
+
+function renderWorkspaceInviteBanners() {
+  const errBanner = document.getElementById('workspace-invite-banner');
+  const errText = document.getElementById('workspace-invite-banner-text');
+  const switchBtn = document.getElementById('workspace-invite-switch-btn');
+  const okBanner = document.getElementById('workspace-invite-ok-banner');
+  const okText = document.getElementById('workspace-invite-ok-text');
+
+  errBanner?.classList.add('hidden');
+  okBanner?.classList.add('hidden');
+
+  if (!pendingInviteNotice) return;
+  if (pendingInviteNotice.type === 'ok') {
+    if (okText) okText.textContent = pendingInviteNotice.message;
+    okBanner?.classList.remove('hidden');
+  } else {
+    if (errText) errText.textContent = pendingInviteNotice.message;
+    switchBtn?.classList.toggle('hidden', !pendingInviteNotice.allowSwitch);
+    errBanner?.classList.remove('hidden');
+  }
+}
+
+function syncAuthInviteBanner() {
+  const banner = document.getElementById('auth-invite-banner');
+  if (!banner) return;
+  banner.classList.toggle('hidden', !getPendingInviteToken());
+}
+
 function focusOrderInWorkspace(order) {
   if (!order) return;
   focusedOrderId = order.id;
   if (order.status === 'completed') {
+    if (!canAccessPage('archive')) {
+      alert(t('qrTag.deepLinkArchivedStaff', { ticket: order.ticket_code || '' }));
+      return;
+    }
     showAppPage('archive');
     const card = document.querySelector(`[data-archive-order-id="${order.id}"]`);
     card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -1200,6 +1471,7 @@ function focusOrderInWorkspace(order) {
   }
   orderStatusFilter = 'all';
   orderTypeFilter = 'all';
+  orderWorkstationFilter = 'all';
   workloadDateFilter = null;
   searchQuery = String(order.ticket_code || '').trim().toLowerCase();
   if (adminSearchInput) adminSearchInput.value = order.ticket_code;
@@ -1207,11 +1479,13 @@ function focusOrderInWorkspace(order) {
   if (statusSelect) statusSelect.value = 'all';
   const typeSelect = document.getElementById('order-type-filter');
   if (typeSelect) typeSelect.value = 'all';
+  const wsSelect = document.getElementById('order-workstation-filter');
+  if (wsSelect) wsSelect.value = 'all';
   showAppPage('orders');
   renderOrdersList();
   const card = ordersListContainer?.querySelector(`[data-order-card-id="${order.id}"]`);
   card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  card?.querySelector('[data-quick-next]')?.focus();
+  (card?.querySelector('[data-quick-next]') || card?.querySelector('[data-open-staff-detail]'))?.focus();
 }
 
 function consumePendingDeepLinkTicket() {
@@ -1237,6 +1511,8 @@ function consumePendingDeepLinkTicket() {
   );
   if (matched) {
     focusOrderInWorkspace(matched);
+  } else if (isStaffRole()) {
+    alert(t('qrTag.deepLinkArchivedStaff', { ticket: targetTicket }));
   } else {
     alert(t('qrTag.deepLinkNotFound', { ticket: targetTicket }));
   }
@@ -1244,11 +1520,13 @@ function consumePendingDeepLinkTicket() {
 
 document.addEventListener('DOMContentLoaded', async () => {
   capturePendingDeepLinkTicket();
+  capturePendingInviteToken();
   setLocale(detectPreferredLocale());
   populateRegionalSelects();
   mountSeparatedManagementPages();
   applyTranslations(document);
   syncCurrencyInputs(document);
+  syncAuthInviteBanner();
   document.title = t('admin.titleDefault');
   applyStoreSettings();
   if (window.lucide) window.lucide.createIcons();
@@ -1274,7 +1552,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   supabase.auth.onAuthStateChange((event, newSession) => {
     if (event === 'SIGNED_OUT') {
-      resetTenantState();
+      resetTenantState({ clearMemberships: true });
       showAuthScreen('login');
       return;
     }
@@ -1342,6 +1620,7 @@ function showAuthScreen(mode = 'login') {
   adminWorkspace?.classList.add('hidden');
   document.title = t('admin.titleDefault');
   applyTranslations(document);
+  syncAuthInviteBanner();
   setAuthMode(mode);
 }
 
@@ -1397,8 +1676,14 @@ function showOnboardingError(msg) {
   onboardingErrorBox.classList.remove('hidden');
 }
 
-function resetTenantState() {
+function resetTenantState({ clearMemberships = true } = {}) {
+  if (clearMemberships) {
+    activeSessionUser = null;
+    activeMemberships = [];
+    pendingInviteNotice = null;
+  }
   activeTenant = null;
+  activeRole = 'staff';
   allOrders = [];
   allQuoteRequests = [];
   activeQuoteDetail = null;
@@ -1409,6 +1694,11 @@ function resetTenantState() {
   customerRecords = [];
   workloadServices = [];
   activeServiceCatalog = [];
+  workshopWorkstations = [];
+  tenantStaffLabels = [];
+  teamDataCache = { caller_role: null, members: [], invitations: [] };
+  expandedWorkstationOrderIds = new Set();
+  activeStaffOrderDetailId = null;
   activeCustomerDetail = null;
   activeMeasurementTemplates = [];
   activeMeasurementTemplateFields = [];
@@ -1423,15 +1713,26 @@ function resetTenantState() {
   searchQuery = '';
   orderStatusFilter = 'all';
   orderTypeFilter = 'all';
+  orderWorkstationFilter = 'all';
   focusedOrderId = null;
+  if (adminSearchInput) adminSearchInput.value = '';
+  const statusSelect = document.getElementById('order-status-filter');
+  if (statusSelect) statusSelect.value = 'all';
+  const typeSelect = document.getElementById('order-type-filter');
+  if (typeSelect) typeSelect.value = 'all';
+  const wsSelect = document.getElementById('order-workstation-filter');
+  if (wsSelect) wsSelect.value = 'all';
+
   workshopSettings = { ...DEFAULT_STORE_SETTINGS };
-  setLocale(detectPreferredLocale());
-  setCurrency('IDR');
-  setTimezone('Asia/Jakarta');
-  applyTranslations(document);
-  syncCurrencyInputs(document);
-  applyStoreSettings();
-  document.title = t('admin.titleDefault');
+  if (clearMemberships) {
+    setLocale(detectPreferredLocale());
+    setCurrency('IDR');
+    setTimezone('Asia/Jakarta');
+    applyTranslations(document);
+    syncCurrencyInputs(document);
+    applyStoreSettings();
+    document.title = t('admin.titleDefault');
+  }
 
   draftBanner?.classList.add('hidden');
   waReadyToast?.classList.add('hidden');
@@ -1440,6 +1741,7 @@ function resetTenantState() {
   receiptModal?.classList.add('hidden');
   document.getElementById('qr-tag-modal')?.classList.add('hidden');
   document.getElementById('quote-detail-modal')?.classList.add('hidden');
+  document.getElementById('staff-order-detail-modal')?.classList.add('hidden');
   document.getElementById('admin-photo-lightbox')?.classList.add('hidden');
   document.getElementById('outbound-shipment-modal')?.classList.add('hidden');
   document.getElementById('store-settings-modal')?.classList.add('hidden');
@@ -1456,56 +1758,122 @@ function resetTenantState() {
   if (cashEl) cashEl.innerHTML = '';
   const reportsEl = document.getElementById('reports-content');
   if (reportsEl) reportsEl.innerHTML = '';
+  const teamMembersEl = document.getElementById('team-members-list');
+  if (teamMembersEl) teamMembersEl.innerHTML = '';
+  const teamInvEl = document.getElementById('team-invitations-list');
+  if (teamInvEl) teamInvEl.innerHTML = '';
+  const wsListEl = document.getElementById('workstations-list');
+  if (wsListEl) wsListEl.innerHTML = '';
 }
 
 async function resolveAuthSession(session) {
   const seq = ++authResolutionSeq;
   if (!session?.user) {
-    resetTenantState();
+    resetTenantState({ clearMemberships: true });
     showAuthScreen('login');
     return;
   }
 
   if (!session.user.email_confirmed_at) {
-    resetTenantState();
+    resetTenantState({ clearMemberships: true });
     showVerifyEmailPanel(session.user.email || '');
     return;
+  }
+
+  activeSessionUser = session.user;
+  let invitePreferredTenantId = null;
+
+  const pendingInviteToken = getPendingInviteToken();
+  if (pendingInviteToken) {
+    try {
+      const { data: accepted, error: acceptErr } = await supabase.rpc('accept_tenant_invitation', {
+        p_token: pendingInviteToken,
+      });
+      if (seq !== authResolutionSeq) return;
+      if (acceptErr) throw acceptErr;
+
+      clearPendingInviteToken(true);
+      invitePreferredTenantId = accepted?.tenant_id || null;
+      if (invitePreferredTenantId) {
+        savePreferredTenantId(session.user.id, invitePreferredTenantId);
+      }
+      pendingInviteNotice = {
+        type: 'ok',
+        message: t('invite.accepted', {
+          store: accepted?.tenant_name || 'Workshop',
+          role: getRoleMeta(accepted?.role || 'staff').label,
+        }),
+        allowSwitch: false,
+      };
+    } catch (invErr) {
+      if (seq !== authResolutionSeq) return;
+      const mapped = mapInviteErrorMessage(invErr?.message || '');
+      if (!mapped.isMismatch) {
+        clearPendingInviteToken(true);
+      }
+      pendingInviteNotice = {
+        type: 'error',
+        message: mapped.text,
+        allowSwitch: mapped.isMismatch,
+      };
+    }
   }
 
   try {
     const { data: memberships, error } = await supabase
       .from('tenant_members')
-      .select('tenant_id, role, is_active, tenants(*)')
+      .select('tenant_id, role, is_active, display_name, created_at, tenants(*)')
       .eq('user_id', session.user.id)
       .eq('is_active', true)
-      .limit(1);
+      .order('created_at', { ascending: true });
 
     if (seq !== authResolutionSeq) return;
     if (error) throw error;
 
-    const membership = (memberships || [])[0];
-    const tenant = membership?.tenants || null;
+    const validMemberships = (memberships || []).filter((m) => m?.tenants && m.tenants.is_active);
+    activeMemberships = validMemberships;
 
-    if (!tenant || !tenant.is_active) {
-      resetTenantState();
+    if (validMemberships.length === 0) {
+      const savedNotice = pendingInviteNotice;
+      resetTenantState({ clearMemberships: false });
       showOnboardingScreen(session.user.email || '');
+      if (savedNotice && savedNotice.type === 'error') {
+        showOnboardingError(savedNotice.message);
+      }
       return;
     }
 
-    await enterWorkspace(tenant);
+    const preferredId = invitePreferredTenantId || loadPreferredTenantId(session.user.id);
+    const selectedMembership =
+      validMemberships.find((m) => m.tenant_id === preferredId) || validMemberships[0];
+
+    await enterWorkspace(selectedMembership);
   } catch (err) {
     if (seq !== authResolutionSeq) return;
     console.error('Gagal memeriksa keanggotaan workshop:', err);
-    resetTenantState();
+    resetTenantState({ clearMemberships: true });
     showAuthScreen('login');
     showAuthError(t('admin.loadTenantFailed', { message: err.message || t('admin.retrySignIn') }));
   }
 }
 
-async function enterWorkspace(tenant) {
+async function enterWorkspace(membershipOrTenant) {
+  const isMembership = Boolean(membershipOrTenant?.tenants);
+  const tenant = isMembership ? membershipOrTenant.tenants : membershipOrTenant;
+  const role = isMembership ? membershipOrTenant.role : activeRole || 'owner';
   if (!tenant?.id) return;
-  const switchedTenant = activeTenant?.id !== tenant.id;
+
+  const switchedTenant = activeTenant?.id !== tenant.id || activeRole !== role;
+  if (switchedTenant) {
+    resetTenantState({ clearMemberships: false });
+  }
+
   activeTenant = tenant;
+  activeRole = role === 'owner' || role === 'admin' ? role : 'staff';
+  if (activeSessionUser?.id) {
+    savePreferredTenantId(activeSessionUser.id, tenant.id);
+  }
+
   workshopSettings = mapTenantToSettings(tenant);
   setLocale(workshopSettings.LOCALE);
   setCurrency(workshopSettings.CURRENCY);
@@ -1513,6 +1881,9 @@ async function enterWorkspace(tenant) {
   applyTranslations(document);
   syncCurrencyInputs(document);
   applyStoreSettings();
+  applyRoleNavigationGating();
+  renderWorkspaceSwitchers();
+  renderWorkspaceInviteBanners();
 
   authLoadingScreen?.classList.add('hidden');
   authScreen?.classList.add('hidden');
@@ -1520,24 +1891,34 @@ async function enterWorkspace(tenant) {
   adminWorkspace?.classList.remove('hidden');
   if (adminDocHeading) adminDocHeading.textContent = t('admin.docHeadingWorkspace', { name: workshopSettings.NAME });
 
-  if (switchedTenant) {
-    allOrders = [];
-    allQuoteRequests = [];
-    activeQuoteDetail = null;
-    customerRecords = [];
-    workloadServices = [];
-    activeServiceCatalog = [];
+  if (switchedTenant || !canAccessPage(currentAppPage)) {
     showAppPage('orders');
   } else {
     applyWorkspaceLocalization();
   }
 
-  checkSavedDraftBanner();
+  if (isAdminOrOwnerRole()) {
+    checkSavedDraftBanner();
+  } else {
+    draftBanner?.classList.add('hidden');
+  }
+
+  await loadWorkstationCatalog();
   await loadWorkloadServices();
   await fetchOrders();
-  await fetchCustomers();
-  await fetchQuoteRequests({ silent: true });
+  if (isAdminOrOwnerRole()) {
+    await fetchCustomers();
+    await fetchQuoteRequests({ silent: true });
+  }
   consumePendingDeepLinkTicket();
+}
+
+async function switchActiveWorkspace(targetTenantId) {
+  if (!targetTenantId || targetTenantId === activeTenant?.id) return;
+  const targetMembership = activeMemberships.find((m) => m.tenant_id === targetTenantId);
+  if (!targetMembership) return;
+  pendingInviteNotice = null;
+  await enterWorkspace(targetMembership);
 }
 
 function showAuthError(msg) {
@@ -1729,6 +2110,11 @@ function closeActiveDialogOnEscape() {
     closeAdminPhotoLightbox();
     return;
   }
+  const staffOrderDetailModal = document.getElementById('staff-order-detail-modal');
+  if (staffOrderDetailModal && !staffOrderDetailModal.classList.contains('hidden')) {
+    closeStaffOrderDetailModal();
+    return;
+  }
   const quoteDetailModal = document.getElementById('quote-detail-modal');
   if (quoteDetailModal && !quoteDetailModal.classList.contains('hidden')) {
     closeQuoteDetailModal();
@@ -1791,6 +2177,7 @@ function resetOrderFilters() {
   searchQuery = '';
   orderStatusFilter = 'all';
   orderTypeFilter = 'all';
+  orderWorkstationFilter = 'all';
   focusedOrderId = null;
   workloadDateFilter = null;
   if (adminSearchInput) adminSearchInput.value = '';
@@ -1798,6 +2185,8 @@ function resetOrderFilters() {
   if (statusSelect) statusSelect.value = 'all';
   const typeSelect = document.getElementById('order-type-filter');
   if (typeSelect) typeSelect.value = 'all';
+  const wsSelect = document.getElementById('order-workstation-filter');
+  if (wsSelect) wsSelect.value = 'all';
   renderWorkloadCalendar();
   renderOrdersList();
 }
@@ -2116,7 +2505,14 @@ function bindGlobalEvents() {
       if (error) throw error;
       if (!createdTenant?.id) throw new Error(t('admin.onboardNoTenantReturned'));
       onboardingForm.reset();
-      await enterWorkspace(createdTenant);
+      const newMembership = {
+        tenant_id: createdTenant.id,
+        role: 'owner',
+        is_active: true,
+        tenants: createdTenant,
+      };
+      activeMemberships = [newMembership];
+      await enterWorkspace(newMembership);
     } catch (err) {
       showOnboardingError(err.message || t('admin.onboardCreateFailed'));
     } finally {
@@ -2329,8 +2725,13 @@ function bindGlobalEvents() {
     orderStatusFilter = event.target.value || 'all';
     renderOrdersList();
   });
+  document.getElementById('order-workstation-filter')?.addEventListener('change', (event) => {
+    orderWorkstationFilter = event.target.value || 'all';
+    renderOrdersList();
+  });
   document.getElementById('clear-order-filters')?.addEventListener('click', resetOrderFilters);
   refreshOrdersBtn?.addEventListener('click', () => renderOrdersList());
+  bindStage5Events();
 
   document.getElementById('bottom-nav-customers')?.addEventListener('click', () => showAppPage('customers'));
   document.getElementById('bottom-nav-orders')?.addEventListener('click', () => showAppPage('orders'));
@@ -3404,18 +3805,43 @@ async function fetchOrders() {
   `;
 
   try {
-    const { data, error } = await supabase
-      .from('orders')
-      .select('*, order_items(*)')
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
+    let rows = [];
+    if (isStaffRole()) {
+      const { data, error } = await supabase.rpc('get_staff_production_orders', {
+        p_tenant_id: tenantId,
+      });
+      if (error) throw error;
+      rows = Array.isArray(data) ? data : [];
+    } else {
+      const { data, error } = await supabase
+        .from('orders')
+        .select('*, order_items(*, order_item_workstations(*))')
+        .eq('tenant_id', tenantId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      rows = (data || []).map((order) => ({
+        ...order,
+        order_items: (order.order_items || []).map((it) => ({
+          ...it,
+          order_item_workstations: [...(it.order_item_workstations || [])].sort(
+            (a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)
+          ),
+        })),
+      }));
+    }
 
-    if (error) throw error;
-    allOrders = data || [];
-    if (customerRecords.length) renderCustomersList();
+    allOrders = rows;
+    if (customerRecords.length && isAdminOrOwnerRole()) renderCustomersList();
     updateDashboardMetrics();
     renderWorkloadCalendar();
     renderOrdersList();
+    if (activeStaffOrderDetailId) {
+      const modal = document.getElementById('staff-order-detail-modal');
+      if (modal && !modal.classList.contains('hidden')) {
+        const refreshed = allOrders.find((o) => o.id === activeStaffOrderDetailId);
+        if (refreshed) openStaffOrderDetailModal(refreshed, { preserveTrigger: true });
+      }
+    }
   } catch (err) {
     console.error('Fetch orders failed:', err);
     ordersListContainer.innerHTML = `
@@ -3437,10 +3863,12 @@ function updateDashboardMetrics() {
 
   if (activeCountEl) activeCountEl.textContent = String(activeOrders.length);
 
-  const totalPiutang = allOrders.reduce((acc, o) => {
-    return acc + Math.max(0, Number(o.total_amount || 0) - Number(o.paid_amount || 0));
-  }, 0);
-  if (unpaidTotalEl) unpaidTotalEl.textContent = formatCurrency(totalPiutang);
+  if (unpaidTotalEl && !isStaffRole()) {
+    const totalPiutang = allOrders.reduce((acc, o) => {
+      return acc + Math.max(0, Number(o.total_amount || 0) - Number(o.paid_amount || 0));
+    }, 0);
+    unpaidTotalEl.textContent = formatCurrency(totalPiutang);
+  }
 
   const ongoingWithDeadline = activeOrders
     .filter((o) => o.estimated_done_date && !['ready', 'shipped', 'completed'].includes(o.status))
@@ -3468,6 +3896,14 @@ function updateDashboardMetrics() {
 }
 
 function getNextOrderStep(order) {
+  if (isStaffRole()) {
+    const staffProductionMap = {
+      queued: { next: 'in_progress', label: t('orders.next.queued') },
+      in_progress: { next: 'qc', label: t('orders.next.in_progress') },
+      qc: { next: 'ready', label: t('orders.next.qc') },
+    };
+    return staffProductionMap[order.status] || null;
+  }
   const isMailIn = order.order_type === 'mail_in';
   if (isMailIn) {
     const mailInMap = {
@@ -3512,13 +3948,23 @@ function renderTrackingPill(label, courier, tracking) {
 function renderOrdersList() {
   if (!ordersListContainer) return;
 
+  const staff = isStaffRole();
   const activePool = allOrders.filter((order) => order.status !== 'completed');
   const filtered = activePool.filter((order) => {
     if (workloadDateFilter && order.estimated_done_date !== workloadDateFilter) return false;
     if (orderTypeFilter !== 'all' && (order.order_type || 'walk_in') !== orderTypeFilter) return false;
     if (orderStatusFilter !== 'all' && order.status !== orderStatusFilter) return false;
+    if (orderWorkstationFilter !== 'all') {
+      const wsStats = getOrderWorkstationStats(order);
+      if (orderWorkstationFilter === '__done_all__') {
+        if (wsStats.total === 0 || wsStats.done < wsStats.total) return false;
+      } else {
+        if (!wsStats.pendingStationNames.includes(orderWorkstationFilter)) return false;
+      }
+    }
     if (searchQuery) {
-      const hay = `${order.ticket_code} ${order.customer_name} ${order.customer_phone} ${order.inbound_courier || ''} ${order.inbound_tracking || ''} ${order.outbound_courier || ''} ${order.outbound_tracking || ''}`.toLowerCase();
+      const phoneHay = staff ? '' : order.customer_phone || '';
+      const hay = `${order.ticket_code} ${order.customer_name} ${phoneHay} ${order.inbound_courier || ''} ${order.inbound_tracking || ''} ${order.outbound_courier || ''} ${order.outbound_tracking || ''}`.toLowerCase();
       if (!hay.includes(searchQuery)) return false;
     }
     return true;
@@ -3533,7 +3979,11 @@ function renderOrdersList() {
         <div class="mt-card p-8 text-center space-y-3">
           <p class="font-bold mt-text text-sm">${escapeHTML(t('orders.emptyActiveTitle'))}</p>
           <p class="text-xs mt-muted">${escapeHTML(t('orders.emptyActiveDesc'))}</p>
-          <button type="button" data-empty-new-order class="mt-btn mt-btn-primary text-xs">${escapeHTML(t('orders.addFirstBtn'))}</button>
+          ${
+            !staff
+              ? `<button type="button" data-empty-new-order class="mt-btn mt-btn-primary text-xs">${escapeHTML(t('orders.addFirstBtn'))}</button>`
+              : ''
+          }
         </div>
       `;
       ordersListContainer.querySelector('[data-empty-new-order]')?.addEventListener('click', () => openOrderModal(null));
@@ -3558,11 +4008,13 @@ function renderOrdersList() {
       const typeMeta = isMailIn ? getOrderTypeMeta(orderType) : null;
       const items = order.order_items || [];
       const paidAmount = Number(order.paid_amount || 0);
-      const remaining = Math.max(0, Number(order.total_amount) - paidAmount);
+      const remaining = staff ? 0 : Math.max(0, Number(order.total_amount || 0) - paidAmount);
       const deadline = getDeadlineStatus(order.estimated_done_date);
       const isDoneStage = ['ready', 'shipped', 'completed'].includes(order.status);
       const nextStep = getNextOrderStep(order);
       const isFocused = focusedOrderId === order.id;
+      const wsStats = getOrderWorkstationStats(order);
+      const isWsExpanded = expandedWorkstationOrderIds.has(order.id);
 
       const itemSummary =
         items.length > 0
@@ -3599,6 +4051,15 @@ function renderOrdersList() {
               deadline.isUrgent && !isDoneStage ? 'mt-danger-text font-semibold' : 'mt-muted'
             }">${escapeHTML(t('orders.targetPrefix'))}${escapeHTML(formatDateID(order.estimated_done_date))}</div>`;
 
+      const wsBadgeHTML =
+        wsStats.total > 0
+          ? wsStats.done >= wsStats.total
+            ? `<span class="mt-badge mt-badge-ready font-mono-code">${escapeHTML(t('workstations.allDone'))}</span>`
+            : `<span class="mt-badge mt-badge-awaiting_package font-mono-code">${escapeHTML(
+                t('workstations.nextStation', { station: wsStats.currentStation })
+              )} · ${wsStats.done}/${wsStats.total}</span>`
+          : '';
+
       return `
         <article data-order-card-id="${order.id}" class="mt-card p-4 sm:p-5 space-y-3.5 ${isFocused ? 'mt-card-focused' : ''}">
           <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5">
@@ -3610,35 +4071,46 @@ function renderOrdersList() {
                   <span class="${statusMeta.dotClass}" aria-hidden="true"></span>
                   <span>${escapeHTML(statusMeta.label)}</span>
                 </span>
+                ${wsBadgeHTML}
               </div>
 
               <div class="mt-1.5 flex items-center gap-2 text-xs sm:text-sm mt-muted flex-wrap">
-                <button type="button" data-edit-order="${escapeHTML(order.id)}" class="font-semibold mt-text hover:underline text-left">${escapeHTML(order.customer_name)}</button>
-                <span aria-hidden="true">·</span>
-                <a href="${buildWhatsAppLink(
-                  order.customer_phone,
-                  t('orders.waFollowUp', {
-                    customer: order.customer_name,
-                    ticket: order.ticket_code,
-                    store: workshopSettings.NAME,
-                  })
-                )}" target="_blank" rel="noopener noreferrer" class="mt-success-text hover:underline font-mono-code text-xs">
-                  +${escapeHTML(order.customer_phone)}
-                </a>
+                ${
+                  staff
+                    ? `<button type="button" data-open-staff-detail="${escapeHTML(order.id)}" class="font-semibold mt-text hover:underline text-left">${escapeHTML(order.customer_name)}</button>`
+                    : `<button type="button" data-edit-order="${escapeHTML(order.id)}" class="font-semibold mt-text hover:underline text-left">${escapeHTML(order.customer_name)}</button>
+                       <span aria-hidden="true">·</span>
+                       <a href="${buildWhatsAppLink(
+                         order.customer_phone,
+                         t('orders.waFollowUp', {
+                           customer: order.customer_name,
+                           ticket: order.ticket_code,
+                           store: workshopSettings.NAME,
+                         })
+                       )}" target="_blank" rel="noopener noreferrer" class="mt-success-text hover:underline font-mono-code text-xs">
+                         +${escapeHTML(order.customer_phone)}
+                       </a>`
+                }
               </div>
               ${trackingPillsHTML ? `<div class="mt-2 flex flex-wrap gap-2">${trackingPillsHTML}</div>` : ''}
             </div>
 
-            <div class="sm:text-right shrink-0">
-              <p class="font-mono-code font-bold text-sm sm:text-base mt-text">${escapeHTML(formatCurrency(order.total_amount))}</p>
-              ${paymentSublineHTML}
-            </div>
+            ${
+              staff
+                ? ''
+                : `<div class="sm:text-right shrink-0">
+                    <p class="font-mono-code font-bold text-sm sm:text-base mt-text">${escapeHTML(formatCurrency(order.total_amount))}</p>
+                    ${paymentSublineHTML}
+                  </div>`
+            }
           </div>
 
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2.5 mt-seam-t">
             <div class="flex flex-wrap gap-1.5">${itemSummary}</div>
             ${deadlineHTML}
           </div>
+
+          ${isWsExpanded ? renderOrderWorkstationsHTML(order) : ''}
 
           <div class="pt-3 mt-seam-t flex flex-wrap items-center justify-between gap-2">
             <div class="flex items-center gap-2 flex-wrap">
@@ -3650,49 +4122,68 @@ function renderOrdersList() {
                     </button>`
                   : ''
               }
+              ${
+                wsStats.total > 0
+                  ? `<button type="button" data-toggle-ws-checklist="${order.id}" aria-expanded="${isWsExpanded ? 'true' : 'false'}" class="mt-btn mt-btn-secondary text-xs">
+                      <i data-lucide="cog" class="w-4 h-4" aria-hidden="true"></i>
+                      <span>${escapeHTML(t('workstations.toggleChecklistBtn', { done: wsStats.done, total: wsStats.total }))}</span>
+                    </button>`
+                  : ''
+              }
             </div>
 
-            <div class="mt-actions-wrap">
-              <button
-                type="button"
-                data-toggle-actions="${order.id}"
-                aria-haspopup="menu"
-                aria-expanded="false"
-                aria-controls="order-actions-menu-${order.id}"
-                aria-label="${escapeHTML(t('orders.actionsAria', { code: order.ticket_code }))}"
-                class="mt-btn mt-btn-secondary text-xs"
-              >
-                <span>${escapeHTML(t('orders.actionsBtn'))}</span>
-                <i data-lucide="chevron-down" class="w-4 h-4" aria-hidden="true"></i>
-              </button>
-              <div id="order-actions-menu-${order.id}" role="menu" class="hidden mt-actions-menu">
-                ${
-                  remaining > 0
-                    ? `<button type="button" role="menuitem" data-open-payment="${order.id}" class="mt-actions-item mt-actions-item-success">
-                        <i data-lucide="wallet" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
-                        <span>${escapeHTML(t('orders.settlementBtn'))}</span>
-                      </button>`
-                    : ''
-                }
-                <button type="button" role="menuitem" data-open-qr-tag="${order.id}" class="mt-actions-item">
-                  <i data-lucide="qr-code" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
-                  <span>${escapeHTML(t('orders.qrTagBtn'))}</span>
-                </button>
-                <button type="button" role="menuitem" data-open-receipt="${order.id}" class="mt-actions-item">
-                  <i data-lucide="receipt-text" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
-                  <span>${escapeHTML(t('orders.receiptBtn'))}</span>
-                </button>
-                <button type="button" role="menuitem" data-edit-order="${order.id}" class="mt-actions-item">
-                  <i data-lucide="pencil" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
-                  <span>${escapeHTML(t('common.edit'))}</span>
-                </button>
-                <div class="mt-actions-sep" role="separator"></div>
-                <button type="button" role="menuitem" data-delete-order="${order.id}" class="mt-actions-item mt-actions-item-danger">
-                  <i data-lucide="trash-2" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
-                  <span>${escapeHTML(t('orders.deleteAction'))}</span>
-                </button>
-              </div>
-            </div>
+            ${
+              staff
+                ? `<button type="button" data-open-staff-detail="${order.id}" class="mt-btn mt-btn-secondary text-xs ml-auto">
+                    <i data-lucide="eye" class="w-4 h-4" aria-hidden="true"></i>
+                    <span>${escapeHTML(t('staffOrder.viewDetailBtn'))}</span>
+                  </button>`
+                : `<div class="mt-actions-wrap">
+                    <button
+                      type="button"
+                      data-toggle-actions="${order.id}"
+                      aria-haspopup="menu"
+                      aria-expanded="false"
+                      aria-controls="order-actions-menu-${order.id}"
+                      aria-label="${escapeHTML(t('orders.actionsAria', { code: order.ticket_code }))}"
+                      class="mt-btn mt-btn-secondary text-xs"
+                    >
+                      <span>${escapeHTML(t('orders.actionsBtn'))}</span>
+                      <i data-lucide="chevron-down" class="w-4 h-4" aria-hidden="true"></i>
+                    </button>
+                    <div id="order-actions-menu-${order.id}" role="menu" class="hidden mt-actions-menu">
+                      ${
+                        remaining > 0
+                          ? `<button type="button" role="menuitem" data-open-payment="${order.id}" class="mt-actions-item mt-actions-item-success">
+                              <i data-lucide="wallet" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
+                              <span>${escapeHTML(t('orders.settlementBtn'))}</span>
+                            </button>`
+                          : ''
+                      }
+                      <button type="button" role="menuitem" data-open-qr-tag="${order.id}" class="mt-actions-item">
+                        <i data-lucide="qr-code" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
+                        <span>${escapeHTML(t('orders.qrTagBtn'))}</span>
+                      </button>
+                      <button type="button" role="menuitem" data-open-receipt="${order.id}" class="mt-actions-item">
+                        <i data-lucide="receipt-text" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
+                        <span>${escapeHTML(t('orders.receiptBtn'))}</span>
+                      </button>
+                      <button type="button" role="menuitem" data-edit-order="${order.id}" class="mt-actions-item">
+                        <i data-lucide="pencil" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
+                        <span>${escapeHTML(t('common.edit'))}</span>
+                      </button>
+                      ${
+                        canDeleteOrders()
+                          ? `<div class="mt-actions-sep" role="separator"></div>
+                             <button type="button" role="menuitem" data-delete-order="${order.id}" class="mt-actions-item mt-actions-item-danger">
+                               <i data-lucide="trash-2" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
+                               <span>${escapeHTML(t('orders.deleteAction'))}</span>
+                             </button>`
+                          : ''
+                      }
+                    </div>
+                  </div>`
+            }
           </div>
         </article>
       `;
@@ -3768,6 +4259,44 @@ function bindCardActionListeners() {
     });
   });
 
+  ordersListContainer.querySelectorAll('[data-open-staff-detail]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      closeAllOrderActionMenus();
+      const order = allOrders.find((o) => o.id === btn.getAttribute('data-open-staff-detail'));
+      if (order) openStaffOrderDetailModal(order);
+    });
+  });
+
+  ordersListContainer.querySelectorAll('[data-toggle-ws-checklist]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const orderId = btn.getAttribute('data-toggle-ws-checklist');
+      if (!orderId) return;
+      if (expandedWorkstationOrderIds.has(orderId)) expandedWorkstationOrderIds.delete(orderId);
+      else expandedWorkstationOrderIds.add(orderId);
+      renderOrdersList();
+    });
+  });
+
+  ordersListContainer.querySelectorAll('[data-ws-step-toggle]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const stepId = btn.getAttribute('data-ws-step-toggle');
+      const nextDone = btn.getAttribute('data-next-done') === 'true';
+      handleWorkstationStepUpdate(stepId, { is_done: nextDone }, btn);
+    });
+  });
+
+  ordersListContainer.querySelectorAll('[data-ws-step-assignee]').forEach((select) => {
+    select.addEventListener('change', () => {
+      const stepId = select.getAttribute('data-ws-step-assignee');
+      const val = select.value || '';
+      handleWorkstationStepUpdate(
+        stepId,
+        val ? { assigned_to: val } : { clear_assignee: true },
+        select
+      );
+    });
+  });
+
   ordersListContainer.querySelectorAll('[data-edit-order]').forEach((btn) => {
     btn.addEventListener('click', () => {
       closeAllOrderActionMenus();
@@ -3814,6 +4343,7 @@ function bindCardActionListeners() {
 }
 
 async function deleteOrderAndRelatedRecords(orderId) {
+  if (!canDeleteOrders()) throw new Error(t('rbac.ownerOnly'));
   const tenantId = getActiveTenantId();
   if (!tenantId) throw new Error(t('common.noActiveTenant'));
   const { error: rpcError } = await supabase.rpc('delete_order_cascade', {
@@ -3983,6 +4513,19 @@ async function updateOrderStatus(orderId, newStatus) {
   try {
     const targetOrder = allOrders.find((o) => o.id === orderId);
     if (!targetOrder) return;
+    const tenantId = getActiveTenantId();
+    if (!tenantId) throw new Error(t('common.noActiveTenant'));
+
+    if (isStaffRole()) {
+      const { error } = await supabase.rpc('advance_order_production_status', {
+        p_tenant_id: tenantId,
+        p_order_id: orderId,
+        p_next_status: newStatus,
+      });
+      if (error) throw error;
+      await fetchOrders();
+      return;
+    }
 
     if (targetOrder.order_type === 'mail_in' && newStatus === 'shipped') {
       openOutboundShipmentModal(targetOrder);
@@ -4006,8 +4549,6 @@ async function updateOrderStatus(orderId, newStatus) {
 
     const previousStatus = targetOrder.status;
     // Marking an order completed never auto-settles unpaid balance.
-    const tenantId = getActiveTenantId();
-    if (!tenantId) throw new Error(t('common.noActiveTenant'));
     const { error } = await supabase
       .from('orders')
       .update({ status: newStatus })
@@ -4375,6 +4916,7 @@ async function fetchCustomerPassports(customerId) {
 }
 
 async function openOrderModal(existingOrder = null, draftOverride = null) {
+  if (!isAdminOrOwnerRole()) return;
   if (!orderFormModal) return;
   const tenantId = getActiveTenantId();
   if (!tenantId) return;
@@ -5169,19 +5711,50 @@ async function renderCash() {
     document.getElementById('cash-expense').textContent = formatCurrency(periodExpense);
     document.getElementById('cash-balance').textContent = formatCurrency(balance);
 
+    const allowCashDelete = canDeleteCash();
     target.innerHTML = rows.length
       ? rows
-          .map(
-            (x) => `<div class="flex items-center justify-between gap-3 py-3 border-b last:border-0" style="border-color: var(--mt-border);">
+          .map((x) => {
+            const label = x.description || getCashCategoryLabel(x.category);
+            const canDeleteRow = allowCashDelete && x.source_type === 'manual' && !x.order_id;
+            return `<div class="flex items-center justify-between gap-3 py-3 border-b last:border-0" style="border-color: var(--mt-border);">
               <div class="min-w-0">
-                <p class="text-sm font-semibold mt-text">${escapeHTML(x.description || getCashCategoryLabel(x.category))}</p>
+                <p class="text-sm font-semibold mt-text">${escapeHTML(label)}</p>
                 <p class="text-xs mt-muted">${escapeHTML(formatDateID(x.occurred_at, true))} · ${escapeHTML(getCashCategoryLabel(x.category))} · ${escapeHTML(getPaymentMethodLabel(x.payment_method || 'Tunai'))} · ${escapeHTML(x.order_id ? t('cash.sourceOrder') : t('cash.sourceManual'))}</p>
               </div>
-              <b class="text-sm font-mono-code whitespace-nowrap ${x.transaction_type === 'income' ? 'mt-success-text' : 'mt-danger-text'}">${x.transaction_type === 'income' ? '+' : '-'}${escapeHTML(formatCurrency(x.amount))}</b>
-            </div>`
-          )
+              <div class="mt-cash-row-right">
+                <b class="text-sm font-mono-code whitespace-nowrap ${x.transaction_type === 'income' ? 'mt-success-text' : 'mt-danger-text'}">${x.transaction_type === 'income' ? '+' : '-'}${escapeHTML(formatCurrency(x.amount))}</b>
+                ${
+                  canDeleteRow
+                    ? `<button type="button" data-delete-cash="${escapeHTML(x.id)}" data-delete-cash-desc="${escapeHTML(label)}" data-delete-cash-amount="${escapeHTML(formatCurrency(x.amount))}" aria-label="${escapeHTML(t('cash.deleteAria', { desc: label }))}" class="mt-btn mt-btn-danger-ghost mt-btn-sm-inline">${escapeHTML(t('cash.deleteBtn'))}</button>`
+                    : ''
+                }
+              </div>
+            </div>`;
+          })
           .join('')
       : `<p class="text-sm mt-muted py-5 text-center">${escapeHTML(t('reports.noTransactions'))}</p>`;
+
+    target.querySelectorAll('[data-delete-cash]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const txId = btn.getAttribute('data-delete-cash');
+        const desc = btn.getAttribute('data-delete-cash-desc') || '';
+        const amountLabel = btn.getAttribute('data-delete-cash-amount') || '';
+        if (!txId || !confirm(t('cash.deleteConfirm', { desc, amount: amountLabel }))) return;
+        btn.disabled = true;
+        try {
+          const { error: delErr } = await supabase.rpc('delete_manual_cash_transaction', {
+            p_tenant_id: tenantId,
+            p_transaction_id: txId,
+          });
+          if (delErr) throw delErr;
+          await renderCash();
+        } catch (err) {
+          alert(t('cash.deleteFailed', { message: err.message || t('common.genericError') }));
+          btn.disabled = false;
+        }
+      });
+    });
   } catch (err) {
     target.innerHTML = `<div role="alert" class="text-sm mt-danger-text flex items-center justify-between gap-2">
       <span>${escapeHTML(t('cash.loadFailed', { message: err.message || '' }))}</span>
@@ -6029,5 +6602,856 @@ function bindQuoteRequestsEvents() {
   document.getElementById('close-admin-photo-lightbox')?.addEventListener('click', closeAdminPhotoLightbox);
   document.getElementById('admin-photo-lightbox')?.addEventListener('click', (event) => {
     if (event.target.id === 'admin-photo-lightbox') closeAdminPhotoLightbox();
+  });
+}
+
+// Stage 5: Workstation Queue, Staff Production Detail, and Team / RBAC Management.
+
+async function loadWorkstationCatalog() {
+  const tenantId = getActiveTenantId();
+  if (!tenantId) {
+    workshopWorkstations = [];
+    tenantStaffLabels = [];
+    populateWorkstationFilterSelect();
+    return;
+  }
+  try {
+    const [stations, labelsRes] = await Promise.all([
+      fetchWorkstations(tenantId),
+      supabase.rpc('get_tenant_staff_labels', { p_tenant_id: tenantId }),
+    ]);
+    workshopWorkstations = stations || [];
+    tenantStaffLabels = !labelsRes.error && Array.isArray(labelsRes.data) ? labelsRes.data : [];
+  } catch (err) {
+    console.warn('Gagal memuat katalog stasiun/tim:', err);
+    workshopWorkstations = [];
+    tenantStaffLabels = [];
+  }
+  populateWorkstationFilterSelect();
+}
+
+function populateWorkstationFilterSelect() {
+  const select = document.getElementById('order-workstation-filter');
+  if (!select) return;
+  const activeNames = workshopWorkstations.filter((w) => w.is_active).map((w) => w.name);
+  const previous = orderWorkstationFilter || 'all';
+  const options = [
+    `<option value="all">${escapeHTML(t('workstations.filterAll'))}</option>`,
+    ...activeNames.map((name) => `<option value="${escapeHTML(name)}">${escapeHTML(name)}</option>`),
+    `<option value="__done_all__">${escapeHTML(t('workstations.filterDoneAll'))}</option>`,
+  ];
+  select.innerHTML = options.join('');
+  if ([...select.options].some((opt) => opt.value === previous)) {
+    select.value = previous;
+  } else {
+    orderWorkstationFilter = 'all';
+    select.value = 'all';
+  }
+}
+
+function getStaffDisplayName(userId) {
+  if (!userId) return '';
+  const match = tenantStaffLabels.find((m) => m.user_id === userId);
+  return match?.display_name || '';
+}
+
+function getOrderWorkstationStats(order) {
+  const items = order?.order_items || [];
+  let total = 0;
+  let done = 0;
+  let currentStation = '';
+  const pendingStationNames = new Set();
+
+  items.forEach((item) => {
+    const steps = [...(item.order_item_workstations || [])].sort(
+      (a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)
+    );
+    let foundFirstPending = false;
+    steps.forEach((step) => {
+      total += 1;
+      if (step.is_done) {
+        done += 1;
+      } else if (!foundFirstPending) {
+        foundFirstPending = true;
+        if (!currentStation) currentStation = step.station_name;
+        pendingStationNames.add(step.station_name);
+      }
+    });
+  });
+
+  return {
+    total,
+    done,
+    currentStation,
+    pendingStationNames: [...pendingStationNames],
+  };
+}
+
+function renderItemWorkstationStepsHTML(item) {
+  const steps = [...(item.order_item_workstations || [])].sort(
+    (a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)
+  );
+  if (!steps.length) {
+    return `<p class="text-xs mt-muted">${escapeHTML(t('workstations.noSteps'))}</p>`;
+  }
+
+  const canAssign = isAdminOrOwnerRole();
+  const activeMembers = tenantStaffLabels.filter((m) => m.is_active);
+  const doneCount = steps.filter((s) => s.is_done).length;
+  const firstPendingIdx = steps.findIndex((s) => !s.is_done);
+
+  return `
+    <div class="mt-ws-item-block" aria-label="${escapeHTML(t('workstations.checklistAria', { item: item.garment_name || '' }))}">
+      <div class="mt-ws-item-head">
+        <p class="text-xs font-bold mt-text">${escapeHTML(item.garment_name || '')} <span class="mt-font-normal mt-muted">· ${escapeHTML(item.service_type || '')}</span></p>
+        <span class="text-xs font-mono-code mt-muted">${escapeHTML(t('workstations.progressCount', { done: doneCount, total: steps.length }))}</span>
+      </div>
+      <div class="mt-ws-pill-row" aria-hidden="true">
+        ${steps
+          .map(
+            (step, idx) =>
+              `<span class="mt-ws-chip ${step.is_done ? 'is-done' : idx === firstPendingIdx ? 'is-current' : ''}">${
+                step.is_done ? '✓ ' : ''
+              }${escapeHTML(step.station_name)}</span>`
+          )
+          .join('')}
+      </div>
+      <div class="mt-ws-step-list">
+        ${steps
+          .map((step) => {
+            const assignedName = getStaffDisplayName(step.assigned_to);
+            const completedName = getStaffDisplayName(step.completed_by);
+            const subline = step.is_done && completedName
+              ? t('workstations.doneBy', { name: completedName })
+              : !canAssign && assignedName
+                ? `${t('workstations.assigneeLabel')}: ${assignedName}`
+                : '';
+
+            const assigneeControl = canAssign
+              ? `<select data-ws-step-assignee="${escapeHTML(step.id)}" aria-label="${escapeHTML(
+                  `${t('workstations.assigneeLabel')} ${step.station_name}`
+                )}" class="mt-select mt-ws-assignee-select">
+                  <option value="">${escapeHTML(t('workstations.unassigned'))}</option>
+                  ${activeMembers
+                    .map(
+                      (m) =>
+                        `<option value="${escapeHTML(m.user_id)}"${m.user_id === step.assigned_to ? ' selected' : ''}>${escapeHTML(
+                          m.display_name
+                        )} (${escapeHTML(getRoleMeta(m.role).label)})</option>`
+                    )
+                    .join('')}
+                </select>`
+              : assignedName
+                ? `<span class="mt-badge mt-badge-walk_in text-xs">${escapeHTML(t('workstations.assigneeLabel'))}: ${escapeHTML(assignedName)}</span>`
+                : '';
+
+            return `<div class="mt-ws-step-row">
+              <button type="button" data-ws-step-toggle="${escapeHTML(step.id)}" data-next-done="${step.is_done ? 'false' : 'true'}" aria-pressed="${step.is_done ? 'true' : 'false'}" class="mt-ws-step-toggle ${step.is_done ? 'is-done' : ''}">
+                <span class="mt-ws-step-box" aria-hidden="true">${step.is_done ? '✓' : ''}</span>
+                <span class="min-w-0">
+                  <span class="mt-ws-step-name block">${escapeHTML(step.station_name)}</span>
+                  ${subline ? `<span class="block text-xs mt-font-normal mt-muted">${escapeHTML(subline)}</span>` : ''}
+                </span>
+              </button>
+              ${assigneeControl}
+            </div>`;
+          })
+          .join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderOrderWorkstationsHTML(order) {
+  const items = order?.order_items || [];
+  if (!items.length) return '';
+  return `<div class="mt-ws-queue-box">${items.map((item) => renderItemWorkstationStepsHTML(item)).join('')}</div>`;
+}
+
+async function handleWorkstationStepUpdate(stepId, patch, controlEl = null) {
+  const tenantId = getActiveTenantId();
+  if (!tenantId || !stepId) return;
+  if (controlEl) controlEl.disabled = true;
+  try {
+    const { data: updatedStep, error } = await supabase.rpc('update_order_item_workstation', {
+      p_tenant_id: tenantId,
+      p_step_id: stepId,
+      p_is_done: typeof patch.is_done === 'boolean' ? patch.is_done : null,
+      p_assigned_to: patch.assigned_to || null,
+      p_clear_assignee: Boolean(patch.clear_assignee),
+    });
+    if (error) throw error;
+
+    // Sync local order state in-place for snappy UI feedback without full list flicker.
+    allOrders.forEach((order) => {
+      (order.order_items || []).forEach((item) => {
+        (item.order_item_workstations || []).forEach((step, idx, arr) => {
+          if (step.id === stepId && updatedStep) {
+            arr[idx] = { ...step, ...updatedStep };
+          }
+        });
+      });
+    });
+
+    renderOrdersList();
+    if (activeStaffOrderDetailId) {
+      const modal = document.getElementById('staff-order-detail-modal');
+      if (modal && !modal.classList.contains('hidden')) {
+        const order = allOrders.find((o) => o.id === activeStaffOrderDetailId);
+        if (order) openStaffOrderDetailModal(order, { preserveTrigger: true });
+      }
+    }
+  } catch (err) {
+    alert(t('workstations.stepUpdateFailed', { message: err.message || t('common.genericError') }));
+    if (controlEl) controlEl.disabled = false;
+  }
+}
+
+async function loadWorkstationsPage() {
+  const container = document.getElementById('workstations-list');
+  if (!container) return;
+  container.innerHTML = `<p class="text-xs mt-muted" role="status">${escapeHTML(t('workstations.loading'))}</p>`;
+  try {
+    await loadWorkstationCatalog();
+    renderWorkstationsManagementList();
+  } catch (err) {
+    container.innerHTML = `<div role="alert" class="mt-notice-error p-3.5 text-xs flex flex-wrap items-center justify-between gap-2">
+      <span>${escapeHTML(t('workstations.loadFailed', { message: err.message || '' }))}</span>
+      <button type="button" data-retry-workstations class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('common.reload'))}</button>
+    </div>`;
+    container.querySelector('[data-retry-workstations]')?.addEventListener('click', loadWorkstationsPage);
+  }
+}
+
+function renderWorkstationsManagementList() {
+  const container = document.getElementById('workstations-list');
+  if (!container) return;
+  if (!workshopWorkstations.length) {
+    container.innerHTML = `<p class="text-xs mt-muted">${escapeHTML(t('workstations.empty'))}</p>`;
+    return;
+  }
+
+  container.innerHTML = workshopWorkstations
+    .map((station, idx) => {
+      const isFirst = idx === 0;
+      const isLast = idx === workshopWorkstations.length - 1;
+      return `<div class="mt-card p-3 flex flex-wrap items-center justify-between gap-2 ${station.is_active ? '' : 'opacity-65'}">
+        <div class="min-w-0 flex items-center gap-2.5">
+          <span class="font-mono-code text-xs font-bold mt-muted w-6 text-center">${idx + 1}.</span>
+          <div class="min-w-0">
+            <p class="text-sm font-semibold mt-text">${escapeHTML(station.name)}</p>
+            <p class="text-xs mt-muted">${escapeHTML(station.is_active ? t('common.active') : t('common.inactive'))}</p>
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-1.5 shrink-0">
+          <button type="button" data-ws-move-up="${escapeHTML(station.id)}" ${isFirst ? 'disabled' : ''} aria-label="${escapeHTML(t('workstations.moveUpAria', { name: station.name }))}" class="mt-btn-icon mt-btn-secondary">
+            <i data-lucide="chevron-up" class="w-4 h-4" aria-hidden="true"></i>
+          </button>
+          <button type="button" data-ws-move-down="${escapeHTML(station.id)}" ${isLast ? 'disabled' : ''} aria-label="${escapeHTML(t('workstations.moveDownAria', { name: station.name }))}" class="mt-btn-icon mt-btn-secondary">
+            <i data-lucide="chevron-down" class="w-4 h-4" aria-hidden="true"></i>
+          </button>
+          <button type="button" data-ws-rename="${escapeHTML(station.id)}" class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('workstations.renameBtn'))}</button>
+          ${
+            station.is_active
+              ? `<button type="button" data-ws-toggle-active="${escapeHTML(station.id)}" data-target-active="false" class="mt-btn mt-btn-danger-ghost text-xs">${escapeHTML(t('common.deactivate'))}</button>`
+              : `<button type="button" data-ws-toggle-active="${escapeHTML(station.id)}" data-target-active="true" class="mt-btn mt-btn-success text-xs">${escapeHTML(t('common.activate'))}</button>`
+          }
+        </div>
+      </div>`;
+    })
+    .join('');
+
+  if (window.lucide) window.lucide.createIcons();
+}
+
+async function handleAddWorkstationSubmit(event) {
+  event.preventDefault();
+  const input = document.getElementById('workstation-name-input');
+  const btn = document.getElementById('add-workstation-btn');
+  const name = (input?.value || '').trim();
+  if (!name) {
+    alert(t('workstations.nameRequired'));
+    input?.focus();
+    return;
+  }
+  const tenantId = getActiveTenantId();
+  if (!tenantId) return;
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = t('workstations.addingBtn');
+  }
+  try {
+    const nextOrder =
+      workshopWorkstations.reduce((max, s) => Math.max(max, Number(s.sort_order || 0)), 0) + 1;
+    await createWorkstation(tenantId, name, nextOrder);
+    if (input) input.value = '';
+    await loadWorkstationsPage();
+  } catch (err) {
+    alert(t('workstations.addFailed', { message: err.message || t('common.genericError') }));
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = t('workstations.addBtn');
+    }
+  }
+}
+
+async function handleWorkstationsListClick(event) {
+  const tenantId = getActiveTenantId();
+  if (!tenantId) return;
+  const listEl = document.getElementById('workstations-list');
+
+  const renameBtn = event.target.closest('[data-ws-rename]');
+  if (renameBtn) {
+    const id = renameBtn.getAttribute('data-ws-rename');
+    const station = workshopWorkstations.find((s) => s.id === id);
+    if (!station) return;
+    const nextName = prompt(t('workstations.renamePrompt'), station.name);
+    if (nextName === null) return;
+    const trimmed = nextName.trim();
+    if (!trimmed) {
+      alert(t('workstations.nameRequired'));
+      return;
+    }
+    try {
+      await updateWorkstation(tenantId, id, { name: trimmed });
+      await loadWorkstationsPage();
+      listEl?.querySelector(`[data-ws-rename="${id}"]`)?.focus();
+    } catch (err) {
+      alert(t('workstations.updateFailed', { message: err.message || t('common.genericError') }));
+    }
+    return;
+  }
+
+  const toggleBtn = event.target.closest('[data-ws-toggle-active]');
+  if (toggleBtn) {
+    const id = toggleBtn.getAttribute('data-ws-toggle-active');
+    const targetActive = toggleBtn.getAttribute('data-target-active') === 'true';
+    toggleBtn.disabled = true;
+    try {
+      await updateWorkstation(tenantId, id, { is_active: targetActive });
+      await loadWorkstationsPage();
+      listEl?.querySelector(`[data-ws-toggle-active="${id}"]`)?.focus();
+    } catch (err) {
+      alert(t('workstations.updateFailed', { message: err.message || t('common.genericError') }));
+      toggleBtn.disabled = false;
+    }
+    return;
+  }
+
+  const upBtn = event.target.closest('[data-ws-move-up]');
+  const downBtn = event.target.closest('[data-ws-move-down]');
+  const targetId = upBtn?.getAttribute('data-ws-move-up') || downBtn?.getAttribute('data-ws-move-down');
+  if (!targetId) return;
+
+  const idx = workshopWorkstations.findIndex((s) => s.id === targetId);
+  const swapIdx = upBtn ? idx - 1 : idx + 1;
+  if (idx < 0 || swapIdx < 0 || swapIdx >= workshopWorkstations.length) return;
+
+  const reordered = [...workshopWorkstations];
+  const [moved] = reordered.splice(idx, 1);
+  reordered.splice(swapIdx, 0, moved);
+
+  try {
+    await Promise.all(
+      reordered.map((station, i) => updateWorkstation(tenantId, station.id, { sort_order: i + 1 }))
+    );
+    await loadWorkstationsPage();
+    const preferredSelector = upBtn
+      ? `[data-ws-move-up="${targetId}"]`
+      : `[data-ws-move-down="${targetId}"]`;
+    const fallbackSelector = upBtn
+      ? `[data-ws-move-down="${targetId}"]`
+      : `[data-ws-move-up="${targetId}"]`;
+    const nextFocus = listEl?.querySelector(preferredSelector);
+    if (nextFocus && !nextFocus.disabled) {
+      nextFocus.focus();
+    } else {
+      listEl?.querySelector(fallbackSelector)?.focus();
+    }
+  } catch (err) {
+    alert(t('workstations.updateFailed', { message: err.message || t('common.genericError') }));
+  }
+}
+
+async function openStaffOrderDetailModal(order, { preserveTrigger = false } = {}) {
+  const modal = document.getElementById('staff-order-detail-modal');
+  const subtitle = document.getElementById('staff-order-detail-subtitle');
+  const body = document.getElementById('staff-order-detail-body');
+  if (!modal || !body || !order) return;
+
+  if (!preserveTrigger) rememberTrigger();
+  activeStaffOrderDetailId = order.id;
+
+  const orderType = order.order_type === 'mail_in' ? 'mail_in' : 'walk_in';
+  const statusMeta = getStatusMeta(order.status, null, orderType);
+  const typeMeta = orderType === 'mail_in' ? getOrderTypeMeta(orderType) : null;
+  const items = order.order_items || [];
+
+  if (subtitle) {
+    subtitle.textContent = `${order.ticket_code} · ${order.customer_name}`;
+  }
+
+  const photoPaths = items
+    .flatMap((it) => [it.before_photo_path, it.after_photo_path])
+    .filter(Boolean);
+
+  if (photoPaths.length && !preserveTrigger) {
+    body.innerHTML = `<p class="text-xs mt-muted py-6 text-center" role="status">${escapeHTML(t('orders.loading'))}</p>`;
+    modal.classList.remove('hidden');
+    document.getElementById('close-staff-order-detail-btn')?.focus();
+  }
+
+  const signedMap = photoPaths.length ? await signGarmentPhotoPaths(photoPaths) : {};
+  if (activeStaffOrderDetailId !== order.id) return;
+
+  const itemsHTML = items
+    .map((it, idx) => {
+      const specsEntries = Object.entries(it.measurement_specs || {}).filter(
+        ([, val]) => val !== null && val !== undefined && String(val).trim() !== ''
+      );
+      const specsHTML = specsEntries.length
+        ? `<div class="flex flex-wrap gap-1.5">${specsEntries
+            .map(
+              ([k, v]) =>
+                `<span class="mt-badge mt-badge-walk_in font-mono-code">${escapeHTML(k)}: ${escapeHTML(String(v))}</span>`
+            )
+            .join('')}</div>`
+        : `<p class="text-xs mt-muted">${escapeHTML(t('staffOrder.noMeasurements'))}</p>`;
+
+      const beforeUrl = it.before_photo_path ? signedMap[it.before_photo_path] : '';
+      const afterUrl = it.after_photo_path ? signedMap[it.after_photo_path] : '';
+      const photosHTML =
+        beforeUrl || afterUrl
+          ? `<div class="mt-staff-photo-grid">
+              ${
+                beforeUrl
+                  ? `<button type="button" data-staff-lightbox-url="${escapeHTML(beforeUrl)}" data-staff-lightbox-title="${escapeHTML(
+                      `${it.garment_name} - ${t('staffOrder.beforePhoto')}`
+                    )}" aria-label="${escapeHTML(t('staffOrder.openPhotoAria', { label: t('staffOrder.beforePhoto') }))}" class="mt-staff-photo-btn">
+                      <img src="${escapeHTML(beforeUrl)}" width="240" height="132" alt="${escapeHTML(t('staffOrder.beforePhoto'))}" class="mt-staff-photo-img" />
+                      <span class="text-xs font-semibold mt-text">${escapeHTML(t('staffOrder.beforePhoto'))}</span>
+                    </button>`
+                  : ''
+              }
+              ${
+                afterUrl
+                  ? `<button type="button" data-staff-lightbox-url="${escapeHTML(afterUrl)}" data-staff-lightbox-title="${escapeHTML(
+                      `${it.garment_name} - ${t('staffOrder.afterPhoto')}`
+                    )}" aria-label="${escapeHTML(t('staffOrder.openPhotoAria', { label: t('staffOrder.afterPhoto') }))}" class="mt-staff-photo-btn">
+                      <img src="${escapeHTML(afterUrl)}" width="240" height="132" alt="${escapeHTML(t('staffOrder.afterPhoto'))}" class="mt-staff-photo-img" />
+                      <span class="text-xs font-semibold mt-text">${escapeHTML(t('staffOrder.afterPhoto'))}</span>
+                    </button>`
+                  : ''
+              }
+            </div>`
+          : `<p class="text-xs mt-muted">${escapeHTML(t('staffOrder.noPhotos'))}</p>`;
+
+      return `<section class="mt-card p-4 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-sm font-bold mt-text">${idx + 1}. ${escapeHTML(it.garment_name)}</h3>
+          <span class="mt-badge mt-badge-walk_in">${escapeHTML(it.service_type)}</span>
+        </div>
+        <div class="space-y-1.5">
+          <p class="text-xs font-semibold mt-muted">${escapeHTML(t('staffOrder.measurementsHeading'))}</p>
+          ${specsHTML}
+        </div>
+        <div class="space-y-1.5">
+          <p class="text-xs font-semibold mt-muted">${escapeHTML(t('staffOrder.photosHeading'))}</p>
+          ${photosHTML}
+        </div>
+        <div class="space-y-1.5">
+          <p class="text-xs font-semibold mt-muted">${escapeHTML(t('staffOrder.workstationsHeading'))}</p>
+          ${renderItemWorkstationStepsHTML(it)}
+        </div>
+      </section>`;
+    })
+    .join('');
+
+  body.innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-2 pb-3 mt-seam-b">
+      <div class="flex flex-wrap items-center gap-2">
+        ${typeMeta ? `<span class="${typeMeta.badgeClass}">${escapeHTML(typeMeta.label)}</span>` : ''}
+        <span class="${statusMeta.badgeClass}">
+          <span class="${statusMeta.dotClass}" aria-hidden="true"></span>
+          <span>${escapeHTML(statusMeta.label)}</span>
+        </span>
+      </div>
+      <span class="text-xs font-mono-code mt-muted">${escapeHTML(t('orders.targetPrefix'))}${escapeHTML(formatDateID(order.estimated_done_date))}</span>
+    </div>
+    <section class="mt-card-muted p-3.5 space-y-1">
+      <h3 class="text-xs font-bold mt-text">${escapeHTML(t('staffOrder.notesHeading'))}</h3>
+      <p class="text-xs mt-muted leading-relaxed">${escapeHTML(order.notes || t('staffOrder.noNotes'))}</p>
+    </section>
+    <div class="space-y-3">
+      ${itemsHTML}
+    </div>
+  `;
+
+  body.querySelectorAll('[data-staff-lightbox-url]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      openAdminPhotoLightbox(
+        btn.getAttribute('data-staff-lightbox-url'),
+        btn.getAttribute('data-staff-lightbox-title') || ''
+      );
+    });
+  });
+
+  body.querySelectorAll('[data-ws-step-toggle]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const stepId = btn.getAttribute('data-ws-step-toggle');
+      const nextDone = btn.getAttribute('data-next-done') === 'true';
+      handleWorkstationStepUpdate(stepId, { is_done: nextDone }, btn);
+    });
+  });
+
+  modal.classList.remove('hidden');
+  if (!preserveTrigger) document.getElementById('close-staff-order-detail-btn')?.focus();
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function closeStaffOrderDetailModal() {
+  activeStaffOrderDetailId = null;
+  document.getElementById('staff-order-detail-modal')?.classList.add('hidden');
+  restoreTriggerFocus();
+}
+
+function getInviteAcceptUrl(token) {
+  const path = window.location.pathname.endsWith('.html') ? '/admin.html' : '/admin';
+  return `${window.location.origin}${path}?invite=${encodeURIComponent(token || '')}`;
+}
+
+async function loadTeamPage() {
+  const tenantId = getActiveTenantId();
+  const membersList = document.getElementById('team-members-list');
+  const invList = document.getElementById('team-invitations-list');
+  if (!tenantId || !membersList || !invList) return;
+
+  membersList.innerHTML = `<p class="text-xs mt-muted" role="status">${escapeHTML(t('team.membersLoading'))}</p>`;
+  invList.innerHTML = `<p class="text-xs mt-muted" role="status">${escapeHTML(t('team.membersLoading'))}</p>`;
+
+  try {
+    const { data, error } = await supabase.rpc('get_tenant_team_data', {
+      p_tenant_id: tenantId,
+    });
+    if (error) throw error;
+    teamDataCache = {
+      caller_role: data?.caller_role || getActiveRole(),
+      members: Array.isArray(data?.members) ? data.members : [],
+      invitations: Array.isArray(data?.invitations) ? data.invitations : [],
+    };
+    renderTeamPage();
+  } catch (err) {
+    const errHTML = `<div role="alert" class="mt-notice-error p-3.5 text-xs flex flex-wrap items-center justify-between gap-2">
+      <span>${escapeHTML(t('team.loadFailed', { message: err.message || '' }))}</span>
+      <button type="button" data-retry-team class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('common.reload'))}</button>
+    </div>`;
+    membersList.innerHTML = errHTML;
+    invList.innerHTML = errHTML;
+    membersList.querySelector('[data-retry-team]')?.addEventListener('click', loadTeamPage);
+    invList.querySelector('[data-retry-team]')?.addEventListener('click', loadTeamPage);
+  }
+}
+
+function renderTeamPage() {
+  const owner = isOwnerRole();
+  const roleSelect = document.getElementById('team-invite-role');
+  const descEl = document.getElementById('team-invite-desc');
+  if (roleSelect) {
+    const adminOption = roleSelect.querySelector('option[value="admin"]');
+    if (adminOption) {
+      adminOption.hidden = !owner;
+      adminOption.disabled = !owner;
+    }
+    if (!owner) roleSelect.value = 'staff';
+  }
+  if (descEl) {
+    descEl.textContent = owner ? t('team.inviteDesc') : t('team.inviteDescAdmin');
+  }
+
+  const invList = document.getElementById('team-invitations-list');
+  if (invList) {
+    const invitations = teamDataCache.invitations || [];
+    if (!invitations.length) {
+      invList.innerHTML = `<p class="text-xs mt-muted">${escapeHTML(t('team.pendingEmpty'))}</p>`;
+    } else {
+      invList.innerHTML = invitations
+        .map((inv) => {
+          const roleMeta = getRoleMeta(inv.role);
+          const stMeta = getInvitationStatusMeta(inv.status);
+          const isPending = inv.status === 'pending';
+          const inviteUrl = getInviteAcceptUrl(inv.token);
+          const waText = t('team.waInviteMessage', {
+            store: workshopSettings.NAME,
+            role: roleMeta.label,
+            email: inv.email,
+            expires: formatDateID(inv.expires_at),
+            url: inviteUrl,
+          });
+          const waUrl = `https://wa.me/?text=${encodeURIComponent(waText)}`;
+          return `<article class="mt-team-invite-row">
+            <div class="min-w-0 space-y-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="font-mono-code text-xs font-bold mt-text mt-tracking-code">${escapeHTML(inv.email)}</span>
+                <span class="${roleMeta.badgeClass}">${escapeHTML(roleMeta.label)}</span>
+                <span class="${stMeta.badgeClass}">${escapeHTML(stMeta.label)}</span>
+              </div>
+              <p class="text-xs mt-muted">${escapeHTML(t('team.expiresAt', { date: formatDateID(inv.expires_at, true) }))}</p>
+            </div>
+            ${
+              isPending
+                ? `<div class="flex flex-wrap items-center gap-2 shrink-0">
+                    <button type="button" data-copy-invite-url="${escapeHTML(inviteUrl)}" class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('team.copyLinkBtn'))}</button>
+                    <a href="${escapeHTML(waUrl)}" target="_blank" rel="noopener noreferrer" class="mt-btn mt-btn-success text-xs">
+                      <i data-lucide="message-circle" class="w-4 h-4" aria-hidden="true"></i>
+                      <span>${escapeHTML(t('team.shareWaBtn'))}</span>
+                    </a>
+                    <button type="button" data-revoke-invite="${escapeHTML(inv.id)}" data-revoke-email="${escapeHTML(inv.email)}" class="mt-btn mt-btn-danger-ghost text-xs">${escapeHTML(t('team.revokeBtn'))}</button>
+                  </div>`
+                : ''
+            }
+          </article>`;
+        })
+        .join('');
+    }
+  }
+
+  const membersList = document.getElementById('team-members-list');
+  if (membersList) {
+    const members = teamDataCache.members || [];
+    const activeOwnerCount = members.filter((m) => m.role === 'owner' && m.is_active).length;
+
+    if (!members.length) {
+      membersList.innerHTML = `<p class="text-xs mt-muted">${escapeHTML(t('team.membersEmpty'))}</p>`;
+    } else {
+      membersList.innerHTML = members
+        .map((m) => {
+          const roleMeta = getRoleMeta(m.role);
+          const isSelf = activeSessionUser?.id && m.user_id === activeSessionUser.id;
+          const isLastActiveOwner = m.role === 'owner' && m.is_active && activeOwnerCount <= 1;
+          const lockTitle = isLastActiveOwner ? t('team.lastOwnerTitle') : '';
+
+          const controlsHTML = owner
+            ? `<div class="flex flex-wrap items-center gap-2 shrink-0">
+                <select data-member-role-select="${escapeHTML(m.id)}" ${isLastActiveOwner ? 'disabled' : ''} title="${escapeHTML(lockTitle)}" aria-label="${escapeHTML(t('team.roleSelectAria', { name: m.display_name || m.email }))}" class="mt-select mt-team-role-select text-xs">
+                  <option value="owner"${m.role === 'owner' ? ' selected' : ''}>${escapeHTML(t('role.owner'))}</option>
+                  <option value="admin"${m.role === 'admin' ? ' selected' : ''}>${escapeHTML(t('role.admin'))}</option>
+                  <option value="staff"${m.role === 'staff' ? ' selected' : ''}>${escapeHTML(t('role.staff'))}</option>
+                </select>
+                ${
+                  m.is_active
+                    ? `<button type="button" data-member-toggle-active="${escapeHTML(m.id)}" data-member-name="${escapeHTML(m.display_name || m.email)}" data-next-active="false" ${isLastActiveOwner ? 'disabled' : ''} title="${escapeHTML(lockTitle)}" class="mt-btn mt-btn-danger-ghost text-xs">${escapeHTML(t('team.deactivateBtn'))}</button>`
+                    : `<button type="button" data-member-toggle-active="${escapeHTML(m.id)}" data-member-name="${escapeHTML(m.display_name || m.email)}" data-next-active="true" class="mt-btn mt-btn-success text-xs">${escapeHTML(t('team.activateBtn'))}</button>`
+                }
+              </div>`
+            : `<span class="mt-badge ${m.is_active ? 'mt-badge-paid' : 'mt-badge-completed'}">${escapeHTML(
+                m.is_active ? t('team.statusActive') : t('team.statusInactive')
+              )}</span>`;
+
+          return `<article class="mt-team-member-row ${m.is_active ? '' : 'is-inactive'}">
+            <div class="min-w-0 space-y-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-sm font-bold mt-text">${escapeHTML(m.display_name || m.email || 'Member')}</span>
+                <span class="${roleMeta.badgeClass}">${escapeHTML(roleMeta.label)}</span>
+                ${isSelf ? `<span class="mt-badge mt-badge-walk_in">${escapeHTML(t('team.youBadge'))}</span>` : ''}
+                ${!m.is_active ? `<span class="mt-badge mt-badge-completed">${escapeHTML(t('team.statusInactive'))}</span>` : ''}
+              </div>
+              <p class="font-mono-code text-xs mt-muted mt-tracking-code">${escapeHTML(m.email || '')}</p>
+            </div>
+            ${controlsHTML}
+          </article>`;
+        })
+        .join('');
+    }
+  }
+
+  if (window.lucide) window.lucide.createIcons();
+}
+
+async function handleTeamInviteSubmit(event) {
+  event.preventDefault();
+  const tenantId = getActiveTenantId();
+  const emailInput = document.getElementById('team-invite-email');
+  const roleSelect = document.getElementById('team-invite-role');
+  const expiresSelect = document.getElementById('team-invite-expires');
+  const submitBtn = document.getElementById('team-invite-submit-btn');
+  const feedbackEl = document.getElementById('team-invite-feedback');
+  if (!tenantId || !emailInput) return;
+
+  const email = emailInput.value.trim().toLowerCase();
+  const role = isOwnerRole() ? roleSelect?.value || 'staff' : 'staff';
+  const expiresDays = Number(expiresSelect?.value || 7);
+
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    if (feedbackEl) {
+      feedbackEl.setAttribute('role', 'alert');
+      feedbackEl.className = 'p-3 text-xs mt-notice-error';
+      feedbackEl.textContent = t('team.emailInvalid');
+    }
+    emailInput.focus();
+    return;
+  }
+
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = t('team.invitingBtn');
+  }
+  if (feedbackEl) feedbackEl.classList.add('hidden');
+
+  try {
+    const { error } = await supabase.rpc('create_tenant_invitation', {
+      p_tenant_id: tenantId,
+      p_email: email,
+      p_role: role,
+      p_expires_days: expiresDays,
+    });
+    if (error) throw error;
+    emailInput.value = '';
+    if (feedbackEl) {
+      feedbackEl.setAttribute('role', 'status');
+      feedbackEl.className = 'p-3 text-xs mt-notice-ok font-semibold';
+      feedbackEl.textContent = t('team.inviteCreated', { email });
+    }
+    await loadTeamPage();
+  } catch (err) {
+    if (feedbackEl) {
+      feedbackEl.setAttribute('role', 'alert');
+      feedbackEl.className = 'p-3 text-xs mt-notice-error';
+      feedbackEl.textContent = t('team.inviteFailed', { message: err.message || t('common.genericError') });
+    }
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = `<i data-lucide="user-plus" class="w-4 h-4" aria-hidden="true"></i><span>${escapeHTML(t('team.inviteSubmitBtn'))}</span>`;
+      if (window.lucide) window.lucide.createIcons();
+    }
+  }
+}
+
+async function handleTeamInvitationsClick(event) {
+  const copyBtn = event.target.closest('[data-copy-invite-url]');
+  if (copyBtn) {
+    const url = copyBtn.getAttribute('data-copy-invite-url') || '';
+    try {
+      await navigator.clipboard.writeText(url);
+      copyBtn.textContent = t('common.copied');
+      setTimeout(() => {
+        copyBtn.textContent = t('team.copyLinkBtn');
+      }, 1500);
+    } catch (_) {
+      alert(t('team.copyInviteAlert', { url }));
+    }
+    return;
+  }
+
+  const revokeBtn = event.target.closest('[data-revoke-invite]');
+  if (revokeBtn) {
+    const invId = revokeBtn.getAttribute('data-revoke-invite');
+    const email = revokeBtn.getAttribute('data-revoke-email') || '';
+    const tenantId = getActiveTenantId();
+    if (!tenantId || !invId || !confirm(t('team.revokeConfirm', { email }))) return;
+    revokeBtn.disabled = true;
+    try {
+      const { error } = await supabase.rpc('revoke_tenant_invitation', {
+        p_tenant_id: tenantId,
+        p_invitation_id: invId,
+      });
+      if (error) throw error;
+      await loadTeamPage();
+    } catch (err) {
+      alert(t('team.revokeFailed', { message: err.message || t('common.genericError') }));
+      revokeBtn.disabled = false;
+    }
+  }
+}
+
+async function handleTeamMembersChange(event) {
+  const select = event.target.closest('[data-member-role-select]');
+  if (!select) return;
+  const memberId = select.getAttribute('data-member-role-select');
+  const nextRole = select.value;
+  const tenantId = getActiveTenantId();
+  if (!tenantId || !memberId) return;
+
+  select.disabled = true;
+  try {
+    const { error } = await supabase.rpc('update_tenant_member', {
+      p_tenant_id: tenantId,
+      p_member_id: memberId,
+      p_role: nextRole,
+    });
+    if (error) throw error;
+    await loadTeamPage();
+    await loadWorkstationCatalog();
+  } catch (err) {
+    alert(t('team.updateFailed', { message: err.message || t('common.genericError') }));
+    await loadTeamPage();
+  }
+}
+
+async function handleTeamMembersClick(event) {
+  const btn = event.target.closest('[data-member-toggle-active]');
+  if (!btn) return;
+  const memberId = btn.getAttribute('data-member-toggle-active');
+  const memberName = btn.getAttribute('data-member-name') || '';
+  const nextActive = btn.getAttribute('data-next-active') === 'true';
+  const tenantId = getActiveTenantId();
+  if (!tenantId || !memberId) return;
+
+  if (!nextActive && !confirm(t('team.deactivateConfirm', { name: memberName }))) return;
+
+  btn.disabled = true;
+  try {
+    const { error } = await supabase.rpc('update_tenant_member', {
+      p_tenant_id: tenantId,
+      p_member_id: memberId,
+      p_is_active: nextActive,
+    });
+    if (error) throw error;
+    await loadTeamPage();
+    await loadWorkstationCatalog();
+  } catch (err) {
+    alert(t('team.updateFailed', { message: err.message || t('common.genericError') }));
+    btn.disabled = false;
+  }
+}
+
+function bindStage5Events() {
+  ['sidebar-workspace-select', 'mobile-workspace-select'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('change', (event) => {
+      switchActiveWorkspace(event.target.value);
+    });
+  });
+
+  document.getElementById('workspace-invite-dismiss-btn')?.addEventListener('click', () => {
+    clearPendingInviteToken(true);
+    pendingInviteNotice = null;
+    renderWorkspaceInviteBanners();
+  });
+
+  document.getElementById('workspace-invite-ok-dismiss-btn')?.addEventListener('click', () => {
+    pendingInviteNotice = null;
+    renderWorkspaceInviteBanners();
+  });
+
+  document.getElementById('workspace-invite-switch-btn')?.addEventListener('click', async () => {
+    // Keep PENDING_ADMIN_INVITE_KEY in sessionStorage so the invited user can immediately sign in.
+    await supabase.auth.signOut();
+    resetTenantState({ clearMemberships: true });
+    showAuthScreen('login');
+  });
+
+  document.getElementById('add-workstation-form')?.addEventListener('submit', handleAddWorkstationSubmit);
+  document.getElementById('workstations-list')?.addEventListener('click', handleWorkstationsListClick);
+
+  document.getElementById('team-invite-form')?.addEventListener('submit', handleTeamInviteSubmit);
+  document.getElementById('team-invitations-list')?.addEventListener('click', handleTeamInvitationsClick);
+  document.getElementById('team-members-list')?.addEventListener('change', handleTeamMembersChange);
+  document.getElementById('team-members-list')?.addEventListener('click', handleTeamMembersClick);
+
+  document.getElementById('close-staff-order-detail-btn')?.addEventListener('click', closeStaffOrderDetailModal);
+  document.getElementById('staff-order-detail-modal')?.addEventListener('click', (event) => {
+    if (event.target.id === 'staff-order-detail-modal') closeStaffOrderDetailModal();
   });
 }

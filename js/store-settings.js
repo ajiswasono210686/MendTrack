@@ -198,3 +198,47 @@ export async function activateService(tenantId, id) {
     .eq('tenant_id', tenantId);
   if (error) throw error;
 }
+
+export async function fetchWorkstations(tenantId) {
+  if (!tenantId) return [];
+  const { data, error } = await supabase
+    .from('workstations')
+    .select('id,tenant_id,name,sort_order,is_active')
+    .eq('tenant_id', tenantId)
+    .order('sort_order', { ascending: true })
+    .order('name', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+export async function createWorkstation(tenantId, name, sortOrder = 0) {
+  if (!tenantId) throw new Error(t('common.noActiveTenant'));
+  const { data, error } = await supabase
+    .from('workstations')
+    .insert({
+      tenant_id: tenantId,
+      name: String(name || '').trim(),
+      sort_order: Number.isInteger(sortOrder) ? sortOrder : 0,
+      is_active: true,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function updateWorkstation(tenantId, id, fields) {
+  if (!tenantId) throw new Error(t('common.noActiveTenant'));
+  const payload = {
+    updated_at: new Date().toISOString(),
+  };
+  if (typeof fields.name === 'string') payload.name = fields.name.trim();
+  if (typeof fields.is_active === 'boolean') payload.is_active = fields.is_active;
+  if (Number.isInteger(fields.sort_order)) payload.sort_order = fields.sort_order;
+  const { error } = await supabase
+    .from('workstations')
+    .update(payload)
+    .eq('id', id)
+    .eq('tenant_id', tenantId);
+  if (error) throw error;
+}
