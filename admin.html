@@ -455,8 +455,8 @@
           <button type="button" class="mt-sb-item" data-app-page="measurements" data-i18n-title="nav.measurements" data-i18n-aria-label="nav.measurements" title="Template Ukuran" aria-label="Template Ukuran">
             <i data-lucide="ruler" aria-hidden="true"></i><span data-i18n="nav.measurements" class="mt-sb-label">Template Ukuran</span>
           </button>
-          <button type="button" class="mt-sb-item" data-app-page="workstations" data-i18n-title="nav.workstations" data-i18n-aria-label="nav.workstations" title="Stasiun Mesin" aria-label="Stasiun Mesin">
-            <i data-lucide="cog" aria-hidden="true"></i><span data-i18n="nav.workstations" class="mt-sb-label">Stasiun Mesin</span>
+          <button type="button" class="mt-sb-item" data-app-page="workstations" data-i18n-title="nav.workstations" data-i18n-aria-label="nav.workstations" title="Alur Kerja" aria-label="Alur Kerja">
+            <i data-lucide="cog" aria-hidden="true"></i><span data-i18n="nav.workstations" class="mt-sb-label">Alur Kerja</span>
           </button>
           <button type="button" class="mt-sb-item" data-app-page="archive" data-i18n-title="nav.archive" data-i18n-aria-label="nav.archive" title="Arsip" aria-label="Arsip">
             <i data-lucide="archive" aria-hidden="true"></i><span data-i18n="nav.archive" class="mt-sb-label">Arsip</span>
@@ -664,23 +664,13 @@
               <option value="mail_in" data-i18n="orderType.mail_in">Mail-in (Paket)</option>
             </select>
           </div>
-          <div class="mt-filter-col">
-            <label for="order-status-filter" data-i18n="orders.statusFilterLabel" class="block text-xs font-semibold mt-text mb-1">Filter proses</label>
+          <div class="mt-filter-col mt-filter-col-wide">
+            <label for="order-status-filter" data-i18n="orders.statusFilterLabel" class="block text-xs font-semibold mt-text mb-1">Alur kerja</label>
             <select id="order-status-filter" class="mt-select">
-              <option value="all" data-i18n="orders.statusAll">Semua proses</option>
-              <option value="awaiting_package" data-i18n="status.awaiting_package">Menunggu Paket</option>
-              <option value="received" data-i18n="status.received">Diterima</option>
-              <option value="queued" data-i18n="status.queued">Antrean</option>
-              <option value="in_progress" data-i18n="status.in_progress">Proses Pengerjaan</option>
-              <option value="qc" data-i18n="status.qc">Quality Check</option>
-              <option value="ready" data-i18n="status.ready">Siap Diambil</option>
-              <option value="shipped" data-i18n="status.shipped">Dikirim</option>
-            </select>
-          </div>
-          <div class="mt-filter-col">
-            <label for="order-workstation-filter" data-i18n="workstations.filterLabel" class="block text-xs font-semibold mt-text mb-1">Stasiun mesin</label>
-            <select id="order-workstation-filter" class="mt-select">
-              <option value="all" data-i18n="workstations.filterAll">Semua stasiun</option>
+              <option value="all" data-i18n="orders.statusAll">Semua tahap</option>
+              <option value="status:received" data-i18n="status.received">Diterima</option>
+              <option value="status:in_progress" data-i18n="status.in_progress">Proses Pengerjaan</option>
+              <option value="status:ready" data-i18n="workstations.readyCombined">Siap Diambil / Kirim</option>
             </select>
           </div>
           <button type="button" id="clear-order-filters" data-i18n="orders.resetFilter" class="mt-btn mt-btn-secondary text-xs shrink-0">
@@ -816,20 +806,58 @@
       </section>
 
       <section id="workstations-page" class="hidden space-y-4">
+        <div class="mt-card p-4 sm:p-5 space-y-3.5">
+          <div>
+            <h3 data-i18n="workstations.mainTasksHeading" class="text-sm font-bold mt-text">Tahap utama alur kerja (wajib)</h3>
+            <p data-i18n="workstations.mainTasksDesc" class="text-xs mt-muted mt-0.5">Berlaku seragam untuk order Walk-in dan Mail-in. Untuk Mail-in, resi keluar dicatat saat menandai Selesai.</p>
+          </div>
+          <ol class="mt-workflow-main-grid">
+            <li class="mt-workflow-main-item">
+              <span class="mt-workflow-step-num font-mono-code">1</span>
+              <div class="min-w-0">
+                <p data-i18n="status.received" class="text-xs font-bold mt-text">Diterima</p>
+                <span data-i18n="workstations.mainTaskRequired" class="mt-workflow-tag">Wajib</span>
+              </div>
+            </li>
+            <li class="mt-workflow-main-item is-parent">
+              <span class="mt-workflow-step-num font-mono-code">2</span>
+              <div class="min-w-0">
+                <p data-i18n="status.in_progress" class="text-xs font-bold mt-text">Proses Pengerjaan</p>
+                <span data-i18n="workstations.subTasksTag" class="mt-workflow-tag is-accent">Memuat sub-tahap di bawah</span>
+              </div>
+            </li>
+            <li class="mt-workflow-main-item">
+              <span class="mt-workflow-step-num font-mono-code">3</span>
+              <div class="min-w-0">
+                <p data-i18n="workstations.readyCombined" class="text-xs font-bold mt-text">Siap Diambil / Kirim</p>
+                <span data-i18n="workstations.mainTaskRequired" class="mt-workflow-tag">Wajib</span>
+              </div>
+            </li>
+            <li class="mt-workflow-main-item">
+              <span class="mt-workflow-step-num font-mono-code">4</span>
+              <div class="min-w-0">
+                <p data-i18n="status.mail_in.completed" class="text-xs font-bold mt-text">Selesai &amp; Dikirim</p>
+                <span data-i18n="workstations.mainTaskRequired" class="mt-workflow-tag">Wajib</span>
+              </div>
+            </li>
+          </ol>
+        </div>
+
         <div class="mt-card p-4 sm:p-5 space-y-4">
           <div>
-            <h3 data-i18n="workstations.listHeading" class="text-sm font-bold mt-text">Daftar stasiun produksi</h3>
-            <p data-i18n="workstations.listDesc" class="text-xs mt-muted mt-0.5">Setiap item pada order baru otomatis mendapatkan checklist dari stasiun aktif berikut.</p>
+            <h3 data-i18n="workstations.listHeading" class="text-sm font-bold mt-text">Sub-tahap di bawah "Proses"</h3>
+            <p data-i18n="workstations.listDesc" class="text-xs mt-muted mt-0.5">Setiap item pada order baru otomatis mendapat checklist dari sub-tahap aktif berikut. Sub-tahap aktif juga muncul di filter Order Aktif.</p>
           </div>
           <div id="workstations-list" class="space-y-2">
-            <p class="text-xs mt-muted" role="status" data-i18n="workstations.loading">Memuat stasiun mesin...</p>
+            <p class="text-xs mt-muted" role="status" data-i18n="workstations.loading">Memuat daftar alur kerja...</p>
           </div>
+          <p data-i18n="workstations.soloHint" class="text-xs mt-muted">Tips bengkel solo: nonaktifkan atau hapus semua sub-tahap jika ingin alur ringkas 3 klik tanpa checklist tambahan.</p>
           <form id="add-workstation-form" class="mt-card-muted p-4 space-y-3">
             <div>
-              <label for="workstation-name-input" data-i18n="workstations.newNameLabel" class="block text-xs font-semibold mt-text mb-1">Nama stasiun baru</label>
-              <input id="workstation-name-input" type="text" maxlength="80" required data-i18n-placeholder="workstations.newNamePlaceholder" placeholder="Contoh: Darning, Chain-stitch, Prep / Cuci, QC" class="mt-input" />
+              <label for="workstation-name-input" data-i18n="workstations.newNameLabel" class="block text-xs font-semibold mt-text mb-1">Nama sub-tahap baru</label>
+              <input id="workstation-name-input" type="text" maxlength="80" required data-i18n-placeholder="workstations.newNamePlaceholder" placeholder="Contoh: Prep / Cuci, Darning, Chain-stitch, QC" class="mt-input" />
             </div>
-            <button type="submit" id="add-workstation-btn" data-i18n="workstations.addBtn" class="mt-btn mt-btn-primary w-full sm:w-auto">Tambah Stasiun</button>
+            <button type="submit" id="add-workstation-btn" data-i18n="workstations.addBtn" class="mt-btn mt-btn-primary w-full sm:w-auto">Tambah Sub-Tahap</button>
           </form>
         </div>
       </section>
@@ -904,11 +932,11 @@
             </article>
             <article class="mt-card-muted p-3.5 space-y-1.5">
               <span class="mt-badge mt-role-badge mt-role-admin" data-i18n="team.guideAdminTitle">Admin / Kasir</span>
-              <p class="text-xs mt-muted leading-relaxed" data-i18n="team.guideAdminPoints">Order Baru, Order Aktif (edit, pelunasan, struk, semua status), Permintaan Quote, Jadwal, Pelanggan &amp; Fit Passport, Kas (lihat &amp; tambah tanpa hapus), Layanan, Template Ukuran, Stasiun Mesin, Arsip, serta undang Staff.</p>
+              <p class="text-xs mt-muted leading-relaxed" data-i18n="team.guideAdminPoints">Order Baru, Order Aktif (edit, pelunasan, struk, semua status), Permintaan Quote, Jadwal, Pelanggan &amp; Fit Passport, Kas (lihat &amp; tambah tanpa hapus), Layanan, Template Ukuran, Alur Kerja, Arsip, serta undang Staff.</p>
             </article>
             <article class="mt-card-muted p-3.5 space-y-1.5">
               <span class="mt-badge mt-role-badge mt-role-staff" data-i18n="team.guideStaffTitle">Staff / Penjahit</span>
-              <p class="text-xs mt-muted leading-relaxed" data-i18n="team.guideStaffPoints">Hanya Order Aktif (detail item, foto, catatan ukuran pada order, QR Tag, checklist Stasiun Mesin) dan Jadwal. Hanya bisa menaikkan tahap produksi (Antrean -&gt; Dikerjakan -&gt; QC -&gt; Siap Diambil). Nominal harga, Kas, Laporan, Pengaturan Toko, dan kontak pelanggan disembunyikan serta diblokir di database.</p>
+              <p class="text-xs mt-muted leading-relaxed" data-i18n="team.guideStaffPoints">Hanya Order Aktif (detail item, foto, catatan ukuran pada order, QR Tag, checklist sub-tahap Proses) dan Jadwal. Hanya bisa menaikkan tahap produksi (Diterima -&gt; Proses -&gt; Siap Diambil). Nominal harga, Kas, Laporan, Pengaturan Toko, dan kontak pelanggan disembunyikan serta diblokir di database.</p>
             </article>
           </div>
         </section>
@@ -1028,15 +1056,6 @@
           <div class="flex items-center gap-2">
             <i data-lucide="package" class="w-4 h-4 mt-accent shrink-0" aria-hidden="true"></i>
             <h3 data-i18n="orderForm.mailInHeading" class="text-xs font-bold mt-text">Info logistik mail-in</h3>
-          </div>
-
-          <div id="mail-in-initial-status-wrap" class="flex items-center gap-2.5">
-            <label for="form-mailin-arrived" class="inline-flex items-center gap-2.5 min-h-11 py-1 text-xs font-medium mt-text">
-              <input type="checkbox" id="form-mailin-arrived" class="w-4 h-4 shrink-0" />
-              <span data-i18n="orderForm.mailInArrivedLabel">
-                Paket sudah tiba di workshop (mulai dari status Paket Diterima)
-              </span>
-            </label>
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1226,7 +1245,7 @@
     <div class="max-w-md mx-auto my-8 mt-modal-panel overflow-hidden">
       <div class="mt-modal-head px-5 py-4 flex items-center justify-between gap-2">
         <div>
-          <h2 id="outbound-shipment-title" data-i18n="shipment.modalTitle" class="font-bold text-base">Catat Pengiriman Keluar</h2>
+          <h2 id="outbound-shipment-title" data-i18n="shipment.modalTitle" class="font-bold text-base">Catat Pengiriman &amp; Selesaikan</h2>
           <p id="shipment-modal-ticket" class="font-mono-code text-xs mt-0.5" style="color: var(--mt-hero-accent);">-</p>
         </div>
         <button type="button" id="close-shipment-modal-btn" data-i18n-aria-label="shipment.closeAria" aria-label="Tutup modal pengiriman keluar" class="mt-btn-icon mt-btn-on-dark">
@@ -1235,7 +1254,7 @@
       </div>
       <form id="outbound-shipment-form" class="p-5 space-y-4">
         <input type="hidden" id="shipment-order-id" />
-        <p data-i18n="shipment.modalSub" class="text-xs mt-muted">Lengkapi kurir &amp; nomor resi sebelum menandai order Dikirim</p>
+        <p data-i18n="shipment.modalSub" class="text-xs mt-muted">Lengkapi kurir &amp; nomor resi kirim keluar (opsional) sebelum menyelesaikan order ini.</p>
         <div id="shipment-unpaid-warning" role="alert" class="hidden mt-notice-warn p-3 text-xs font-medium"></div>
         <div>
           <label for="shipment-outbound-courier" data-i18n="orderForm.outboundCourierLabel" class="block text-xs font-semibold mt-text mb-1">Kurir kirim keluar</label>
@@ -1249,7 +1268,7 @@
           <button type="button" id="cancel-shipment-modal-btn" data-i18n="common.cancel" class="mt-btn mt-btn-secondary flex-1">Batal</button>
           <button type="submit" id="save-shipment-btn" class="mt-btn mt-btn-primary flex-1">
             <i data-lucide="truck" class="w-4 h-4" aria-hidden="true"></i>
-            <span data-i18n="shipment.saveBtn">Simpan &amp; Tandai Dikirim</span>
+            <span data-i18n="shipment.saveBtn">Simpan &amp; Selesai</span>
           </button>
         </div>
       </form>

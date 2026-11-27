@@ -31,6 +31,7 @@ import {
   fetchWorkstations,
   createWorkstation,
   updateWorkstation,
+  deleteWorkstation,
 } from './store-settings.js';
 import {
   t,
@@ -82,7 +83,6 @@ let workloadDateFilter = null;
 let searchQuery = '';
 let orderStatusFilter = 'all';
 let orderTypeFilter = 'all';
-let orderWorkstationFilter = 'all';
 let focusedOrderId = null;
 let currentReceiptOrder = null;
 let currentQrTagOrder = null;
@@ -1471,7 +1471,6 @@ function focusOrderInWorkspace(order) {
   }
   orderStatusFilter = 'all';
   orderTypeFilter = 'all';
-  orderWorkstationFilter = 'all';
   workloadDateFilter = null;
   searchQuery = String(order.ticket_code || '').trim().toLowerCase();
   if (adminSearchInput) adminSearchInput.value = order.ticket_code;
@@ -1479,8 +1478,6 @@ function focusOrderInWorkspace(order) {
   if (statusSelect) statusSelect.value = 'all';
   const typeSelect = document.getElementById('order-type-filter');
   if (typeSelect) typeSelect.value = 'all';
-  const wsSelect = document.getElementById('order-workstation-filter');
-  if (wsSelect) wsSelect.value = 'all';
   showAppPage('orders');
   renderOrdersList();
   const card = ordersListContainer?.querySelector(`[data-order-card-id="${order.id}"]`);
@@ -1713,15 +1710,12 @@ function resetTenantState({ clearMemberships = true } = {}) {
   searchQuery = '';
   orderStatusFilter = 'all';
   orderTypeFilter = 'all';
-  orderWorkstationFilter = 'all';
   focusedOrderId = null;
   if (adminSearchInput) adminSearchInput.value = '';
   const statusSelect = document.getElementById('order-status-filter');
   if (statusSelect) statusSelect.value = 'all';
   const typeSelect = document.getElementById('order-type-filter');
   if (typeSelect) typeSelect.value = 'all';
-  const wsSelect = document.getElementById('order-workstation-filter');
-  if (wsSelect) wsSelect.value = 'all';
 
   workshopSettings = { ...DEFAULT_STORE_SETTINGS };
   if (clearMemberships) {
@@ -2177,7 +2171,6 @@ function resetOrderFilters() {
   searchQuery = '';
   orderStatusFilter = 'all';
   orderTypeFilter = 'all';
-  orderWorkstationFilter = 'all';
   focusedOrderId = null;
   workloadDateFilter = null;
   if (adminSearchInput) adminSearchInput.value = '';
@@ -2185,8 +2178,6 @@ function resetOrderFilters() {
   if (statusSelect) statusSelect.value = 'all';
   const typeSelect = document.getElementById('order-type-filter');
   if (typeSelect) typeSelect.value = 'all';
-  const wsSelect = document.getElementById('order-workstation-filter');
-  if (wsSelect) wsSelect.value = 'all';
   renderWorkloadCalendar();
   renderOrdersList();
 }
@@ -2725,10 +2716,6 @@ function bindGlobalEvents() {
     orderStatusFilter = event.target.value || 'all';
     renderOrdersList();
   });
-  document.getElementById('order-workstation-filter')?.addEventListener('change', (event) => {
-    orderWorkstationFilter = event.target.value || 'all';
-    renderOrdersList();
-  });
   document.getElementById('clear-order-filters')?.addEventListener('click', resetOrderFilters);
   refreshOrdersBtn?.addEventListener('click', () => renderOrdersList());
   bindStage5Events();
@@ -2790,8 +2777,8 @@ function bindGlobalEvents() {
     triggerAutoSaveDraft();
   });
   orderCrudForm?.addEventListener('change', (event) => {
-    if (event.target.name === 'order_type' || event.target.id === 'form-mailin-arrived') {
-      syncMailInFormVisibility(Boolean(document.getElementById('form-order-id')?.value.trim()));
+    if (event.target.name === 'order_type') {
+      syncMailInFormVisibility();
       triggerAutoSaveDraft();
     }
   });
@@ -3896,35 +3883,29 @@ function updateDashboardMetrics() {
 }
 
 function getNextOrderStep(order) {
+  const isMailIn = order.order_type === 'mail_in';
+  const readyLabel = isMailIn ? t('orders.next.mail_in_in_progress') : t('orders.next.in_progress');
   if (isStaffRole()) {
     const staffProductionMap = {
-      queued: { next: 'in_progress', label: t('orders.next.queued') },
-      in_progress: { next: 'qc', label: t('orders.next.in_progress') },
-      qc: { next: 'ready', label: t('orders.next.qc') },
+      awaiting_package: { next: 'in_progress', label: t('orders.next.received') },
+      received: { next: 'in_progress', label: t('orders.next.received') },
+      queued: { next: 'in_progress', label: t('orders.next.received') },
+      in_progress: { next: 'ready', label: readyLabel },
+      qc: { next: 'ready', label: readyLabel },
     };
     return staffProductionMap[order.status] || null;
   }
-  const isMailIn = order.order_type === 'mail_in';
-  if (isMailIn) {
-    const mailInMap = {
-      awaiting_package: { next: 'received', label: t('orders.next.awaiting_package') },
-      received: { next: 'queued', label: t('orders.next.received') },
-      queued: { next: 'in_progress', label: t('orders.next.queued') },
-      in_progress: { next: 'qc', label: t('orders.next.in_progress') },
-      qc: { next: 'ready', label: t('orders.next.qc') },
-      ready: { next: 'shipped', label: t('orders.next.mail_in_ready') },
-      shipped: { next: 'completed', label: t('orders.next.shipped') },
-    };
-    return mailInMap[order.status] || null;
-  }
-  const walkInMap = {
-    received: { next: 'queued', label: t('orders.next.received') },
-    queued: { next: 'in_progress', label: t('orders.next.queued') },
-    in_progress: { next: 'qc', label: t('orders.next.in_progress') },
-    qc: { next: 'ready', label: t('orders.next.qc') },
-    ready: { next: 'completed', label: t('orders.next.ready') },
+  const completeLabel = isMailIn ? t('orders.next.mail_in_ready') : t('orders.next.ready');
+  const universalMap = {
+    awaiting_package: { next: 'received', label: t('orders.next.awaiting_package') },
+    received: { next: 'in_progress', label: t('orders.next.received') },
+    queued: { next: 'in_progress', label: t('orders.next.received') },
+    in_progress: { next: 'ready', label: readyLabel },
+    qc: { next: 'ready', label: readyLabel },
+    ready: { next: 'completed', label: completeLabel },
+    shipped: { next: 'completed', label: t('orders.next.shipped') },
   };
-  return walkInMap[order.status] || null;
+  return universalMap[order.status] || null;
 }
 
 function renderTrackingPill(label, courier, tracking) {
@@ -3953,13 +3934,28 @@ function renderOrdersList() {
   const filtered = activePool.filter((order) => {
     if (workloadDateFilter && order.estimated_done_date !== workloadDateFilter) return false;
     if (orderTypeFilter !== 'all' && (order.order_type || 'walk_in') !== orderTypeFilter) return false;
-    if (orderStatusFilter !== 'all' && order.status !== orderStatusFilter) return false;
-    if (orderWorkstationFilter !== 'all') {
-      const wsStats = getOrderWorkstationStats(order);
-      if (orderWorkstationFilter === '__done_all__') {
-        if (wsStats.total === 0 || wsStats.done < wsStats.total) return false;
+    if (orderStatusFilter !== 'all') {
+      if (orderStatusFilter.startsWith('ws:')) {
+        const stationTarget = orderStatusFilter.slice(3);
+        const isInProcessStage = order.status === 'in_progress' || order.status === 'qc';
+        if (!isInProcessStage) return false;
+        const wsStats = getOrderWorkstationStats(order);
+        if (stationTarget === '__done_all__') {
+          if (wsStats.total === 0 || wsStats.done < wsStats.total) return false;
+        } else {
+          if (!wsStats.pendingStationNames.includes(stationTarget)) return false;
+        }
       } else {
-        if (!wsStats.pendingStationNames.includes(orderWorkstationFilter)) return false;
+        const targetStatus = orderStatusFilter.startsWith('status:')
+          ? orderStatusFilter.slice(7)
+          : orderStatusFilter;
+        const normalizedOrderStatus =
+          order.status === 'awaiting_package' || order.status === 'queued'
+            ? 'received'
+            : order.status === 'qc'
+              ? 'in_progress'
+              : order.status;
+        if (normalizedOrderStatus !== targetStatus) return false;
       }
     }
     if (searchQuery) {
@@ -4397,6 +4393,22 @@ async function handleOutboundShipmentSubmit(event) {
   const submitBtn = document.getElementById('save-shipment-btn');
   if (!orderId) return;
 
+  const targetOrder = allOrders.find((o) => o.id === orderId);
+  if (targetOrder) {
+    const remaining = roundCurrencyAmount(
+      Math.max(0, Number(targetOrder.total_amount || 0) - Number(targetOrder.paid_amount || 0))
+    );
+    if (remaining > 0) {
+      alert(
+        t('orders.unpaidCompleteAlert', {
+          code: targetOrder.ticket_code,
+          remaining: formatCurrency(remaining),
+        })
+      );
+      return;
+    }
+  }
+
   if (submitBtn) submitBtn.disabled = true;
   try {
     const tenantId = getActiveTenantId();
@@ -4404,7 +4416,7 @@ async function handleOutboundShipmentSubmit(event) {
     const { error } = await supabase
       .from('orders')
       .update({
-        status: 'shipped',
+        status: 'completed',
         outbound_courier: courier,
         outbound_tracking: tracking,
       })
@@ -4527,11 +4539,6 @@ async function updateOrderStatus(orderId, newStatus) {
       return;
     }
 
-    if (targetOrder.order_type === 'mail_in' && newStatus === 'shipped') {
-      openOutboundShipmentModal(targetOrder);
-      return;
-    }
-
     if (newStatus === 'completed') {
       const remaining = roundCurrencyAmount(
         Math.max(0, Number(targetOrder.total_amount || 0) - Number(targetOrder.paid_amount || 0))
@@ -4543,6 +4550,10 @@ async function updateOrderStatus(orderId, newStatus) {
             remaining: formatCurrency(remaining),
           })
         );
+        return;
+      }
+      if (targetOrder.order_type === 'mail_in') {
+        openOutboundShipmentModal(targetOrder);
         return;
       }
     }
@@ -4685,10 +4696,9 @@ function setFormOrderType(orderType = 'walk_in', isEdit = false) {
   syncMailInFormVisibility(isEdit);
 }
 
-function syncMailInFormVisibility(isEdit = false) {
+function syncMailInFormVisibility() {
   const isMailIn = getSelectedFormOrderType() === 'mail_in';
   document.getElementById('mail-in-logistics-fields')?.classList.toggle('hidden', !isMailIn);
-  document.getElementById('mail-in-initial-status-wrap')?.classList.toggle('hidden', !isMailIn || isEdit);
 }
 
 function formatPassportSpecSummary(passport) {
@@ -4940,7 +4950,6 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
 
   const ticketPrefix = activeTenant?.ticket_prefix || workshopSettings.TICKET_PREFIX;
   const ticketInput = document.getElementById('form-ticket-code');
-  const mailInArrivedEl = document.getElementById('form-mailin-arrived');
   const inboundCourierEl = document.getElementById('form-inbound-courier');
   const inboundTrackingEl = document.getElementById('form-inbound-tracking');
   const outboundCourierEl = document.getElementById('form-outbound-courier');
@@ -4956,7 +4965,6 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
     document.getElementById('form-notes').value = draftOverride.notes || '';
     document.getElementById('form-paid-amount').value = draftOverride.paid_amount || 0;
     setFormOrderType(draftOverride.order_type || 'walk_in', false);
-    if (mailInArrivedEl) mailInArrivedEl.checked = Boolean(draftOverride.mail_in_arrived);
     if (inboundCourierEl) inboundCourierEl.value = draftOverride.inbound_courier || '';
     if (inboundTrackingEl) inboundTrackingEl.value = draftOverride.inbound_tracking || '';
     if (outboundCourierEl) outboundCourierEl.value = draftOverride.outbound_courier || '';
@@ -4974,7 +4982,6 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
     document.getElementById('form-notes').value = existingOrder.notes || '';
     document.getElementById('form-paid-amount').value = Number(existingOrder.paid_amount || 0);
     setFormOrderType(existingOrder.order_type || 'walk_in', true);
-    if (mailInArrivedEl) mailInArrivedEl.checked = false;
     if (inboundCourierEl) inboundCourierEl.value = existingOrder.inbound_courier || '';
     if (inboundTrackingEl) inboundTrackingEl.value = existingOrder.inbound_tracking || '';
     if (outboundCourierEl) outboundCourierEl.value = existingOrder.outbound_courier || '';
@@ -4995,7 +5002,6 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
     document.getElementById('form-notes').value = '';
     document.getElementById('form-paid-amount').value = 0;
     setFormOrderType('walk_in', false);
-    if (mailInArrivedEl) mailInArrivedEl.checked = false;
     if (inboundCourierEl) inboundCourierEl.value = '';
     if (inboundTrackingEl) inboundTrackingEl.value = '';
     if (outboundCourierEl) outboundCourierEl.value = '';
@@ -5419,12 +5425,11 @@ async function handleSaveOrderSubmit(e) {
     const notes = document.getElementById('form-notes').value.trim();
     const paidAmount = roundCurrencyAmount(Number(document.getElementById('form-paid-amount').value || 0));
     const orderType = getSelectedFormOrderType();
-    const mailInArrived = Boolean(document.getElementById('form-mailin-arrived')?.checked);
     const inboundCourier = orderType === 'mail_in' ? document.getElementById('form-inbound-courier')?.value.trim() || null : null;
     const inboundTracking = orderType === 'mail_in' ? document.getElementById('form-inbound-tracking')?.value.trim() || null : null;
     const outboundCourier = orderType === 'mail_in' ? document.getElementById('form-outbound-courier')?.value.trim() || null : null;
     const outboundTracking = orderType === 'mail_in' ? document.getElementById('form-outbound-tracking')?.value.trim() || null : null;
-    const initialStatus = orderType === 'mail_in' ? (mailInArrived ? 'received' : 'awaiting_package') : 'received';
+    const initialStatus = 'received';
 
     if (!ticketCode) throw new Error(t('orderForm.ticketRequired'));
     if (!estimatedDate || !parseLocalDateKey(estimatedDate)) throw new Error(t('orderForm.deadlineRequired'));
@@ -5521,7 +5526,7 @@ async function handleSaveOrderSubmit(e) {
         const outboundVal = [outboundCourier, outboundTracking].filter(Boolean).join(' - ');
         if (inboundVal) mailInExtras.push(t('wa.mailInLineInbound', { value: inboundVal }));
         if (outboundVal) mailInExtras.push(t('wa.mailInLineOutbound', { value: outboundVal }));
-        if (initialStatus === 'awaiting_package' && workshopSettings.ADDRESS) {
+        if (!inboundTracking && workshopSettings.ADDRESS) {
           mailInExtras.push(t('wa.mailInSendAddressHint', { address: workshopSettings.ADDRESS }));
         }
         receiptMessage = `${receiptMessage}\n\n${mailInExtras.join('\n')}`;
@@ -5561,7 +5566,6 @@ const triggerAutoSaveDraft = debounce(() => {
       notes: document.getElementById('form-notes')?.value || '',
       paid_amount: Number(document.getElementById('form-paid-amount')?.value || 0),
       order_type: getSelectedFormOrderType(),
-      mail_in_arrived: Boolean(document.getElementById('form-mailin-arrived')?.checked),
       inbound_courier: document.getElementById('form-inbound-courier')?.value || '',
       inbound_tracking: document.getElementById('form-inbound-tracking')?.value || '',
       outbound_courier: document.getElementById('form-outbound-courier')?.value || '',
@@ -6631,20 +6635,28 @@ async function loadWorkstationCatalog() {
 }
 
 function populateWorkstationFilterSelect() {
-  const select = document.getElementById('order-workstation-filter');
+  const select = document.getElementById('order-status-filter');
   if (!select) return;
   const activeNames = workshopWorkstations.filter((w) => w.is_active).map((w) => w.name);
-  const previous = orderWorkstationFilter || 'all';
+  const previous = orderStatusFilter || 'all';
   const options = [
-    `<option value="all">${escapeHTML(t('workstations.filterAll'))}</option>`,
-    ...activeNames.map((name) => `<option value="${escapeHTML(name)}">${escapeHTML(name)}</option>`),
-    `<option value="__done_all__">${escapeHTML(t('workstations.filterDoneAll'))}</option>`,
+    `<option value="all">${escapeHTML(t('orders.statusAll'))}</option>`,
+    `<option value="status:received">${escapeHTML(t('status.received'))}</option>`,
+    `<option value="status:in_progress">${escapeHTML(t('status.in_progress'))}</option>`,
+    ...activeNames.map(
+      (name) =>
+        `<option value="ws:${escapeHTML(name)}">${escapeHTML(t('workstations.filterSubPrefix', { name }))}</option>`
+    ),
+    ...(activeNames.length
+      ? [`<option value="ws:__done_all__">${escapeHTML(t('workstations.filterDoneAll'))}</option>`]
+      : []),
+    `<option value="status:ready">${escapeHTML(t('workstations.readyCombined'))}</option>`,
   ];
   select.innerHTML = options.join('');
   if ([...select.options].some((opt) => opt.value === previous)) {
     select.value = previous;
   } else {
-    orderWorkstationFilter = 'all';
+    orderStatusFilter = 'all';
     select.value = 'all';
   }
 }
@@ -6853,9 +6865,10 @@ function renderWorkstationsManagementList() {
           <button type="button" data-ws-rename="${escapeHTML(station.id)}" class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('workstations.renameBtn'))}</button>
           ${
             station.is_active
-              ? `<button type="button" data-ws-toggle-active="${escapeHTML(station.id)}" data-target-active="false" class="mt-btn mt-btn-danger-ghost text-xs">${escapeHTML(t('common.deactivate'))}</button>`
+              ? `<button type="button" data-ws-toggle-active="${escapeHTML(station.id)}" data-target-active="false" class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('common.deactivate'))}</button>`
               : `<button type="button" data-ws-toggle-active="${escapeHTML(station.id)}" data-target-active="true" class="mt-btn mt-btn-success text-xs">${escapeHTML(t('common.activate'))}</button>`
           }
+          <button type="button" data-ws-delete="${escapeHTML(station.id)}" aria-label="${escapeHTML(t('workstations.deleteAria', { name: station.name }))}" class="mt-btn mt-btn-danger-ghost text-xs">${escapeHTML(t('workstations.deleteBtn'))}</button>
         </div>
       </div>`;
     })
@@ -6936,6 +6949,24 @@ async function handleWorkstationsListClick(event) {
     } catch (err) {
       alert(t('workstations.updateFailed', { message: err.message || t('common.genericError') }));
       toggleBtn.disabled = false;
+    }
+    return;
+  }
+
+  const deleteBtn = event.target.closest('[data-ws-delete]');
+  if (deleteBtn) {
+    const id = deleteBtn.getAttribute('data-ws-delete');
+    const station = workshopWorkstations.find((s) => s.id === id);
+    if (!station) return;
+    if (!confirm(t('workstations.deleteConfirm', { name: station.name }))) return;
+    deleteBtn.disabled = true;
+    try {
+      await deleteWorkstation(tenantId, id);
+      await loadWorkstationsPage();
+      document.getElementById('workstation-name-input')?.focus();
+    } catch (err) {
+      alert(t('workstations.deleteFailed', { message: err.message || t('common.genericError') }));
+      deleteBtn.disabled = false;
     }
     return;
   }
@@ -7061,10 +7092,14 @@ async function openStaffOrderDetailModal(order, { preserveTrigger = false } = {}
           <p class="text-xs font-semibold mt-muted">${escapeHTML(t('staffOrder.photosHeading'))}</p>
           ${photosHTML}
         </div>
-        <div class="space-y-1.5">
-          <p class="text-xs font-semibold mt-muted">${escapeHTML(t('staffOrder.workstationsHeading'))}</p>
-          ${renderItemWorkstationStepsHTML(it)}
-        </div>
+        ${
+          (it.order_item_workstations || []).length > 0
+            ? `<div class="space-y-1.5">
+                <p class="text-xs font-semibold mt-muted">${escapeHTML(t('staffOrder.workstationsHeading'))}</p>
+                ${renderItemWorkstationStepsHTML(it)}
+              </div>`
+            : ''
+        }
       </section>`;
     })
     .join('');
