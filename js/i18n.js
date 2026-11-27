@@ -1233,6 +1233,15 @@ const DICTIONARIES = {
     'workstations.doneBy': 'Selesai oleh {name}',
     'workstations.stepUpdateFailed': 'Gagal memperbarui sub-tahap item: {message}',
     'workstations.noSteps': 'Tidak ada sub-tahap tambahan pada item ini.',
+
+    'wsGate.title': 'Sub-tahap belum selesai',
+    'wsGate.closeAria': 'Tutup peringatan sub-tahap',
+    'wsGate.summary': 'Masih ada {count} sub-tahap yang belum dicentang pada order {code}. Selesaikan terlebih dahulu atau gunakan tombol di bawah untuk mencentang semuanya sekaligus.',
+    'wsGate.openChecklistBtn': 'Buka Checklist',
+    'wsGate.completeAllBtn': 'Kerjakan Semua & Tandai Siap',
+    'wsGate.completingBtn': 'Menyelesaikan...',
+    'wsGate.completeAllFailed': 'Gagal menyelesaikan semua sub-tahap: {message}',
+    'wsGate.pendingCountBadge': '{count} belum selesai',
   },
 
   en: {
@@ -2433,6 +2442,15 @@ const DICTIONARIES = {
     'workstations.doneBy': 'Done by {name}',
     'workstations.stepUpdateFailed': 'Failed to update item sub-task: {message}',
     'workstations.noSteps': 'No extra sub-tasks on this item.',
+
+    'wsGate.title': 'Incomplete process sub-tasks',
+    'wsGate.closeAria': 'Close incomplete sub-tasks dialog',
+    'wsGate.summary': '{count} sub-tasks are still unchecked on order {code}. Complete them first or use the button below to check all remaining sub-tasks at once.',
+    'wsGate.openChecklistBtn': 'Open Checklist',
+    'wsGate.completeAllBtn': 'Complete All & Mark Ready',
+    'wsGate.completingBtn': 'Completing...',
+    'wsGate.completeAllFailed': 'Failed to complete all sub-tasks: {message}',
+    'wsGate.pendingCountBadge': '{count} remaining',
   },
 };
 

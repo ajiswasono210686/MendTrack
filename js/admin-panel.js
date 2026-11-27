@@ -86,6 +86,7 @@ let orderTypeFilter = 'all';
 let focusedOrderId = null;
 let currentReceiptOrder = null;
 let currentQrTagOrder = null;
+let activeWorkstationGateOrderId = null;
 let matchedCustomerPassports = [];
 let matchedCustomerPhoneKey = '';
 let pendingMeasurementOrderRow = null;
@@ -1738,6 +1739,8 @@ function resetTenantState({ clearMemberships = true } = {}) {
   document.getElementById('staff-order-detail-modal')?.classList.add('hidden');
   document.getElementById('admin-photo-lightbox')?.classList.add('hidden');
   document.getElementById('outbound-shipment-modal')?.classList.add('hidden');
+  document.getElementById('workstation-gate-modal')?.classList.add('hidden');
+  activeWorkstationGateOrderId = null;
   document.getElementById('store-settings-modal')?.classList.add('hidden');
   document.getElementById('service-edit-modal')?.classList.add('hidden');
   document.getElementById('cash-modal')?.classList.add('hidden');
@@ -2099,6 +2102,11 @@ function closeActiveDialogOnEscape() {
     closeOutboundShipmentModal();
     return;
   }
+  const wsGateModal = document.getElementById('workstation-gate-modal');
+  if (wsGateModal && !wsGateModal.classList.contains('hidden')) {
+    closeWorkstationGateModal();
+    return;
+  }
   const adminPhotoLightbox = document.getElementById('admin-photo-lightbox');
   if (adminPhotoLightbox && !adminPhotoLightbox.classList.contains('hidden')) {
     closeAdminPhotoLightbox();
@@ -2157,6 +2165,163 @@ function closeQrTagModal() {
 function closeOutboundShipmentModal() {
   document.getElementById('outbound-shipment-modal')?.classList.add('hidden');
   restoreTriggerFocus();
+}
+
+function getOrderPendingWorkstationSteps(order) {
+  const items = order?.order_items || [];
+  const pending = [];
+  items.forEach((item) => {
+    const steps = [...(item.order_item_workstations || [])].sort(
+      (a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0)
+    );
+    steps.forEach((step) => {
+      if (!step.is_done) {
+        pending.push({
+          stepId: step.id,
+          stationName: step.station_name,
+          garmentName: item.garment_name || '',
+          serviceType: item.service_type || '',
+          itemId: item.id,
+        });
+      }
+    });
+  });
+  return pending;
+}
+
+function openWorkstationGateModal(order, pendingSteps) {
+  const modal = document.getElementById('workstation-gate-modal');
+  if (!modal || !order) return;
+  rememberTrigger();
+  activeWorkstationGateOrderId = order.id;
+
+  const ticketEl = document.getElementById('ws-gate-modal-ticket');
+  if (ticketEl) ticketEl.textContent = `${order.ticket_code} · ${order.customer_name}`;
+
+  const summaryEl = document.getElementById('ws-gate-summary');
+  if (summaryEl) {
+    summaryEl.textContent = t('wsGate.summary', {
+      count: pendingSteps.length,
+      code: order.ticket_code,
+    });
+  }
+
+  const listEl = document.getElementById('ws-gate-pending-list');
+  if (listEl) {
+    const grouped = new Map();
+    pendingSteps.forEach((entry) => {
+      const key = entry.itemId || entry.garmentName;
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          garmentName: entry.garmentName,
+          serviceType: entry.serviceType,
+          stations: [],
+        });
+      }
+      grouped.get(key).stations.push(entry.stationName);
+    });
+
+    listEl.innerHTML = [...grouped.values()]
+      .map(
+        (group) => `<div class="mt-card-muted p-3 space-y-1.5">
+          <div class="flex items-center justify-between gap-2">
+            <p class="text-xs font-bold mt-text truncate">${escapeHTML(group.garmentName)}${group.serviceType ? ` <span class="mt-font-normal mt-muted">· ${escapeHTML(group.serviceType)}</span>` : ''}</p>
+            <span class="text-xs font-mono-code mt-muted shrink-0">${escapeHTML(t('wsGate.pendingCountBadge', { count: group.stations.length }))}</span>
+          </div>
+          <div class="flex flex-wrap gap-1.5">
+            ${group.stations
+              .map((name) => `<span class="mt-ws-chip is-current">${escapeHTML(name)}</span>`)
+              .join('')}
+          </div>
+        </div>`
+      )
+      .join('');
+  }
+
+  const completeAllBtn = document.getElementById('ws-gate-complete-all-btn');
+  if (completeAllBtn) {
+    completeAllBtn.disabled = false;
+    const labelSpan = completeAllBtn.querySelector('[data-i18n="wsGate.completeAllBtn"]');
+    if (labelSpan) labelSpan.textContent = t('wsGate.completeAllBtn');
+  }
+
+  modal.classList.remove('hidden');
+  document.getElementById('ws-gate-complete-all-btn')?.focus();
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function closeWorkstationGateModal({ restoreFocus = true } = {}) {
+  document.getElementById('workstation-gate-modal')?.classList.add('hidden');
+  activeWorkstationGateOrderId = null;
+  if (restoreFocus) restoreTriggerFocus();
+}
+
+function handleWorkstationGateOpenChecklist() {
+  const orderId = activeWorkstationGateOrderId;
+  if (!orderId) {
+    closeWorkstationGateModal();
+    return;
+  }
+  const order = allOrders.find((o) => o.id === orderId);
+  closeWorkstationGateModal({ restoreFocus: false });
+  if (!order) return;
+
+  if (currentAppPage !== 'orders') {
+    if (isStaffRole()) {
+      openStaffOrderDetailModal(order);
+      return;
+    }
+    showAppPage('orders');
+  }
+  expandedWorkstationOrderIds.add(order.id);
+  focusedOrderId = order.id;
+  renderOrdersList();
+  const card = ordersListContainer?.querySelector(`[data-order-card-id="${order.id}"]`);
+  card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card?.querySelector('[data-ws-step-toggle]')?.focus();
+}
+
+async function handleWorkstationGateCompleteAll() {
+  const orderId = activeWorkstationGateOrderId;
+  const tenantId = getActiveTenantId();
+  if (!orderId || !tenantId) return;
+
+  const order = allOrders.find((o) => o.id === orderId);
+  if (!order) {
+    closeWorkstationGateModal();
+    return;
+  }
+
+  const pendingSteps = getOrderPendingWorkstationSteps(order);
+  const completeAllBtn = document.getElementById('ws-gate-complete-all-btn');
+  const openChecklistBtn = document.getElementById('ws-gate-open-checklist-btn');
+  const labelSpan = completeAllBtn?.querySelector('[data-i18n="wsGate.completeAllBtn"]');
+
+  if (completeAllBtn) completeAllBtn.disabled = true;
+  if (openChecklistBtn) openChecklistBtn.disabled = true;
+  if (labelSpan) labelSpan.textContent = t('wsGate.completingBtn');
+
+  try {
+    for (const step of pendingSteps) {
+      const { error } = await supabase.rpc('update_order_item_workstation', {
+        p_tenant_id: tenantId,
+        p_step_id: step.stepId,
+        p_is_done: true,
+        p_assigned_to: null,
+        p_clear_assignee: false,
+      });
+      if (error) throw error;
+    }
+    closeWorkstationGateModal({ restoreFocus: false });
+    await updateOrderStatus(orderId, 'ready', { skipWorkstationGate: true });
+  } catch (err) {
+    alert(t('wsGate.completeAllFailed', { message: err.message || t('common.genericError') }));
+    await fetchOrders();
+  } finally {
+    if (completeAllBtn) completeAllBtn.disabled = false;
+    if (openChecklistBtn) openChecklistBtn.disabled = false;
+    if (labelSpan) labelSpan.textContent = t('wsGate.completeAllBtn');
+  }
 }
 
 function closeCustomerDetailModal() {
@@ -4521,12 +4686,20 @@ function openQrTagModal(order) {
   if (window.lucide) window.lucide.createIcons();
 }
 
-async function updateOrderStatus(orderId, newStatus) {
+async function updateOrderStatus(orderId, newStatus, { skipWorkstationGate = false } = {}) {
   try {
     const targetOrder = allOrders.find((o) => o.id === orderId);
     if (!targetOrder) return;
     const tenantId = getActiveTenantId();
     if (!tenantId) throw new Error(t('common.noActiveTenant'));
+
+    if (!skipWorkstationGate && newStatus === 'ready') {
+      const pendingSteps = getOrderPendingWorkstationSteps(targetOrder);
+      if (pendingSteps.length > 0) {
+        openWorkstationGateModal(targetOrder, pendingSteps);
+        return;
+      }
+    }
 
     if (isStaffRole()) {
       const { error } = await supabase.rpc('advance_order_production_status', {
@@ -7479,6 +7652,13 @@ function bindStage5Events() {
 
   document.getElementById('add-workstation-form')?.addEventListener('submit', handleAddWorkstationSubmit);
   document.getElementById('workstations-list')?.addEventListener('click', handleWorkstationsListClick);
+
+  document.getElementById('close-ws-gate-modal-btn')?.addEventListener('click', () => closeWorkstationGateModal());
+  document.getElementById('workstation-gate-modal')?.addEventListener('click', (event) => {
+    if (event.target.id === 'workstation-gate-modal') closeWorkstationGateModal();
+  });
+  document.getElementById('ws-gate-open-checklist-btn')?.addEventListener('click', handleWorkstationGateOpenChecklist);
+  document.getElementById('ws-gate-complete-all-btn')?.addEventListener('click', handleWorkstationGateCompleteAll);
 
   document.getElementById('team-invite-form')?.addEventListener('submit', handleTeamInviteSubmit);
   document.getElementById('team-invitations-list')?.addEventListener('click', handleTeamInvitationsClick);
