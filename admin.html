@@ -77,6 +77,10 @@
         </button>
       </div>
 
+      <div id="auth-invite-banner" role="status" aria-live="polite" class="hidden mb-4 p-3 mt-notice-ok text-xs space-y-1">
+        <p data-i18n="invite.bannerTitle" class="font-bold">Undangan workshop terdeteksi</p>
+        <p data-i18n="invite.bannerDesc">Masuk atau daftar dengan email yang diundang agar otomatis bergabung ke workshop.</p>
+      </div>
       <div id="auth-error-box" role="alert" class="hidden mb-4 p-3 mt-notice-error text-xs font-medium"></div>
       <div id="auth-info-box" role="status" aria-live="polite" class="hidden mb-4 p-3 mt-notice-warn text-xs font-medium"></div>
 
@@ -404,11 +408,18 @@
             </div>
             <div class="mt-sb-brandtext">
               <span data-store-name id="header-store-name" class="mt-sb-name">MendTrack</span>
-              <span id="connection-badge" class="mt-badge mt-badge-online">
-                <span class="mt-badge-dot" aria-hidden="true"></span>
-                <span data-i18n="common.online">Online</span>
-              </span>
+              <div class="mt-sb-meta-row">
+                <span id="connection-badge" class="mt-badge mt-badge-online">
+                  <span class="mt-badge-dot" aria-hidden="true"></span>
+                  <span data-i18n="common.online">Online</span>
+                </span>
+                <span id="sidebar-role-badge" class="mt-sb-role-wrap hidden mt-badge mt-role-badge"></span>
+              </div>
             </div>
+          </div>
+          <div id="sidebar-workspace-switcher" class="mt-ws-switcher hidden">
+            <label for="sidebar-workspace-select" class="sr-only" data-i18n="workspace.switchLabel">Pindah workshop aktif</label>
+            <select id="sidebar-workspace-select" class="mt-ws-select" data-i18n-aria-label="workspace.switchAria" aria-label="Pilih workshop aktif"></select>
           </div>
         </div>
 
@@ -437,15 +448,21 @@
             <i data-lucide="chart-no-axes-combined" aria-hidden="true"></i><span data-i18n="nav.reports" class="mt-sb-label">Laporan</span>
           </button>
 
-          <span data-i18n="sidebar.groupSettings" class="mt-sb-group">Pengaturan</span>
+          <span id="sidebar-settings-group-label" data-i18n="sidebar.groupSettings" class="mt-sb-group">Pengaturan</span>
           <button type="button" class="mt-sb-item" data-app-page="services" data-i18n-title="nav.services" data-i18n-aria-label="nav.services" title="Layanan &amp; Durasi" aria-label="Layanan dan Durasi">
             <i data-lucide="scissors" aria-hidden="true"></i><span data-i18n="nav.services" class="mt-sb-label">Layanan &amp; Durasi</span>
           </button>
           <button type="button" class="mt-sb-item" data-app-page="measurements" data-i18n-title="nav.measurements" data-i18n-aria-label="nav.measurements" title="Template Ukuran" aria-label="Template Ukuran">
             <i data-lucide="ruler" aria-hidden="true"></i><span data-i18n="nav.measurements" class="mt-sb-label">Template Ukuran</span>
           </button>
+          <button type="button" class="mt-sb-item" data-app-page="workstations" data-i18n-title="nav.workstations" data-i18n-aria-label="nav.workstations" title="Stasiun Mesin" aria-label="Stasiun Mesin">
+            <i data-lucide="cog" aria-hidden="true"></i><span data-i18n="nav.workstations" class="mt-sb-label">Stasiun Mesin</span>
+          </button>
           <button type="button" class="mt-sb-item" data-app-page="archive" data-i18n-title="nav.archive" data-i18n-aria-label="nav.archive" title="Arsip" aria-label="Arsip">
             <i data-lucide="archive" aria-hidden="true"></i><span data-i18n="nav.archive" class="mt-sb-label">Arsip</span>
+          </button>
+          <button type="button" class="mt-sb-item" data-app-page="team" data-i18n-title="nav.team" data-i18n-aria-label="nav.team" title="Tim &amp; Peran" aria-label="Tim dan Peran">
+            <i data-lucide="users" aria-hidden="true"></i><span data-i18n="nav.team" class="mt-sb-label">Tim &amp; Peran</span>
           </button>
           <button type="button" id="open-store-settings-btn" data-i18n-title="nav.storeSettings" data-i18n-aria-label="nav.storeSettings" title="Pengaturan Toko" aria-label="Pengaturan Toko" class="mt-sb-item">
             <i data-lucide="settings-2" aria-hidden="true"></i><span data-i18n="nav.storeSettings" class="mt-sb-label">Pengaturan Toko</span>
@@ -476,11 +493,28 @@
           <i data-lucide="menu" class="w-5 h-5" aria-hidden="true"></i>
           <span data-i18n="common.menu">Menu</span>
         </button>
-        <span data-store-name class="mt-sb-name truncate">MendTrack</span>
+        <span id="mobile-topbar-store-name" data-store-name class="mt-sb-name truncate">MendTrack</span>
+        <div id="mobile-workspace-switcher" class="mt-ws-switcher-mobile hidden">
+          <label for="mobile-workspace-select" class="sr-only" data-i18n="workspace.switchLabel">Pindah workshop aktif</label>
+          <select id="mobile-workspace-select" class="mt-ws-select" data-i18n-aria-label="workspace.switchAria" aria-label="Pilih workshop aktif"></select>
+        </div>
       </div>
     </header>
 
     <main id="admin-main" class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 pt-6 pb-12 space-y-5 no-print">
+
+      <div id="workspace-invite-banner" role="alert" class="hidden p-4 mt-notice-error flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+        <p id="workspace-invite-banner-text" class="font-medium"></p>
+        <div class="flex flex-wrap items-center gap-2 shrink-0">
+          <button type="button" id="workspace-invite-switch-btn" data-i18n="invite.switchAccountBtn" class="hidden mt-btn mt-btn-primary text-xs">Keluar &amp; Ganti Akun</button>
+          <button type="button" id="workspace-invite-dismiss-btn" data-i18n="invite.dismissBtn" class="mt-btn mt-btn-secondary text-xs">Tutup Pemberitahuan</button>
+        </div>
+      </div>
+
+      <div id="workspace-invite-ok-banner" role="status" aria-live="polite" class="hidden p-4 mt-notice-ok flex items-center justify-between gap-3 text-xs">
+        <p id="workspace-invite-ok-text" class="font-semibold"></p>
+        <button type="button" id="workspace-invite-ok-dismiss-btn" data-i18n="invite.dismissBtn" class="mt-btn mt-btn-secondary text-xs shrink-0">Tutup Pemberitahuan</button>
+      </div>
 
       <div class="pb-3 mt-seam-b">
         <h2 id="workspace-page-title" class="text-2xl font-extrabold tracking-tight mt-text">Order Aktif</h2>
@@ -517,7 +551,7 @@
           </div>
         </article>
 
-        <article class="mt-card p-5 lg:col-span-3 flex items-center justify-between gap-3">
+        <article id="metric-active-card" class="mt-card p-5 lg:col-span-3 flex items-center justify-between gap-3">
           <div>
             <p data-i18n="metrics.activeOrders" class="text-xs font-semibold mt-muted">Order aktif</p>
             <p id="metric-active-count" class="font-mono-code text-2xl sm:text-3xl font-bold mt-text mt-1">0</p>
@@ -528,7 +562,7 @@
           </div>
         </article>
 
-        <article class="mt-card p-5 lg:col-span-3 flex items-center justify-between gap-3">
+        <article id="metric-unpaid-card" class="mt-card p-5 lg:col-span-3 flex items-center justify-between gap-3">
           <div>
             <p data-i18n="metrics.unpaidReceivables" class="text-xs font-semibold mt-muted">Sisa piutang</p>
             <p id="metric-unpaid-total" class="font-mono-code text-xl sm:text-2xl font-bold mt-accent mt-1">Rp 0</p>
@@ -621,8 +655,8 @@
           </button>
         </div>
 
-        <div class="flex flex-col sm:flex-row sm:items-end gap-2.5 pt-1">
-          <div class="sm:w-52">
+        <div class="flex flex-col sm:flex-row sm:items-end flex-wrap gap-2.5 pt-1">
+          <div class="mt-filter-col">
             <label for="order-type-filter" data-i18n="orders.typeFilterLabel" class="block text-xs font-semibold mt-text mb-1">Tipe order</label>
             <select id="order-type-filter" class="mt-select">
               <option value="all" data-i18n="orderType.all">Semua tipe</option>
@@ -630,7 +664,7 @@
               <option value="mail_in" data-i18n="orderType.mail_in">Mail-in (Paket)</option>
             </select>
           </div>
-          <div class="sm:w-64">
+          <div class="mt-filter-col">
             <label for="order-status-filter" data-i18n="orders.statusFilterLabel" class="block text-xs font-semibold mt-text mb-1">Filter proses</label>
             <select id="order-status-filter" class="mt-select">
               <option value="all" data-i18n="orders.statusAll">Semua proses</option>
@@ -641,6 +675,12 @@
               <option value="qc" data-i18n="status.qc">Quality Check</option>
               <option value="ready" data-i18n="status.ready">Siap Diambil</option>
               <option value="shipped" data-i18n="status.shipped">Dikirim</option>
+            </select>
+          </div>
+          <div class="mt-filter-col">
+            <label for="order-workstation-filter" data-i18n="workstations.filterLabel" class="block text-xs font-semibold mt-text mb-1">Stasiun mesin</label>
+            <select id="order-workstation-filter" class="mt-select">
+              <option value="all" data-i18n="workstations.filterAll">Semua stasiun</option>
             </select>
           </div>
           <button type="button" id="clear-order-filters" data-i18n="orders.resetFilter" class="mt-btn mt-btn-secondary text-xs shrink-0">
@@ -773,6 +813,105 @@
         <div id="quotes-list-container" class="space-y-3">
           <p class="text-sm mt-muted" role="status" data-i18n="quotes.loading">Memuat permintaan quote...</p>
         </div>
+      </section>
+
+      <section id="workstations-page" class="hidden space-y-4">
+        <div class="mt-card p-4 sm:p-5 space-y-4">
+          <div>
+            <h3 data-i18n="workstations.listHeading" class="text-sm font-bold mt-text">Daftar stasiun produksi</h3>
+            <p data-i18n="workstations.listDesc" class="text-xs mt-muted mt-0.5">Setiap item pada order baru otomatis mendapatkan checklist dari stasiun aktif berikut.</p>
+          </div>
+          <div id="workstations-list" class="space-y-2">
+            <p class="text-xs mt-muted" role="status" data-i18n="workstations.loading">Memuat stasiun mesin...</p>
+          </div>
+          <form id="add-workstation-form" class="mt-card-muted p-4 space-y-3">
+            <div>
+              <label for="workstation-name-input" data-i18n="workstations.newNameLabel" class="block text-xs font-semibold mt-text mb-1">Nama stasiun baru</label>
+              <input id="workstation-name-input" type="text" maxlength="80" required data-i18n-placeholder="workstations.newNamePlaceholder" placeholder="Contoh: Darning, Chain-stitch, Prep / Cuci, QC" class="mt-input" />
+            </div>
+            <button type="submit" id="add-workstation-btn" data-i18n="workstations.addBtn" class="mt-btn mt-btn-primary w-full sm:w-auto">Tambah Stasiun</button>
+          </form>
+        </div>
+      </section>
+
+      <section id="team-page" class="hidden space-y-5">
+        <div class="mt-team-grid">
+          <section class="mt-card p-4 sm:p-5 space-y-4" aria-labelledby="team-invite-heading">
+            <div>
+              <h3 id="team-invite-heading" data-i18n="team.inviteHeading" class="text-sm font-bold mt-text">Undang anggota baru</h3>
+              <p id="team-invite-desc" data-i18n="team.inviteDesc" class="text-xs mt-muted mt-0.5">Buat tautan undangan khusus email tujuan, lalu salin atau kirim langsung via WhatsApp.</p>
+            </div>
+            <div id="team-invite-feedback" role="status" aria-live="polite" class="hidden p-3 text-xs"></div>
+            <form id="team-invite-form" class="space-y-3">
+              <div>
+                <label for="team-invite-email" data-i18n="team.emailLabel" class="block text-xs font-semibold mt-text mb-1">Email anggota *</label>
+                <input id="team-invite-email" type="email" required autocomplete="off" data-i18n-placeholder="team.emailPlaceholder" placeholder="nama@workshop.com" class="mt-input" />
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label for="team-invite-role" data-i18n="team.roleLabel" class="block text-xs font-semibold mt-text mb-1">Peran akses *</label>
+                  <select id="team-invite-role" class="mt-select">
+                    <option value="staff" data-i18n="role.staff">Staff</option>
+                    <option value="admin" data-i18n="role.admin">Admin</option>
+                  </select>
+                </div>
+                <div>
+                  <label for="team-invite-expires" data-i18n="team.expiresLabel" class="block text-xs font-semibold mt-text mb-1">Masa berlaku tautan</label>
+                  <select id="team-invite-expires" class="mt-select">
+                    <option value="7" selected data-i18n="team.expires7">7 hari</option>
+                    <option value="14" data-i18n="team.expires14">14 hari</option>
+                    <option value="30" data-i18n="team.expires30">30 hari</option>
+                  </select>
+                </div>
+              </div>
+              <button type="submit" id="team-invite-submit-btn" class="mt-btn mt-btn-primary w-full">
+                <i data-lucide="user-plus" class="w-4 h-4" aria-hidden="true"></i>
+                <span data-i18n="team.inviteSubmitBtn">Buat Tautan Undangan</span>
+              </button>
+            </form>
+          </section>
+
+          <section class="mt-card p-4 sm:p-5 space-y-3" aria-labelledby="team-invitations-heading">
+            <div>
+              <h3 id="team-invitations-heading" data-i18n="team.pendingHeading" class="text-sm font-bold mt-text">Daftar undangan</h3>
+              <p data-i18n="team.pendingDesc" class="text-xs mt-muted mt-0.5">Salin tautan atau bagikan via WhatsApp agar rekan tim langsung bergabung.</p>
+            </div>
+            <div id="team-invitations-list" class="space-y-2.5">
+              <p class="text-xs mt-muted" role="status" data-i18n="team.membersLoading">Memuat data tim...</p>
+            </div>
+          </section>
+        </div>
+
+        <section class="mt-card p-4 sm:p-5 space-y-3" aria-labelledby="team-members-heading">
+          <div>
+            <h3 id="team-members-heading" data-i18n="team.membersHeading" class="text-sm font-bold mt-text">Anggota tim workshop</h3>
+            <p data-i18n="team.membersDesc" class="text-xs mt-muted mt-0.5">Pemilik dapat mengubah peran atau menonaktifkan anggota. Pemilik aktif terakhir dilindungi otomatis.</p>
+          </div>
+          <div id="team-members-list" class="space-y-2.5">
+            <p class="text-xs mt-muted" role="status" data-i18n="team.membersLoading">Memuat data tim...</p>
+          </div>
+        </section>
+
+        <section class="mt-card p-4 sm:p-5 space-y-3" aria-labelledby="team-guide-heading">
+          <div>
+            <h3 id="team-guide-heading" data-i18n="team.guideHeading" class="text-sm font-bold mt-text">Panduan batas akses peran</h3>
+            <p data-i18n="team.guideDesc" class="text-xs mt-muted mt-0.5">Hak akses ditegakkan langsung di tampilan aplikasi dan keamanan database (RLS/RPC).</p>
+          </div>
+          <div class="mt-role-guide-grid">
+            <article class="mt-card-muted p-3.5 space-y-1.5">
+              <span class="mt-badge mt-role-badge mt-role-owner" data-i18n="team.guideOwnerTitle">Pemilik (Owner)</span>
+              <p class="text-xs mt-muted leading-relaxed" data-i18n="team.guideOwnerPoints">Akses penuh seluruh halaman, Laporan omzet/profit, Pengaturan Toko, Tim &amp; Peran, Hapus Order, dan hapus mutasi kas manual.</p>
+            </article>
+            <article class="mt-card-muted p-3.5 space-y-1.5">
+              <span class="mt-badge mt-role-badge mt-role-admin" data-i18n="team.guideAdminTitle">Admin / Kasir</span>
+              <p class="text-xs mt-muted leading-relaxed" data-i18n="team.guideAdminPoints">Order Baru, Order Aktif (edit, pelunasan, struk, semua status), Permintaan Quote, Jadwal, Pelanggan &amp; Fit Passport, Kas (lihat &amp; tambah tanpa hapus), Layanan, Template Ukuran, Stasiun Mesin, Arsip, serta undang Staff.</p>
+            </article>
+            <article class="mt-card-muted p-3.5 space-y-1.5">
+              <span class="mt-badge mt-role-badge mt-role-staff" data-i18n="team.guideStaffTitle">Staff / Penjahit</span>
+              <p class="text-xs mt-muted leading-relaxed" data-i18n="team.guideStaffPoints">Hanya Order Aktif (detail item, foto, catatan ukuran pada order, QR Tag, checklist Stasiun Mesin) dan Jadwal. Hanya bisa menaikkan tahap produksi (Antrean -&gt; Dikerjakan -&gt; QC -&gt; Siap Diambil). Nominal harga, Kas, Laporan, Pengaturan Toko, dan kontak pelanggan disembunyikan serta diblokir di database.</p>
+            </article>
+          </div>
+        </section>
       </section>
 
     </main>
@@ -1547,6 +1686,21 @@
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div id="staff-order-detail-modal" role="dialog" aria-modal="true" aria-labelledby="staff-order-detail-title" class="hidden fixed inset-0 z-[65] mt-modal-backdrop overflow-y-auto p-3 sm:p-6 no-print">
+    <div class="max-w-2xl mx-auto my-2 mt-modal-panel overflow-hidden">
+      <div class="mt-modal-head px-5 py-4 flex items-center justify-between gap-2">
+        <div class="min-w-0">
+          <h2 id="staff-order-detail-title" data-i18n="staffOrder.modalTitle" class="font-bold text-base truncate">Detail Produksi Order</h2>
+          <p id="staff-order-detail-subtitle" class="text-xs font-mono-code" style="color: var(--mt-hero-muted);">-</p>
+        </div>
+        <button type="button" id="close-staff-order-detail-btn" data-i18n-aria-label="staffOrder.closeAria" aria-label="Tutup detail produksi order" class="mt-btn-icon mt-btn-on-dark shrink-0">
+          <i data-lucide="x" class="w-5 h-5" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div id="staff-order-detail-body" class="p-5 space-y-4"></div>
     </div>
   </div>
 
