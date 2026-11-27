@@ -70,6 +70,7 @@ let workloadDateFilter = null;
 let searchQuery = '';
 let orderStatusFilter = 'all';
 let orderTypeFilter = 'all';
+let focusedOrderId = null;
 let currentReceiptOrder = null;
 let currentQrTagOrder = null;
 let matchedLatestPassport = null;
@@ -558,7 +559,8 @@ function renderArchiveOrders() {
         .map((order) => {
           const isMailIn = order.order_type === 'mail_in';
           const typeMeta = isMailIn ? getOrderTypeMeta('mail_in') : null;
-          return `<article class="mt-card p-4 flex flex-wrap items-center justify-between gap-3">
+          const isFocused = focusedOrderId === order.id;
+          return `<article data-archive-order-id="${order.id}" class="mt-card p-4 flex flex-wrap items-center justify-between gap-3 ${isFocused ? 'mt-card-focused' : ''}">
             <div>
               <div class="flex items-center gap-2 flex-wrap">
                 <p class="font-mono-code font-bold mt-text">${escapeHTML(order.ticket_code || '')}</p>
@@ -945,6 +947,106 @@ function renderWorkloadCalendar() {
     : selected.orders.length
       ? t('workload.noteScheduled', { orders: selected.orders.length })
       : t('workload.noteEmpty');
+
+  renderWorkloadSelectedOrders(workloadSelectedDate);
+}
+
+function renderWorkloadSelectedOrders(dateKey) {
+  const listEl = document.getElementById('workload-orders-list');
+  const countEl = document.getElementById('workload-orders-count');
+  if (!listEl) return;
+
+  const dueOrders = allOrders
+    .filter((order) => order.status !== 'completed' && order.estimated_done_date === dateKey)
+    .sort((a, b) => {
+      const aDone = ['ready', 'shipped'].includes(a.status) ? 1 : 0;
+      const bDone = ['ready', 'shipped'].includes(b.status) ? 1 : 0;
+      if (aDone !== bDone) return aDone - bDone;
+      return String(a.ticket_code || '').localeCompare(String(b.ticket_code || ''));
+    });
+
+  if (countEl) {
+    countEl.textContent = t('common.orderCount', { count: dueOrders.length });
+  }
+
+  if (dueOrders.length === 0) {
+    listEl.innerHTML = `<div class="mt-card-muted p-5 text-center text-xs mt-muted">${escapeHTML(t('workload.ordersEmpty'))}</div>`;
+    return;
+  }
+
+  listEl.innerHTML = dueOrders
+    .map((order) => {
+      const orderType = order.order_type === 'mail_in' ? 'mail_in' : 'walk_in';
+      const isMailIn = orderType === 'mail_in';
+      const statusMeta = getStatusMeta(order.status, null, orderType);
+      const typeMeta = isMailIn ? getOrderTypeMeta(orderType) : null;
+      const items = order.order_items || [];
+      const estMinutes = getOrderEstimatedMinutes(order);
+      const nextStep = getNextOrderStep(order);
+
+      const itemSummary =
+        items.length > 0
+          ? items
+              .map(
+                (it) =>
+                  `<span class="inline-flex items-center px-2 py-1 rounded text-xs mt-card-muted">${escapeHTML(
+                    it.garment_name
+                  )} · <strong class="ml-1">${escapeHTML(it.service_type)}</strong></span>`
+              )
+              .join(' ')
+          : `<span class="text-xs mt-muted">${escapeHTML(t('orders.noItems'))}</span>`;
+
+      const durationLabel =
+        estMinutes > 0
+          ? t('workload.estDuration', { duration: formatWorkloadDuration(estMinutes) })
+          : t('workload.estUnset');
+
+      return `
+        <article class="mt-card p-4 space-y-3">
+          <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-mono-code font-bold text-sm mt-text">${escapeHTML(order.ticket_code)}</span>
+                ${typeMeta ? `<span class="${typeMeta.badgeClass}">${escapeHTML(typeMeta.label)}</span>` : ''}
+                <span class="${statusMeta.badgeClass}">
+                  <span class="${statusMeta.dotClass}" aria-hidden="true"></span>
+                  <span>${escapeHTML(statusMeta.label)}</span>
+                </span>
+              </div>
+              <p class="mt-1 text-xs sm:text-sm mt-muted">
+                <span class="font-semibold mt-text">${escapeHTML(order.customer_name)}</span>
+                <span aria-hidden="true"> · </span>
+                <span class="font-mono-code text-xs">+${escapeHTML(order.customer_phone)}</span>
+              </p>
+            </div>
+            <div class="sm:text-right shrink-0">
+              <p class="font-mono-code text-xs font-semibold mt-text">${escapeHTML(durationLabel)}</p>
+              <p class="font-mono-code text-xs mt-muted">${escapeHTML(formatCurrency(order.total_amount))}</p>
+            </div>
+          </div>
+          <div class="flex flex-wrap gap-1.5">${itemSummary}</div>
+          <div class="pt-3 mt-seam-t flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2 flex-wrap">
+              ${
+                nextStep
+                  ? `<button type="button" data-schedule-quick-next="${order.id}" data-next-status="${nextStep.next}" class="mt-btn mt-btn-primary text-xs">
+                      <i data-lucide="arrow-right-circle" class="w-4 h-4" aria-hidden="true"></i>
+                      <span>${escapeHTML(nextStep.label)}</span>
+                    </button>`
+                  : ''
+              }
+            </div>
+            <button type="button" data-schedule-open-order="${order.id}" class="mt-btn mt-btn-secondary text-xs ml-auto">
+              <span>${escapeHTML(t('workload.openOrderBtn'))}</span>
+              <i data-lucide="arrow-up-right" class="w-4 h-4" aria-hidden="true"></i>
+            </button>
+          </div>
+        </article>
+      `;
+    })
+    .join('');
+
+  if (window.lucide) window.lucide.createIcons();
 }
 
 async function loadWorkloadServices() {
@@ -985,9 +1087,19 @@ function bindWorkloadCalendarEvents() {
     const day = event.target.closest('[data-workload-date]');
     if (!day || day.disabled) return;
     workloadSelectedDate = day.dataset.workloadDate;
-    workloadDateFilter = workloadSelectedDate;
     renderWorkloadCalendar();
-    renderOrdersList();
+  });
+  document.getElementById('workload-orders-list')?.addEventListener('click', (event) => {
+    const quickBtn = event.target.closest('[data-schedule-quick-next]');
+    if (quickBtn) {
+      updateOrderStatus(quickBtn.getAttribute('data-schedule-quick-next'), quickBtn.getAttribute('data-next-status'));
+      return;
+    }
+    const openBtn = event.target.closest('[data-schedule-open-order]');
+    if (openBtn) {
+      const matched = allOrders.find((order) => order.id === openBtn.getAttribute('data-schedule-open-order'));
+      if (matched) focusOrderInWorkspace(matched);
+    }
   });
 }
 
@@ -1019,6 +1131,31 @@ function capturePendingDeepLinkTicket() {
   } catch (_) {}
 }
 
+function focusOrderInWorkspace(order) {
+  if (!order) return;
+  focusedOrderId = order.id;
+  if (order.status === 'completed') {
+    showAppPage('archive');
+    const card = document.querySelector(`[data-archive-order-id="${order.id}"]`);
+    card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
+  orderStatusFilter = 'all';
+  orderTypeFilter = 'all';
+  workloadDateFilter = null;
+  searchQuery = String(order.ticket_code || '').trim().toLowerCase();
+  if (adminSearchInput) adminSearchInput.value = order.ticket_code;
+  const statusSelect = document.getElementById('order-status-filter');
+  if (statusSelect) statusSelect.value = 'all';
+  const typeSelect = document.getElementById('order-type-filter');
+  if (typeSelect) typeSelect.value = 'all';
+  showAppPage('orders');
+  renderOrdersList();
+  const card = ordersListContainer?.querySelector(`[data-order-card-id="${order.id}"]`);
+  card?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  card?.querySelector('[data-quick-next]')?.focus();
+}
+
 function consumePendingDeepLinkTicket() {
   let targetTicket = '';
   try {
@@ -1041,7 +1178,7 @@ function consumePendingDeepLinkTicket() {
     (order) => String(order.ticket_code || '').trim().toUpperCase() === targetTicket
   );
   if (matched) {
-    openOrderModal(matched);
+    focusOrderInWorkspace(matched);
   } else {
     alert(t('qrTag.deepLinkNotFound', { ticket: targetTicket }));
   }
@@ -1220,6 +1357,7 @@ function resetTenantState() {
   searchQuery = '';
   orderStatusFilter = 'all';
   orderTypeFilter = 'all';
+  focusedOrderId = null;
   workshopSettings = { ...DEFAULT_STORE_SETTINGS };
   setLocale(detectPreferredLocale());
   setCurrency('IDR');
@@ -1459,7 +1597,26 @@ function bindOrderDatePicker() {
   });
 }
 
+function closeAllOrderActionMenus(exceptMenuId = null) {
+  document.querySelectorAll('.mt-actions-menu').forEach((menu) => {
+    if (exceptMenuId && menu.id === exceptMenuId) return;
+    menu.classList.add('hidden');
+  });
+  document.querySelectorAll('[data-toggle-actions]').forEach((btn) => {
+    const controls = btn.getAttribute('aria-controls');
+    if (exceptMenuId && controls === exceptMenuId) return;
+    btn.setAttribute('aria-expanded', 'false');
+  });
+}
+
 function closeActiveDialogOnEscape() {
+  const openActionMenu = document.querySelector('.mt-actions-menu:not(.hidden)');
+  if (openActionMenu) {
+    const trigger = document.querySelector(`[aria-controls="${openActionMenu.id}"]`);
+    closeAllOrderActionMenus();
+    if (trigger instanceof HTMLElement) trigger.focus();
+    return;
+  }
   const datePicker = document.getElementById('order-date-picker');
   if (datePicker && !datePicker.classList.contains('hidden')) {
     closeOrderDatePicker();
@@ -1552,6 +1709,7 @@ function resetOrderFilters() {
   searchQuery = '';
   orderStatusFilter = 'all';
   orderTypeFilter = 'all';
+  focusedOrderId = null;
   workloadDateFilter = null;
   if (adminSearchInput) adminSearchInput.value = '';
   const statusSelect = document.getElementById('order-status-filter');
@@ -1565,6 +1723,12 @@ function resetOrderFilters() {
 function bindGlobalEvents() {
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') closeActiveDialogOnEscape();
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('.mt-actions-wrap')) {
+      closeAllOrderActionMenus();
+    }
   });
 
   document.addEventListener('click', (event) => {
@@ -2100,8 +2264,7 @@ function bindGlobalEvents() {
   });
 
   openNewOrderBtn?.addEventListener('click', () => {
-    const selectedDate = workloadDateFilter || workloadSelectedDate;
-    openOrderModal(null, { estimated_done_date: selectedDate });
+    openOrderModal(null, { estimated_done_date: workloadSelectedDate });
   });
   closeOrderModalBtn?.addEventListener('click', closeOrderModal);
   cancelOrderModalBtn?.addEventListener('click', closeOrderModal);
@@ -3263,12 +3426,13 @@ function renderOrdersList() {
       const isMailIn = orderType === 'mail_in';
       const statusMeta = getStatusMeta(order.status, null, orderType);
       const typeMeta = isMailIn ? getOrderTypeMeta(orderType) : null;
-      const payMeta = getPaymentStatusMeta(order.payment_status);
       const items = order.order_items || [];
-      const remaining = Math.max(0, Number(order.total_amount) - Number(order.paid_amount));
+      const paidAmount = Number(order.paid_amount || 0);
+      const remaining = Math.max(0, Number(order.total_amount) - paidAmount);
       const deadline = getDeadlineStatus(order.estimated_done_date);
       const isDoneStage = ['ready', 'shipped', 'completed'].includes(order.status);
       const nextStep = getNextOrderStep(order);
+      const isFocused = focusedOrderId === order.id;
 
       const itemSummary =
         items.length > 0
@@ -3291,8 +3455,22 @@ function renderOrdersList() {
             .join('')
         : '';
 
+      const paymentSublineHTML =
+        remaining > 0 && paidAmount <= 0
+          ? `<p class="text-xs font-mono-code font-semibold mt-danger-text">${escapeHTML(t('orders.unpaidPrefix', { amount: formatCurrency(remaining) }))}</p>`
+          : remaining > 0
+            ? `<p class="text-xs font-mono-code font-semibold mt-accent">${escapeHTML(t('orders.remainingPrefix', { amount: formatCurrency(remaining) }))}</p>`
+            : `<p class="text-xs font-semibold mt-success-text">${escapeHTML(t('paymentStatus.paid'))}</p>`;
+
+      const deadlineHTML =
+        deadline.isOverdue && !isDoneStage
+          ? `<span class="mt-badge mt-badge-overdue font-mono-code shrink-0"><i data-lucide="alert-circle" class="w-3.5 h-3.5" aria-hidden="true"></i><span>${escapeHTML(deadline.label)} · ${escapeHTML(formatDateID(order.estimated_done_date))}</span></span>`
+          : `<div class="text-xs shrink-0 font-mono-code ${
+              deadline.isUrgent && !isDoneStage ? 'mt-danger-text font-semibold' : 'mt-muted'
+            }">${escapeHTML(t('orders.targetPrefix'))}${escapeHTML(formatDateID(order.estimated_done_date))}</div>`;
+
       return `
-        <article class="mt-card p-4 sm:p-5 space-y-3.5">
+        <article data-order-card-id="${order.id}" class="mt-card p-4 sm:p-5 space-y-3.5 ${isFocused ? 'mt-card-focused' : ''}">
           <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-2.5">
             <div class="min-w-0">
               <div class="flex items-center gap-2 flex-wrap">
@@ -3302,12 +3480,6 @@ function renderOrdersList() {
                   <span class="${statusMeta.dotClass}" aria-hidden="true"></span>
                   <span>${escapeHTML(statusMeta.label)}</span>
                 </span>
-                ${
-                  deadline.isOverdue && !isDoneStage
-                    ? `<span class="mt-badge mt-badge-overdue"><i data-lucide="alert-circle" class="w-3.5 h-3.5" aria-hidden="true"></i><span>${escapeHTML(deadline.label)}</span></span>`
-                    : ''
-                }
-                <span class="${payMeta.badgeClass}">${escapeHTML(payMeta.label)}</span>
               </div>
 
               <div class="mt-1.5 flex items-center gap-2 text-xs sm:text-sm mt-muted flex-wrap">
@@ -3329,21 +3501,13 @@ function renderOrdersList() {
 
             <div class="sm:text-right shrink-0">
               <p class="font-mono-code font-bold text-sm sm:text-base mt-text">${escapeHTML(formatCurrency(order.total_amount))}</p>
-              ${
-                remaining > 0
-                  ? `<p class="text-xs font-mono-code font-semibold mt-accent">${escapeHTML(t('orders.remainingPrefix', { amount: formatCurrency(remaining) }))}</p>`
-                  : `<p class="text-xs font-semibold mt-success-text">${escapeHTML(t('paymentStatus.paid'))}</p>`
-              }
+              ${paymentSublineHTML}
             </div>
           </div>
 
           <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2.5 mt-seam-t">
             <div class="flex flex-wrap gap-1.5">${itemSummary}</div>
-            <div class="text-xs shrink-0 font-mono-code ${
-              deadline.isUrgent && !isDoneStage ? 'mt-danger-text font-semibold' : 'mt-muted'
-            }">
-              ${escapeHTML(deadline.isOverdue && !isDoneStage ? t('orders.overduePrefix') : t('orders.targetPrefix'))}${escapeHTML(formatDateID(order.estimated_done_date))}
-            </div>
+            ${deadlineHTML}
           </div>
 
           <div class="pt-3 mt-seam-t flex flex-wrap items-center justify-between gap-2">
@@ -3358,30 +3522,46 @@ function renderOrdersList() {
               }
             </div>
 
-            <div class="flex flex-wrap items-center gap-2">
-              ${
-                remaining > 0
-                  ? `<button type="button" data-open-payment="${order.id}" class="mt-btn mt-btn-success text-xs">
-                      <i data-lucide="wallet" class="w-4 h-4" aria-hidden="true"></i>
-                      <span>${escapeHTML(t('orders.settlementBtn'))}</span>
-                    </button>`
-                  : ''
-              }
-              <button type="button" data-open-qr-tag="${order.id}" title="${escapeHTML(t('orders.qrTagTitle'))}" class="mt-btn mt-btn-secondary text-xs">
-                <i data-lucide="qr-code" class="w-4 h-4" aria-hidden="true"></i>
-                <span>${escapeHTML(t('orders.qrTagBtn'))}</span>
+            <div class="mt-actions-wrap">
+              <button
+                type="button"
+                data-toggle-actions="${order.id}"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                aria-controls="order-actions-menu-${order.id}"
+                aria-label="${escapeHTML(t('orders.actionsAria', { code: order.ticket_code }))}"
+                class="mt-btn mt-btn-secondary text-xs"
+              >
+                <span>${escapeHTML(t('orders.actionsBtn'))}</span>
+                <i data-lucide="chevron-down" class="w-4 h-4" aria-hidden="true"></i>
               </button>
-              <button type="button" data-open-receipt="${order.id}" title="${escapeHTML(t('orders.receiptTitle'))}" class="mt-btn mt-btn-secondary text-xs">
-                <i data-lucide="receipt-text" class="w-4 h-4" aria-hidden="true"></i>
-                <span>${escapeHTML(t('orders.receiptBtn'))}</span>
-              </button>
-              <button type="button" data-edit-order="${order.id}" title="${escapeHTML(t('orders.editTitle'))}" class="mt-btn mt-btn-secondary text-xs">
-                <i data-lucide="pencil" class="w-4 h-4" aria-hidden="true"></i>
-                <span>${escapeHTML(t('common.edit'))}</span>
-              </button>
-              <button type="button" data-delete-order="${order.id}" title="${escapeHTML(t('orders.deleteTitle'))}" aria-label="${escapeHTML(t('orders.deleteAria', { code: order.ticket_code }))}" class="mt-btn-icon mt-btn-danger-ghost">
-                <i data-lucide="trash-2" class="w-4 h-4" aria-hidden="true"></i>
-              </button>
+              <div id="order-actions-menu-${order.id}" role="menu" class="hidden mt-actions-menu">
+                ${
+                  remaining > 0
+                    ? `<button type="button" role="menuitem" data-open-payment="${order.id}" class="mt-actions-item mt-actions-item-success">
+                        <i data-lucide="wallet" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
+                        <span>${escapeHTML(t('orders.settlementBtn'))}</span>
+                      </button>`
+                    : ''
+                }
+                <button type="button" role="menuitem" data-open-qr-tag="${order.id}" class="mt-actions-item">
+                  <i data-lucide="qr-code" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
+                  <span>${escapeHTML(t('orders.qrTagBtn'))}</span>
+                </button>
+                <button type="button" role="menuitem" data-open-receipt="${order.id}" class="mt-actions-item">
+                  <i data-lucide="receipt-text" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
+                  <span>${escapeHTML(t('orders.receiptBtn'))}</span>
+                </button>
+                <button type="button" role="menuitem" data-edit-order="${order.id}" class="mt-actions-item">
+                  <i data-lucide="pencil" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
+                  <span>${escapeHTML(t('common.edit'))}</span>
+                </button>
+                <div class="mt-actions-sep" role="separator"></div>
+                <button type="button" role="menuitem" data-delete-order="${order.id}" class="mt-actions-item mt-actions-item-danger">
+                  <i data-lucide="trash-2" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
+                  <span>${escapeHTML(t('orders.deleteAction'))}</span>
+                </button>
+              </div>
             </div>
           </div>
         </article>
@@ -3394,6 +3574,19 @@ function renderOrdersList() {
 }
 
 function bindCardActionListeners() {
+  ordersListContainer.querySelectorAll('[data-toggle-actions]').forEach((btn) => {
+    btn.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const menuId = btn.getAttribute('aria-controls');
+      const menu = menuId ? document.getElementById(menuId) : null;
+      if (!menu) return;
+      const willOpen = menu.classList.contains('hidden');
+      closeAllOrderActionMenus(willOpen ? menuId : null);
+      menu.classList.toggle('hidden', !willOpen);
+      btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    });
+  });
+
   ordersListContainer.querySelectorAll('[data-copy-tracking]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const tracking = btn.getAttribute('data-copy-tracking') || '';
@@ -3416,12 +3609,14 @@ function bindCardActionListeners() {
 
   ordersListContainer.querySelectorAll('[data-quick-next]').forEach((btn) => {
     btn.addEventListener('click', () => {
+      closeAllOrderActionMenus();
       updateOrderStatus(btn.getAttribute('data-quick-next'), btn.getAttribute('data-next-status'));
     });
   });
 
   ordersListContainer.querySelectorAll('[data-open-payment]').forEach((btn) => {
     btn.addEventListener('click', () => {
+      closeAllOrderActionMenus();
       const order = allOrders.find((o) => o.id === btn.getAttribute('data-open-payment'));
       if (order) openPaymentModal(order);
     });
@@ -3429,6 +3624,7 @@ function bindCardActionListeners() {
 
   ordersListContainer.querySelectorAll('[data-open-qr-tag]').forEach((btn) => {
     btn.addEventListener('click', () => {
+      closeAllOrderActionMenus();
       const order = allOrders.find((o) => o.id === btn.getAttribute('data-open-qr-tag'));
       if (order) openQrTagModal(order);
     });
@@ -3436,6 +3632,7 @@ function bindCardActionListeners() {
 
   ordersListContainer.querySelectorAll('[data-open-receipt]').forEach((btn) => {
     btn.addEventListener('click', () => {
+      closeAllOrderActionMenus();
       const order = allOrders.find((o) => o.id === btn.getAttribute('data-open-receipt'));
       if (order) openReceiptModal(order);
     });
@@ -3443,6 +3640,7 @@ function bindCardActionListeners() {
 
   ordersListContainer.querySelectorAll('[data-edit-order]').forEach((btn) => {
     btn.addEventListener('click', () => {
+      closeAllOrderActionMenus();
       const order = allOrders.find((o) => o.id === btn.getAttribute('data-edit-order'));
       if (order) openOrderModal(order);
     });
@@ -3450,6 +3648,7 @@ function bindCardActionListeners() {
 
   ordersListContainer.querySelectorAll('[data-delete-order]').forEach((btn) => {
     btn.addEventListener('click', async () => {
+      closeAllOrderActionMenus();
       const orderId = btn.getAttribute('data-delete-order');
       const order = allOrders.find((o) => o.id === orderId);
       if (!order) return;

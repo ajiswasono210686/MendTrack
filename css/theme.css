@@ -1333,6 +1333,70 @@ html[data-theme="dark"] .mt-legend-dot.workload-over {
   word-break: break-word;
 }
 
+.mt-card-focused {
+  border-color: var(--mt-accent);
+  box-shadow: 0 0 0 2px var(--mt-accent);
+}
+
+.mt-actions-wrap {
+  position: relative;
+  display: inline-block;
+  margin-left: auto;
+}
+
+.mt-actions-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 35;
+  min-width: 196px;
+  padding: 6px;
+  border-radius: 10px;
+  border: 1px solid var(--mt-input-border);
+  background-color: var(--mt-surface);
+  color: var(--mt-ink);
+  box-shadow: var(--mt-shadow-elevated);
+}
+
+.mt-actions-item {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--mt-ink);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-align: left;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.mt-actions-item:hover:not(:disabled) {
+  background-color: var(--mt-surface-muted);
+}
+
+.mt-actions-item-success {
+  color: var(--mt-success-text);
+}
+
+.mt-actions-item-danger {
+  color: var(--mt-danger-text);
+}
+
+.mt-actions-item-danger:hover:not(:disabled) {
+  background-color: var(--mt-danger-bg-hover);
+}
+
+.mt-actions-sep {
+  height: 0;
+  margin: 4px 2px;
+  border-top: 1px dashed var(--mt-seam);
+}
+
 .mt-tracking-pill {
   display: inline-flex;
   align-items: center;
