@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mendtrack-shell-v26-pwa-fresh-cache';
+const CACHE_NAME = 'mendtrack-shell-v27-workflow-icon';
 const APP_SHELL = [
   '/admin.html',
   '/index.html',
