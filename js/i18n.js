@@ -897,6 +897,13 @@ const DICTIONARIES = {
     'passport.autofillConfirmOverwrite': 'Kolom spesifikasi ukuran item sudah terisi. Ganti dengan Denim Fit Passport terakhir pelanggan?',
     'passport.autofillApplied': 'Ukuran & profil Denim Fit Passport diterapkan ke Item #{number}.',
     'passport.autofillEmpty': 'Catatan ukuran terakhir belum memiliki angka atau atribut denim untuk diisi.',
+    'passport.useSavedBtn': 'Gunakan data ukuran tersimpan',
+    'passport.useSavedBtnCount': 'Gunakan data ukuran tersimpan ({count})',
+    'passport.pickerAria': 'Daftar data ukuran tersimpan pelanggan',
+    'passport.pickerTitle': 'Pilih data ukuran tersimpan',
+    'passport.pickerNeedPhone': 'Masukkan nomor WhatsApp pelanggan terlebih dahulu untuk melihat data ukuran tersimpan.',
+    'passport.pickerEmpty': 'Pelanggan ini belum memiliki data ukuran tersimpan.',
+    'passport.pickerSelected': 'Ukuran "{type}" diterapkan ke kolom spesifikasi.',
   },
 
   en: {
@@ -1761,6 +1768,13 @@ const DICTIONARIES = {
     'passport.autofillConfirmOverwrite': "This item's measurement specs already have text. Replace with the customer's latest Denim Fit Passport?",
     'passport.autofillApplied': 'Denim Fit Passport specs applied to Item #{number}.',
     'passport.autofillEmpty': 'The latest measurement record has no values or denim attributes to apply.',
+    'passport.useSavedBtn': 'Use saved measurements',
+    'passport.useSavedBtnCount': 'Use saved measurements ({count})',
+    'passport.pickerAria': 'Saved customer measurement records',
+    'passport.pickerTitle': 'Choose saved measurements',
+    'passport.pickerNeedPhone': 'Enter the customer WhatsApp number first to view saved measurements.',
+    'passport.pickerEmpty': 'This customer has no saved measurements yet.',
+    'passport.pickerSelected': 'Applied "{type}" measurements to specifications.',
   },
 };
 

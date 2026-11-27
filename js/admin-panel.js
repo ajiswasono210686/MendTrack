@@ -74,6 +74,8 @@ let focusedOrderId = null;
 let currentReceiptOrder = null;
 let currentQrTagOrder = null;
 let matchedLatestPassport = null;
+let matchedCustomerPassports = [];
+let matchedCustomerPhoneKey = '';
 let workloadServices = [];
 const workloadToday = new Date();
 let workloadViewMonth = new Date(workloadToday.getFullYear(), workloadToday.getMonth(), 1);
@@ -1352,6 +1354,8 @@ function resetTenantState() {
   currentReceiptOrder = null;
   currentQrTagOrder = null;
   matchedLatestPassport = null;
+  matchedCustomerPassports = [];
+  matchedCustomerPhoneKey = '';
   modalTriggerStack = [];
   workloadDateFilter = null;
   searchQuery = '';
@@ -4020,55 +4024,8 @@ function syncMailInFormVisibility(isEdit = false) {
   document.getElementById('mail-in-initial-status-wrap')?.classList.toggle('hidden', !isMailIn || isEdit);
 }
 
-function updatePassportAutofillBar(passport) {
-  matchedLatestPassport = passport || null;
-  const bar = document.getElementById('denim-passport-autofill-bar');
-  const metaEl = document.getElementById('denim-passport-autofill-meta');
-  const feedbackEl = document.getElementById('passport-autofill-feedback');
-  if (feedbackEl) {
-    feedbackEl.textContent = '';
-    feedbackEl.classList.add('hidden');
-  }
-  if (!bar) return;
-  if (!passport) {
-    bar.classList.add('hidden');
-    return;
-  }
-  const fabricLabel = getDenimFabricLabel(passport.denim_fabric_type);
-  const count = Object.keys(passport.measurement_data || {}).length;
-  if (metaEl) {
-    metaEl.textContent = t('passport.autofillBannerMeta', {
-      type: passport.garment_type || '',
-      fabric: fabricLabel ? ` · ${fabricLabel}` : '',
-      count,
-    });
-  }
-  bar.classList.remove('hidden');
-  if (window.lucide) window.lucide.createIcons();
-}
-
-async function fetchLatestCustomerPassport(customerId) {
-  const tenantId = getActiveTenantId();
-  if (!tenantId || !customerId) return null;
-  const { data, error } = await supabase
-    .from('customer_measurements')
-    .select('*')
-    .eq('tenant_id', tenantId)
-    .eq('customer_id', customerId)
-    .order('updated_at', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) {
-    console.warn('Gagal memuat Denim Fit Passport pelanggan:', error);
-    return null;
-  }
-  return data || null;
-}
-
-function applyLatestPassportToOrderForm() {
-  if (!matchedLatestPassport) return;
-  const passport = matchedLatestPassport;
+function formatPassportSpecSummary(passport) {
+  if (!passport) return { pairs: [], notesExtra: [] };
   const displayUnit = getMeasurementDisplayUnit();
   const unitSuffix = displayUnit === 'inch' ? 'in' : 'cm';
   const sanitizeVal = (val) => String(val || '').replace(/,/g, ';').trim();
@@ -4097,21 +4054,89 @@ function applyLatestPassportToOrderForm() {
   if (passport.fit_notes) {
     notesExtra.push(`${t('passport.cardFitNotes')}: ${passport.fit_notes.trim()}`);
   }
+  return { pairs, notesExtra };
+}
 
-  if (!pairs.length && !notesExtra.length) {
-    alert(t('passport.autofillEmpty'));
+function getSavedMeasurementsButtonText() {
+  return matchedCustomerPassports.length > 0
+    ? t('passport.useSavedBtnCount', { count: matchedCustomerPassports.length })
+    : t('passport.useSavedBtn');
+}
+
+function refreshSavedMeasurementControls() {
+  if (!formItemsContainer) return;
+  const labelText = getSavedMeasurementsButtonText();
+  formItemsContainer.querySelectorAll('[data-saved-meas-btn-label]').forEach((el) => {
+    el.textContent = labelText;
+  });
+  formItemsContainer.querySelectorAll('.item-row').forEach((row) => {
+    const picker = row.querySelector('[data-saved-measurements-picker]');
+    if (picker && !picker.classList.contains('hidden')) {
+      renderSavedMeasurementPicker(row);
+    }
+  });
+}
+
+function renderSavedMeasurementPicker(rowEl) {
+  const picker = rowEl?.querySelector('[data-saved-measurements-picker]');
+  if (!picker) return;
+  const phoneVal = normalizePhone(document.getElementById('form-customer-phone')?.value || '');
+  const headerHTML = `
+    <div class="flex items-center justify-between gap-2 pb-2 mt-seam-b">
+      <span class="text-xs font-bold mt-text">${escapeHTML(t('passport.pickerTitle'))}</span>
+      <button type="button" data-close-meas-picker class="mt-btn mt-btn-ghost text-xs">
+        ${escapeHTML(t('common.close'))}
+      </button>
+    </div>
+  `;
+
+  if (!phoneVal || phoneVal.length < 10) {
+    picker.innerHTML = `${headerHTML}<p class="text-xs mt-muted py-1">${escapeHTML(t('passport.pickerNeedPhone'))}</p>`;
     return;
   }
 
-  const rows = Array.from(formItemsContainer.querySelectorAll('.item-row'));
-  if (!rows.length) return;
-  let targetIdx = rows.findIndex((row) => !row.querySelector('[data-field="measurement_specs"]')?.value.trim());
-  if (targetIdx === -1) targetIdx = 0;
+  if (!matchedCustomerPassports.length) {
+    picker.innerHTML = `${headerHTML}<p class="text-xs mt-muted py-1">${escapeHTML(t('passport.pickerEmpty'))}</p>`;
+    return;
+  }
 
-  const targetInput = rows[targetIdx].querySelector('[data-field="measurement_specs"]');
+  const optionsHTML = matchedCustomerPassports
+    .map((record) => {
+      const fabricLabel = getDenimFabricLabel(record.denim_fabric_type);
+      const { pairs } = formatPassportSpecSummary(record);
+      const previewText = pairs.length ? pairs.join(' · ') : t('passport.autofillEmpty');
+      const dateStr = record.updated_at || record.created_at;
+      const dateLabel = dateStr ? formatDateID(String(dateStr).slice(0, 10)) : '';
+      return `
+        <button type="button" data-pick-passport-id="${escapeHTML(record.id)}" class="mt-saved-meas-option">
+          <div class="flex items-center justify-between gap-2 w-full flex-wrap">
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <strong class="text-xs mt-text">${escapeHTML(record.garment_type || '-')}</strong>
+              ${fabricLabel ? `<span class="mt-badge mt-badge-mailin">${escapeHTML(fabricLabel)}</span>` : ''}
+            </div>
+            ${dateLabel ? `<span class="text-xs font-mono-code mt-muted">${escapeHTML(dateLabel)}</span>` : ''}
+          </div>
+          <span class="text-xs mt-muted font-mono-code">${escapeHTML(previewText)}</span>
+        </button>
+      `;
+    })
+    .join('');
+
+  picker.innerHTML = `${headerHTML}<div class="space-y-2">${optionsHTML}</div>`;
+}
+
+function applyPassportToItemRow(passport, rowEl) {
+  if (!passport || !rowEl) return false;
+  const { pairs, notesExtra } = formatPassportSpecSummary(passport);
+  if (!pairs.length && !notesExtra.length) {
+    alert(t('passport.autofillEmpty'));
+    return false;
+  }
+
+  const targetInput = rowEl.querySelector('[data-field="measurement_specs"]');
   if (targetInput && pairs.length) {
     if (targetInput.value.trim() && !confirm(t('passport.autofillConfirmOverwrite'))) {
-      return;
+      return false;
     }
     targetInput.value = pairs.join(', ');
   }
@@ -4125,12 +4150,79 @@ function applyLatestPassportToOrderForm() {
     }
   }
 
+  triggerAutoSaveDraft();
+  return true;
+}
+
+function updatePassportAutofillBar(passportsOrSingle, phoneKey = '') {
+  const list = Array.isArray(passportsOrSingle)
+    ? passportsOrSingle.filter(Boolean)
+    : passportsOrSingle
+      ? [passportsOrSingle]
+      : [];
+  matchedCustomerPassports = list;
+  matchedLatestPassport = list[0] || null;
+  matchedCustomerPhoneKey = phoneKey || '';
+
+  const bar = document.getElementById('denim-passport-autofill-bar');
+  const metaEl = document.getElementById('denim-passport-autofill-meta');
+  const feedbackEl = document.getElementById('passport-autofill-feedback');
+  if (feedbackEl) {
+    feedbackEl.textContent = '';
+    feedbackEl.classList.add('hidden');
+  }
+  refreshSavedMeasurementControls();
+  if (!bar) return;
+  if (!matchedLatestPassport) {
+    bar.classList.add('hidden');
+    return;
+  }
+  const fabricLabel = getDenimFabricLabel(matchedLatestPassport.denim_fabric_type);
+  const count = Object.keys(matchedLatestPassport.measurement_data || {}).length;
+  if (metaEl) {
+    metaEl.textContent = t('passport.autofillBannerMeta', {
+      type: matchedLatestPassport.garment_type || '',
+      fabric: fabricLabel ? ` · ${fabricLabel}` : '',
+      count,
+    });
+  }
+  bar.classList.remove('hidden');
+  if (window.lucide) window.lucide.createIcons();
+}
+
+async function fetchCustomerPassports(customerId) {
+  const tenantId = getActiveTenantId();
+  if (!tenantId || !customerId) return [];
+  const { data, error } = await supabase
+    .from('customer_measurements')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .eq('customer_id', customerId)
+    .order('updated_at', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(30);
+  if (error) {
+    console.warn('Gagal memuat Denim Fit Passport pelanggan:', error);
+    return [];
+  }
+  return data || [];
+}
+
+function applyLatestPassportToOrderForm() {
+  if (!matchedLatestPassport) return;
+  const rows = Array.from(formItemsContainer.querySelectorAll('.item-row'));
+  if (!rows.length) return;
+  let targetIdx = rows.findIndex((row) => !row.querySelector('[data-field="measurement_specs"]')?.value.trim());
+  if (targetIdx === -1) targetIdx = 0;
+
+  const applied = applyPassportToItemRow(matchedLatestPassport, rows[targetIdx]);
+  if (!applied) return;
+
   const feedbackEl = document.getElementById('passport-autofill-feedback');
   if (feedbackEl) {
     feedbackEl.textContent = t('passport.autofillApplied', { number: targetIdx + 1 });
     feedbackEl.classList.remove('hidden');
   }
-  triggerAutoSaveDraft();
 }
 
 async function openOrderModal(existingOrder = null, draftOverride = null) {
@@ -4318,12 +4410,33 @@ function appendItemRow(itemData = {}, signedUrlMap = {}) {
       <div>
         <label for="item-specs-${uid}" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('orderForm.specsLabel'))}</label>
         <input id="item-specs-${uid}" type="text" data-field="measurement_specs" value="${escapeHTML(specsString)}" placeholder="${escapeHTML(t('orderForm.specsPlaceholder'))}" class="mt-input text-xs" />
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            data-toggle-saved-measurements
+            aria-expanded="false"
+            aria-controls="item-saved-meas-picker-${uid}"
+            class="mt-saved-meas-trigger"
+          >
+            <i data-lucide="ruler" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
+            <span data-saved-meas-btn-label>${escapeHTML(getSavedMeasurementsButtonText())}</span>
+          </button>
+        </div>
+        <p data-item-meas-feedback role="status" aria-live="polite" class="hidden mt-1.5 text-xs font-semibold mt-success-text"></p>
       </div>
 
       <div>
         <label for="item-price-${uid}" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('orderForm.itemPricePrefix'))}<span data-currency-label>${escapeHTML(currencyMeta.shortLabel)}</span>) *</label>
         <input id="item-price-${uid}" type="number" required data-currency-input="nonneg" inputmode="${currencyMeta.decimals > 0 ? 'decimal' : 'numeric'}" min="0" step="${escapeHTML(currencyMeta.step)}" data-field="price" value="${Number(itemData.price || 0)}" class="item-price-input mt-input font-mono-code text-right font-semibold" />
       </div>
+
+      <div
+        id="item-saved-meas-picker-${uid}"
+        data-saved-measurements-picker
+        role="region"
+        aria-label="${escapeHTML(t('passport.pickerAria'))}"
+        class="hidden col-span-full mt-saved-meas-picker space-y-2"
+      ></div>
     </div>
 
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
@@ -4378,7 +4491,57 @@ function appendItemRow(itemData = {}, signedUrlMap = {}) {
     triggerAutoSaveDraft();
   });
 
+  const toggleMeasBtn = card.querySelector('[data-toggle-saved-measurements]');
+  const measPicker = card.querySelector('[data-saved-measurements-picker]');
+  const measFeedback = card.querySelector('[data-item-meas-feedback]');
+
+  toggleMeasBtn?.addEventListener('click', async () => {
+    if (!measPicker) return;
+    const willOpen = measPicker.classList.contains('hidden');
+    formItemsContainer.querySelectorAll('[data-saved-measurements-picker]').forEach((el) => {
+      if (el !== measPicker) el.classList.add('hidden');
+    });
+    formItemsContainer.querySelectorAll('[data-toggle-saved-measurements]').forEach((btn) => {
+      if (btn !== toggleMeasBtn) btn.setAttribute('aria-expanded', 'false');
+    });
+    if (!willOpen) {
+      measPicker.classList.add('hidden');
+      toggleMeasBtn.setAttribute('aria-expanded', 'false');
+      return;
+    }
+    const normalizedPhone = normalizePhone(document.getElementById('form-customer-phone')?.value || '');
+    if (normalizedPhone.length >= 10 && normalizedPhone !== matchedCustomerPhoneKey) {
+      await checkCustomerPhoneInForm();
+    }
+    renderSavedMeasurementPicker(card);
+    measPicker.classList.remove('hidden');
+    toggleMeasBtn.setAttribute('aria-expanded', 'true');
+  });
+
+  measPicker?.addEventListener('click', (event) => {
+    if (event.target.closest('[data-close-meas-picker]')) {
+      measPicker.classList.add('hidden');
+      toggleMeasBtn?.setAttribute('aria-expanded', 'false');
+      return;
+    }
+    const optionBtn = event.target.closest('[data-pick-passport-id]');
+    if (!optionBtn) return;
+    const pickedId = optionBtn.getAttribute('data-pick-passport-id');
+    const picked = matchedCustomerPassports.find((entry) => entry.id === pickedId);
+    if (!picked) return;
+    const applied = applyPassportToItemRow(picked, card);
+    if (!applied) return;
+    measPicker.classList.add('hidden');
+    toggleMeasBtn?.setAttribute('aria-expanded', 'false');
+    if (measFeedback) {
+      measFeedback.textContent = t('passport.pickerSelected', { type: picked.garment_type || '-' });
+      measFeedback.classList.remove('hidden');
+    }
+    card.querySelector('[data-field="measurement_specs"]')?.focus();
+  });
+
   formItemsContainer.appendChild(card);
+  if (window.lucide) window.lucide.createIcons();
 }
 
 function renumberItemLabels() {
@@ -4473,13 +4636,13 @@ async function checkCustomerPhoneInForm() {
     if (customer) {
       status.textContent = t('orderForm.lookupFound', { name: customer.name });
       status.className = 'mt-1 text-xs mt-accent font-medium';
-      const latestPassport = await fetchLatestCustomerPassport(customer.id);
+      const passports = await fetchCustomerPassports(customer.id);
       if (requestId !== customerLookupRequest) return;
-      updatePassportAutofillBar(latestPassport);
+      updatePassportAutofillBar(passports, normalized);
     } else {
       status.textContent = t('orderForm.lookupNew');
       status.className = 'mt-1 text-xs mt-success-text font-medium';
-      updatePassportAutofillBar(null);
+      updatePassportAutofillBar([], normalized);
     }
   } catch (error) {
     if (requestId !== customerLookupRequest) return;
