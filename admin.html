@@ -421,6 +421,9 @@
           <button type="button" id="bottom-nav-orders" aria-current="page" data-i18n-title="nav.orders" data-i18n-aria-label="nav.orders" title="Order" aria-label="Order" class="mt-sb-item is-active">
             <i data-lucide="list-checks" aria-hidden="true"></i><span data-i18n="nav.orders" class="mt-sb-label">Order</span>
           </button>
+          <button type="button" id="sidebar-nav-quotes" class="mt-sb-item" data-app-page="quotes" data-i18n-title="nav.quotes" data-i18n-aria-label="nav.quotes" title="Permintaan Quote" aria-label="Permintaan Quote">
+            <i data-lucide="file-question" aria-hidden="true"></i><span data-i18n="nav.quotes" class="mt-sb-label">Permintaan Quote</span><span id="sidebar-quotes-badge" class="hidden mt-sb-count">0</span>
+          </button>
           <button type="button" id="bottom-nav-customers" data-i18n-title="nav.customers" data-i18n-aria-label="nav.customers" title="Pelanggan" aria-label="Pelanggan" class="mt-sb-item">
             <i data-lucide="contact-round" aria-hidden="true"></i><span data-i18n="nav.customers" class="mt-sb-label">Pelanggan</span>
           </button>
@@ -746,6 +749,32 @@
         <div id="archive-orders-list" class="space-y-3"></div>
       </section>
 
+      <section id="quotes-page" class="hidden space-y-4">
+        <div class="mt-card p-4 space-y-3">
+          <div id="quotes-filter-pills" class="mt-filter-pills" role="group" data-i18n-aria-label="nav.quotes" aria-label="Filter status permintaan quote">
+            <button type="button" data-quote-status-filter="all" aria-pressed="true" class="mt-filter-pill is-active" data-i18n="quotes.filterAll">Semua</button>
+            <button type="button" data-quote-status-filter="new" aria-pressed="false" class="mt-filter-pill" data-i18n="quotes.filterNew">Baru</button>
+            <button type="button" data-quote-status-filter="quoted" aria-pressed="false" class="mt-filter-pill" data-i18n="quotes.filterQuoted">Menunggu Persetujuan</button>
+            <button type="button" data-quote-status-filter="revision_requested" aria-pressed="false" class="mt-filter-pill" data-i18n="quotes.filterRevision">Minta Revisi</button>
+            <button type="button" data-quote-status-filter="approved" aria-pressed="false" class="mt-filter-pill" data-i18n="quotes.filterApproved">Disetujui</button>
+            <button type="button" data-quote-status-filter="rejected" aria-pressed="false" class="mt-filter-pill" data-i18n="quotes.filterRejected">Ditolak</button>
+          </div>
+          <div class="flex flex-col sm:flex-row gap-2.5">
+            <div class="relative flex-1">
+              <label for="quotes-search-input" class="sr-only" data-i18n="quotes.searchPlaceholder">Cari permintaan quote</label>
+              <input id="quotes-search-input" type="search" data-i18n-placeholder="quotes.searchPlaceholder" placeholder="Cari kode quote, nama, WA, atau pakaian..." class="mt-input" />
+            </div>
+            <button type="button" id="refresh-quotes-btn" class="mt-btn mt-btn-secondary shrink-0">
+              <i data-lucide="refresh-cw" class="w-4 h-4" aria-hidden="true"></i>
+              <span data-i18n="quotes.refreshBtn">Muat Ulang</span>
+            </button>
+          </div>
+        </div>
+        <div id="quotes-list-container" class="space-y-3">
+          <p class="text-sm mt-muted" role="status" data-i18n="quotes.loading">Memuat permintaan quote...</p>
+        </div>
+      </section>
+
     </main>
 
     <footer class="no-print mt-seam-t text-center text-xs mt-muted py-5" style="background-color: var(--mt-surface);">
@@ -926,20 +955,14 @@
           </div>
         </div>
 
-        <div class="flex flex-wrap items-center justify-between gap-2.5 pt-2">
-          <button type="button" id="order-modal-qr-tag-btn" class="hidden mt-btn mt-btn-secondary text-xs">
-            <i data-lucide="qr-code" class="w-4 h-4" aria-hidden="true"></i>
-            <span data-i18n="qrTag.openTagBtn">Cetak QR Tag</span>
+        <div class="flex flex-wrap items-center justify-end gap-2.5 pt-2">
+          <button type="button" id="cancel-order-modal-btn" data-i18n="common.cancel" class="mt-btn mt-btn-secondary">
+            Batal
           </button>
-          <div class="flex items-center gap-2.5 ml-auto">
-            <button type="button" id="cancel-order-modal-btn" data-i18n="common.cancel" class="mt-btn mt-btn-secondary">
-              Batal
-            </button>
-            <button type="submit" id="save-order-submit-btn" class="mt-btn mt-btn-primary">
-              <i data-lucide="check" class="w-4 h-4" aria-hidden="true"></i>
-              <span data-i18n="orderForm.saveBtn">Simpan Order</span>
-            </button>
-          </div>
+          <button type="submit" id="save-order-submit-btn" class="mt-btn mt-btn-primary">
+            <i data-lucide="check" class="w-4 h-4" aria-hidden="true"></i>
+            <span data-i18n="orderForm.saveBtn">Simpan Order</span>
+          </button>
         </div>
       </form>
     </div>
@@ -1249,11 +1272,20 @@
               <button type="button" id="remove-store-logo-btn" data-i18n="settings.removeLogo" class="mt-btn mt-btn-danger-ghost text-xs">Hapus logo</button>
             </div>
           </div>
-          <div class="mt-card-muted p-3 space-y-1.5">
-            <label for="store-tracking-url-display" data-i18n="settings.trackingUrlLabel" class="block text-xs font-semibold mt-text">Tautan pelacakan pelanggan</label>
-            <div class="flex items-center gap-2">
-              <input id="store-tracking-url-display" type="text" readonly class="mt-input mt-input-locked font-mono-code text-xs flex-1" />
-              <button type="button" id="copy-store-track-url-btn" data-i18n="common.copy" class="mt-btn mt-btn-secondary text-xs shrink-0">Salin</button>
+          <div class="mt-card-muted p-3 space-y-2.5">
+            <div class="space-y-1.5">
+              <label for="store-tracking-url-display" data-i18n="settings.trackingUrlLabel" class="block text-xs font-semibold mt-text">Tautan pelacakan pelanggan</label>
+              <div class="flex items-center gap-2">
+                <input id="store-tracking-url-display" type="text" readonly class="mt-input mt-input-locked font-mono-code text-xs flex-1" />
+                <button type="button" id="copy-store-track-url-btn" data-i18n="common.copy" class="mt-btn mt-btn-secondary text-xs shrink-0">Salin</button>
+              </div>
+            </div>
+            <div class="space-y-1.5 pt-2 mt-seam-t">
+              <label for="store-quote-url-display" data-i18n="settings.quoteUrlLabel" class="block text-xs font-semibold mt-text">Tautan form minta estimasi</label>
+              <div class="flex items-center gap-2">
+                <input id="store-quote-url-display" type="text" readonly class="mt-input mt-input-locked font-mono-code text-xs flex-1" />
+                <button type="button" id="copy-store-quote-url-btn" data-i18n="common.copy" class="mt-btn mt-btn-secondary text-xs shrink-0">Salin</button>
+              </div>
             </div>
           </div>
           <div>
@@ -1355,6 +1387,13 @@
                   <input id="service-minutes-input" type="number" min="0" max="59" value="0" class="mt-input font-mono-code" />
                 </div>
               </div>
+              <div>
+                <label for="service-base-price-input" class="block text-xs font-semibold mt-text mb-1">
+                  <span data-i18n="services.basePriceLabel">Harga patokan / mulai dari (opsional, </span><span data-currency-label>Rp</span>)
+                </label>
+                <input id="service-base-price-input" type="number" data-currency-input="nonneg" min="0" step="1000" data-i18n-placeholder="services.basePricePlaceholder" placeholder="0 (dinamis)" class="mt-input font-mono-code" />
+                <p data-i18n="services.basePriceHint" class="text-xs mt-muted mt-1">Kosongkan atau isi 0 jika harga selalu ditentukan dinamis saat inspeksi.</p>
+              </div>
               <button type="button" id="add-service-btn" data-i18n="services.addBtn" class="mt-btn mt-btn-primary w-full">Tambah Layanan</button>
             </div>
           </div>
@@ -1408,11 +1447,120 @@
           <label for="edit-service-minutes" data-i18n="services.editMinutesLabel" class="block text-xs font-semibold mt-text mb-1">Estimasi (menit) *</label>
           <input id="edit-service-minutes" type="number" min="1" step="1" required inputmode="numeric" data-i18n-placeholder="services.editMinutesPlaceholder" placeholder="Contoh: 60" class="mt-input font-mono-code" />
         </div>
+        <div>
+          <label for="edit-service-base-price" class="block text-xs font-semibold mt-text mb-1">
+            <span data-i18n="services.editBasePriceLabel">Harga patokan / mulai dari (opsional, </span><span data-currency-label>Rp</span>)
+          </label>
+          <input id="edit-service-base-price" type="number" data-currency-input="nonneg" min="0" step="1000" data-i18n-placeholder="services.basePricePlaceholder" placeholder="0 (dinamis)" class="mt-input font-mono-code" />
+          <p data-i18n="services.basePriceHint" class="text-xs mt-muted mt-1">Kosongkan atau isi 0 jika harga selalu ditentukan dinamis saat inspeksi.</p>
+        </div>
         <div class="flex gap-2 pt-1">
           <button type="button" id="cancel-service-edit-btn" data-i18n="common.cancel" class="mt-btn mt-btn-secondary flex-1">Batal</button>
           <button type="submit" id="save-service-edit-btn" data-i18n="common.saveChanges" class="mt-btn mt-btn-primary flex-1">Simpan Perubahan</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <div id="quote-detail-modal" role="dialog" aria-modal="true" aria-labelledby="quote-detail-title" class="hidden fixed inset-0 z-[65] mt-modal-backdrop overflow-y-auto p-3 sm:p-6 no-print">
+    <div class="mt-modal-quote-panel mx-auto my-2 mt-modal-panel overflow-hidden">
+      <div class="mt-modal-head px-5 py-4 flex items-center justify-between gap-2">
+        <div class="min-w-0">
+          <h2 id="quote-detail-title" data-i18n="quotes.modalTitle" class="text-base sm:text-lg font-bold truncate">Tinjau Permintaan Quote</h2>
+          <p id="quote-detail-subtitle" class="text-xs font-mono-code" style="color: var(--mt-hero-muted);">-</p>
+        </div>
+        <button type="button" id="close-quote-detail-btn" data-i18n-aria-label="quotes.closeModalAria" aria-label="Tutup detail permintaan quote" class="mt-btn-icon mt-btn-on-dark shrink-0">
+          <i data-lucide="x" class="w-5 h-5" aria-hidden="true"></i>
+        </button>
+      </div>
+
+      <div id="quote-detail-body" class="p-5 space-y-5">
+        <div class="mt-quote-review-grid">
+          <div class="space-y-4">
+            <div id="quote-detail-decision-alert" class="hidden"></div>
+            <section class="mt-card-muted p-4 space-y-2" aria-labelledby="quote-customer-heading">
+              <h3 id="quote-customer-heading" data-i18n="quotes.customerSection" class="text-xs font-bold mt-muted">Data pelanggan &amp; pakaian</h3>
+              <div id="quote-detail-meta" class="space-y-1.5 text-sm"></div>
+            </section>
+            <section class="space-y-2" aria-labelledby="quote-photo-heading">
+              <h3 id="quote-photo-heading" data-i18n="quotes.photoSection" class="text-sm font-bold mt-text">Foto &amp; pin titik kerusakan</h3>
+              <div id="quote-detail-pin-canvas"></div>
+            </section>
+          </div>
+
+          <div class="space-y-4">
+            <div id="quote-converted-banner" class="hidden mt-notice-ok p-4 space-y-2.5"></div>
+            <div id="quote-published-link-box" class="hidden mt-card-muted p-4 space-y-2.5">
+              <label for="quote-approval-url-input" data-i18n="quotes.approvalLinkLabel" class="block text-xs font-semibold mt-text">Link persetujuan quote pelanggan</label>
+              <div class="flex items-center gap-2">
+                <input id="quote-approval-url-input" type="text" readonly class="mt-input mt-input-locked font-mono-code text-xs flex-1" />
+                <button type="button" id="copy-quote-approval-url-btn" data-i18n="quotes.copyLinkBtn" class="mt-btn mt-btn-secondary text-xs shrink-0">Salin Link</button>
+              </div>
+              <a id="quote-send-wa-link" href="#" target="_blank" rel="noopener noreferrer" class="mt-btn mt-btn-success w-full text-xs">
+                <i data-lucide="message-circle" class="w-4 h-4" aria-hidden="true"></i>
+                <span data-i18n="quotes.sendWaBtn">Kirim Link via WhatsApp</span>
+              </a>
+            </div>
+
+            <form id="quote-builder-form" class="mt-card p-4 space-y-4">
+              <div>
+                <h3 data-i18n="quotes.builderHeading" class="text-sm font-bold mt-text">Rincian estimasi biaya &amp; durasi</h3>
+                <p data-i18n="quotes.builderDesc" class="text-xs mt-muted mt-0.5">Pilih layanan dari katalog untuk mengisi harga patokan otomatis, lalu sesuaikan nominal secara bebas.</p>
+              </div>
+
+              <div id="quote-builder-items" class="space-y-3"></div>
+
+              <button type="button" id="add-quote-item-btn" class="mt-btn mt-btn-secondary text-xs w-full">
+                <i data-lucide="plus" class="w-4 h-4" aria-hidden="true"></i>
+                <span data-i18n="quotes.addItemBtn">Tambah Item Estimasi</span>
+              </button>
+
+              <div class="mt-card-muted p-3.5 flex items-center justify-between">
+                <span data-i18n="quotes.totalLabel" class="text-xs font-semibold mt-text">Total estimasi biaya</span>
+                <span id="quote-builder-total" class="font-mono-code text-base font-bold mt-text">Rp 0</span>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label for="quote-est-days-input" data-i18n="quotes.estDaysLabel" class="block text-xs font-semibold mt-text mb-1">Estimasi durasi (hari kerja)</label>
+                  <input id="quote-est-days-input" type="number" min="1" max="365" step="1" inputmode="numeric" data-i18n-placeholder="quotes.estDaysPlaceholder" placeholder="Contoh: 5" class="mt-input font-mono-code" />
+                </div>
+                <div>
+                  <label for="quote-est-date-input" data-i18n="quotes.estDateLabel" class="block text-xs font-semibold mt-text mb-1">Atau target tanggal selesai (opsional)</label>
+                  <input id="quote-est-date-input" type="date" class="mt-input font-mono-code" />
+                </div>
+              </div>
+
+              <div>
+                <label for="quote-workshop-notes-input" data-i18n="quotes.workshopNotesLabel" class="block text-xs font-semibold mt-text mb-1">Catatan workshop untuk pelanggan (opsional)</label>
+                <textarea id="quote-workshop-notes-input" rows="2" maxlength="1000" data-i18n-placeholder="quotes.workshopNotesPlaceholder" placeholder="Contoh: Menggunakan benang katun indigo, estimasi dihitung sejak paket tiba." class="mt-textarea"></textarea>
+              </div>
+
+              <div id="quote-builder-actions" class="flex flex-wrap items-center justify-between gap-2 pt-2 mt-seam-t">
+                <button type="button" id="reject-quote-btn" data-i18n="quotes.rejectBtn" class="mt-btn mt-btn-danger-ghost text-xs">Tolak Permintaan</button>
+                <button type="submit" id="publish-quote-btn" class="mt-btn mt-btn-primary text-xs">
+                  <i data-lucide="send" class="w-4 h-4" aria-hidden="true"></i>
+                  <span data-i18n="quotes.publishBtn">Simpan &amp; Terbitkan Link Persetujuan</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="admin-photo-lightbox" role="dialog" aria-modal="true" aria-labelledby="admin-photo-lightbox-title" class="hidden fixed inset-0 mt-modal-layer-lightbox mt-modal-backdrop flex items-center justify-center p-4 no-print">
+    <div class="relative max-w-2xl w-full mt-modal-panel overflow-hidden">
+      <div class="mt-modal-head flex items-center justify-between px-4 py-3">
+        <h2 id="admin-photo-lightbox-title" data-i18n="quotes.photoSection" class="text-sm font-semibold">Foto &amp; pin titik kerusakan</h2>
+        <button type="button" id="close-admin-photo-lightbox" data-i18n-aria-label="tracker.photoModalCloseAria" aria-label="Tutup pratinjau foto" class="mt-btn-icon mt-btn-on-dark">
+          <i data-lucide="x" class="w-5 h-5" aria-hidden="true"></i>
+        </button>
+      </div>
+      <div class="bg-black flex items-center justify-center mt-lightbox-viewport overflow-auto">
+        <img id="admin-photo-lightbox-img" src="" width="900" height="700" alt="Foto pakaian" class="max-w-full mt-lightbox-img object-contain" />
+      </div>
     </div>
   </div>
 

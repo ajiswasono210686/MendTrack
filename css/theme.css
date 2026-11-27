@@ -1777,3 +1777,377 @@ html[data-theme="dark"] .mt-legend-dot.workload-over {
     max-width: 100% !important;
   }
 }
+
+/* Stage 4: Visual Repair Intake, Damage Pin Canvas, Portal Tabs & Quote Badges */
+
+/* Public portal two-tab switcher (Track Status / Request Estimate) */
+.mt-portal-tabs {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 10px;
+  background-color: rgba(255, 253, 249, 0.12);
+  border: 1px solid rgba(255, 253, 249, 0.22);
+}
+
+.mt-portal-tab {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--mt-hero-ink);
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+}
+
+.mt-portal-tab:hover {
+  background-color: rgba(255, 253, 249, 0.14);
+}
+
+.mt-portal-tab.is-active {
+  background-color: var(--mt-surface);
+  color: var(--mt-ink);
+  border-color: var(--mt-border);
+  font-weight: 700;
+}
+
+/* Admin sidebar live count pill (Quote Requests pending badge) */
+.mt-sb-count {
+  margin-left: auto;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background-color: var(--mt-accent);
+  color: var(--mt-accent-ink);
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+@media (min-width: 1024px) {
+  html[data-sidebar="collapsed"] .mt-sb-count {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    margin-left: 0;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 4px;
+    font-size: 10px;
+  }
+}
+
+/* Quote lifecycle status badges (WCAG AA >= 4.5:1 light & dark) */
+.mt-badge-quote-new {
+  background-color: #DBEAFE;
+  color: #1E3A8A;
+}
+html[data-theme="dark"] .mt-badge-quote-new {
+  background-color: #1D3B6E;
+  color: #DBEAFE;
+}
+
+.mt-badge-quote-quoted {
+  background-color: #FEF3C7;
+  color: #78350F;
+}
+html[data-theme="dark"] .mt-badge-quote-quoted {
+  background-color: #5C3D0E;
+  color: #FEF3C7;
+}
+
+.mt-badge-quote-revision_requested {
+  background-color: #EDE9FE;
+  color: #3B2866;
+}
+html[data-theme="dark"] .mt-badge-quote-revision_requested {
+  background-color: #3E2A6E;
+  color: #EDE9FE;
+}
+
+.mt-badge-quote-approved {
+  background-color: #DCFCE7;
+  color: #14532D;
+}
+html[data-theme="dark"] .mt-badge-quote-approved {
+  background-color: #144936;
+  color: #D1FAE5;
+}
+
+.mt-badge-quote-rejected {
+  background-color: #FFE4E6;
+  color: #881337;
+}
+html[data-theme="dark"] .mt-badge-quote-rejected {
+  background-color: #6B1C2D;
+  color: #FFE4E6;
+}
+
+/* Responsive percentage-coordinate damage pin canvas */
+.mt-pin-frame {
+  border-radius: 10px;
+  border: 1px solid var(--mt-border);
+  background-color: var(--mt-surface-muted);
+  padding: 8px;
+  display: flex;
+  justify-content: center;
+}
+
+.mt-pin-stage {
+  position: relative;
+  display: inline-block;
+  width: 100%;
+  max-width: 640px;
+  border-radius: 8px;
+  overflow: hidden;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.mt-pin-stage.is-editable {
+  cursor: crosshair;
+}
+
+.mt-pin-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 520px;
+  object-fit: contain;
+}
+
+.mt-pin-dot {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  background-color: var(--mt-accent);
+  color: var(--mt-accent-ink);
+  border: 2px solid #FFFDF9;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(16, 22, 35, 0.45);
+  z-index: 2;
+  transition: transform 150ms ease, background-color 150ms ease;
+}
+
+/* Expand touch hit target to 44x44px without obscuring photo area */
+.mt-pin-dot::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 999px;
+}
+
+.mt-pin-dot:hover,
+.mt-pin-dot.is-active {
+  transform: translate(-50%, -50%) scale(1.14);
+  background-color: var(--mt-ink);
+  color: var(--mt-surface);
+  z-index: 3;
+}
+
+.mt-pin-badge-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+.mt-pin-badge-btn:hover {
+  background-color: var(--mt-surface-muted);
+  border-color: var(--mt-border);
+}
+
+.mt-pin-badge {
+  min-width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  background-color: var(--mt-accent);
+  color: var(--mt-accent-ink);
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Radio choice tile with explicit hover and checked affordance */
+.mt-choice-tile {
+  background-color: var(--mt-surface-muted);
+  border: 1px solid var(--mt-input-border);
+  border-radius: 8px;
+  color: var(--mt-ink);
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.mt-choice-tile:hover {
+  border-color: var(--mt-accent);
+  background-color: var(--mt-surface);
+}
+
+.mt-choice-tile:has(input:checked) {
+  border-color: var(--mt-accent);
+  background-color: var(--mt-surface);
+  box-shadow: inset 0 0 0 1px var(--mt-accent);
+}
+
+.mt-pin-list-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--mt-border);
+  background-color: var(--mt-surface);
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.mt-pin-list-item.is-active {
+  border-color: var(--mt-accent);
+  background-color: var(--mt-surface-muted);
+}
+
+.mt-pin-list-item-btn {
+  min-height: 44px;
+}
+
+.mt-pin-list-item-btn:hover {
+  border-color: var(--mt-accent);
+}
+
+/* Quote detail modal responsive two-column grid */
+.mt-quote-review-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+
+@media (min-width: 1024px) {
+  .mt-quote-review-grid {
+    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+/* Public intake available services compact list */
+.mt-service-catalog-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+@media (min-width: 640px) {
+  .mt-service-catalog-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Filter pill bar for Quote Requests */
+.mt-filter-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mt-filter-pill {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid var(--mt-input-border);
+  background-color: var(--mt-surface);
+  color: var(--mt-ink);
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.mt-filter-pill:hover {
+  background-color: var(--mt-surface-muted);
+}
+
+.mt-filter-pill.is-active {
+  background-color: var(--mt-ink);
+  color: var(--mt-surface);
+  border-color: var(--mt-ink);
+}
+
+/* Success notice surface (WCAG AA >= 8.3:1 light & dark) */
+.mt-notice-ok {
+  border-radius: 10px;
+  border: 1px solid #86EFAC;
+  background-color: #DCFCE7;
+  color: #14532D;
+}
+html[data-theme="dark"] .mt-notice-ok {
+  border-color: #1F6E52;
+  background-color: #144936;
+  color: #D1FAE5;
+}
+
+/* Quote detail modal sizing, lightbox layering, and quote card side column */
+.mt-modal-quote-panel {
+  max-width: 64rem;
+}
+
+.mt-modal-layer-lightbox {
+  z-index: 75;
+}
+
+.mt-lightbox-viewport {
+  max-height: 80vh;
+}
+
+.mt-lightbox-img {
+  max-height: 80vh;
+}
+
+.mt-quote-code-box {
+  max-width: 24rem;
+}
+
+.mt-quote-card-side {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+@media (min-width: 640px) {
+  .mt-quote-card-side {
+    flex-direction: column;
+    align-items: flex-end;
+    justify-content: center;
+  }
+}
+

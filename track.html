@@ -61,56 +61,90 @@
     </div>
   </header>
 
-  <section id="tracker-hero" class="mt-hero pt-7 pb-10 px-4 no-print">
+  <section id="tracker-hero" class="mt-hero pt-6 pb-10 px-4 no-print">
     <div class="max-w-3xl mx-auto">
-      <h1 data-i18n="tracker.heroTitle" class="text-2xl sm:text-3xl font-extrabold tracking-tight">
+      <div id="portal-tabs-bar" class="mt-portal-tabs mb-5" role="tablist" data-i18n-aria-label="tracker.tabsAria" aria-label="Navigasi portal workshop">
+        <button
+          type="button"
+          id="portal-tab-track"
+          role="tab"
+          aria-selected="true"
+          aria-controls="hero-track-panel"
+          data-portal-tab="track"
+          class="mt-portal-tab is-active"
+        >
+          <i data-lucide="search" class="w-4 h-4" aria-hidden="true"></i>
+          <span data-i18n="tracker.tabTrack">Lacak Status</span>
+        </button>
+        <button
+          type="button"
+          id="portal-tab-quote"
+          role="tab"
+          aria-selected="false"
+          aria-controls="quote-intake-section"
+          data-portal-tab="quote"
+          class="mt-portal-tab"
+        >
+          <i data-lucide="camera" class="w-4 h-4" aria-hidden="true"></i>
+          <span data-i18n="tracker.tabQuote">Minta Estimasi</span>
+        </button>
+      </div>
+
+      <h1 id="tracker-hero-heading" data-i18n="tracker.heroTitle" class="text-2xl sm:text-3xl font-extrabold tracking-tight">
         Lacak progres pengerjaan Anda
       </h1>
-      <p class="mt-2 text-sm sm:text-base max-w-xl" style="color: var(--mt-hero-muted);">
-        <span data-i18n="tracker.heroDescPrefix">Masukkan </span><span data-i18n="tracker.heroDescHighlight" class="font-semibold" style="color: var(--mt-hero-accent);">Nomor WhatsApp</span><span data-i18n="tracker.heroDescSuffix"> yang terdaftar saat order diserahkan ke workshop.</span>
-      </p>
 
-      <form id="track-form" class="mt-5 space-y-2">
-        <label for="track-input" data-i18n="tracker.phoneLabel" class="block text-xs font-semibold" style="color: var(--mt-hero-muted);">
-          Nomor WhatsApp terdaftar
-        </label>
-        <div class="flex flex-col sm:flex-row gap-2.5">
-          <div class="relative flex-1">
-            <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none" style="color: var(--mt-hero-placeholder);">
-              <i data-lucide="search" class="w-5 h-5" aria-hidden="true"></i>
+      <div id="hero-track-panel">
+        <p class="mt-2 text-sm sm:text-base max-w-xl" style="color: var(--mt-hero-muted);">
+          <span data-i18n="tracker.heroDescPrefix">Masukkan </span><span data-i18n="tracker.heroDescHighlight" class="font-semibold" style="color: var(--mt-hero-accent);">Nomor WhatsApp</span><span data-i18n="tracker.heroDescSuffix"> yang terdaftar saat order diserahkan ke workshop.</span>
+        </p>
+
+        <form id="track-form" class="mt-5 space-y-2">
+          <label for="track-input" data-i18n="tracker.phoneLabel" class="block text-xs font-semibold" style="color: var(--mt-hero-muted);">
+            Nomor WhatsApp terdaftar
+          </label>
+          <div class="flex flex-col sm:flex-row gap-2.5">
+            <div class="relative flex-1">
+              <div class="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none" style="color: var(--mt-hero-placeholder);">
+                <i data-lucide="search" class="w-5 h-5" aria-hidden="true"></i>
+              </div>
+              <input
+                type="tel"
+                inputmode="numeric"
+                id="track-input"
+                name="query"
+                autocomplete="tel"
+                data-i18n-placeholder="tracker.phonePlaceholder"
+                placeholder="Contoh: 0812xxxxxxxx"
+                class="mt-input-hero pl-11 pr-12"
+                required
+              />
+              <button
+                type="button"
+                id="clear-input-btn"
+                class="hidden absolute inset-y-0 right-0 w-11 flex items-center justify-center"
+                style="color: var(--mt-hero-muted);"
+                data-i18n-aria-label="tracker.clearInputAria"
+                aria-label="Hapus nomor pencarian"
+              >
+                <i data-lucide="x" class="w-4 h-4" aria-hidden="true"></i>
+              </button>
             </div>
-            <input
-              type="tel"
-              inputmode="numeric"
-              id="track-input"
-              name="query"
-              autocomplete="tel"
-              data-i18n-placeholder="tracker.phonePlaceholder"
-              placeholder="Contoh: 0812xxxxxxxx"
-              class="mt-input-hero pl-11 pr-12"
-              required
-            />
+
             <button
-              type="button"
-              id="clear-input-btn"
-              class="hidden absolute inset-y-0 right-0 w-11 flex items-center justify-center"
-              style="color: var(--mt-hero-muted);"
-              data-i18n-aria-label="tracker.clearInputAria"
-              aria-label="Hapus nomor pencarian"
+              type="submit"
+              id="track-submit-btn"
+              class="mt-btn mt-btn-hero-cta sm:w-auto w-full px-6"
             >
-              <i data-lucide="x" class="w-4 h-4" aria-hidden="true"></i>
+              <span data-i18n="tracker.trackBtn">Lacak Status</span>
             </button>
           </div>
+        </form>
+      </div>
 
-          <button
-            type="submit"
-            id="track-submit-btn"
-            class="mt-btn mt-btn-hero-cta sm:w-auto w-full px-6"
-          >
-            <span data-i18n="tracker.trackBtn">Lacak Status</span>
-          </button>
-        </div>
-      </form>
+      <p id="hero-quote-desc" data-i18n="intake.heroDesc" class="hidden mt-2 text-sm sm:text-base max-w-xl" style="color: var(--mt-hero-muted);">
+        Unggah foto pakaian Anda, tandai titik kerusakan langsung di atas foto, dan tim workshop akan mengirimkan estimasi biaya.
+      </p>
     </div>
   </section>
 
@@ -164,6 +198,94 @@
     <div id="ticket-list-container" class="hidden space-y-3"></div>
 
     <div id="tracking-result" class="hidden space-y-4"></div>
+
+    <section id="quote-intake-section" class="hidden space-y-4" aria-labelledby="intake-form-heading">
+      <div id="intake-services-card" class="hidden mt-card p-5 space-y-3">
+        <div>
+          <h2 data-i18n="intake.servicesHeading" class="text-sm font-bold mt-text">Layanan tersedia di workshop</h2>
+          <p data-i18n="intake.servicesHint" class="text-xs mt-muted mt-0.5">Harga patokan bersifat estimasi awal; biaya akhir menyesuaikan kondisi kerusakan setelah inspeksi foto.</p>
+        </div>
+        <div id="intake-services-list" class="mt-service-catalog-list"></div>
+      </div>
+
+      <div id="intake-form-card" class="mt-card p-5 sm:p-6 space-y-4">
+        <h2 id="intake-form-heading" data-i18n="intake.formHeading" class="text-base font-bold mt-text">Formulir permintaan estimasi</h2>
+
+        <div id="intake-error-box" role="alert" class="hidden mt-notice-error p-3.5 text-xs font-medium"></div>
+
+        <form id="quote-intake-form" class="space-y-4" novalidate>
+          <div class="sr-only" aria-hidden="true">
+            <label for="intake-website-hp">Website</label>
+            <input type="text" id="intake-website-hp" name="website" tabindex="-1" autocomplete="off" />
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <div>
+              <label for="intake-name" data-i18n="intake.nameLabel" class="block text-xs font-semibold mt-text mb-1">Nama lengkap *</label>
+              <input type="text" id="intake-name" required maxlength="120" autocomplete="name" data-i18n-placeholder="intake.namePlaceholder" placeholder="Nama Anda" class="mt-input" />
+            </div>
+            <div>
+              <label for="intake-phone" data-i18n="intake.phoneLabel" class="block text-xs font-semibold mt-text mb-1">Nomor WhatsApp aktif *</label>
+              <input type="tel" id="intake-phone" inputmode="tel" required maxlength="24" autocomplete="tel" data-i18n-placeholder="intake.phonePlaceholder" placeholder="Contoh: 0812xxxxxxxx" class="mt-input font-mono-code" />
+            </div>
+          </div>
+
+          <fieldset class="space-y-2">
+            <legend data-i18n="intake.orderTypeLabel" class="block text-xs font-semibold mt-text">Cara penyerahan pakaian *</legend>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <label class="mt-choice-tile p-3 flex items-center gap-2.5 min-h-11 text-xs sm:text-sm font-semibold">
+                <input type="radio" name="intake_order_type" value="walk_in" checked class="w-4 h-4 shrink-0" />
+                <span data-i18n="intake.walkInOption">Datang ke workshop (Walk-in)</span>
+              </label>
+              <label class="mt-choice-tile p-3 flex items-center gap-2.5 min-h-11 text-xs sm:text-sm font-semibold">
+                <input type="radio" name="intake_order_type" value="mail_in" class="w-4 h-4 shrink-0" />
+                <span data-i18n="intake.mailInOption">Kirim paket lewat kurir (Mail-in)</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <div>
+              <label for="intake-garment" data-i18n="intake.garmentLabel" class="block text-xs font-semibold mt-text mb-1">Nama / deskripsi pakaian *</label>
+              <input type="text" id="intake-garment" required maxlength="160" data-i18n-placeholder="intake.garmentPlaceholder" placeholder="Contoh: Celana Raw Selvedge Denim 15oz" class="mt-input" />
+            </div>
+            <div>
+              <label for="intake-service" data-i18n="intake.serviceLabel" class="block text-xs font-semibold mt-text mb-1">Pilihan layanan / gaya jahitan (opsional)</label>
+              <select id="intake-service" class="mt-select">
+                <option value="" data-i18n="intake.serviceUnsure">Belum yakin, minta saran workshop</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="space-y-2.5 pt-2 mt-seam-t">
+            <p id="intake-photo-label" data-i18n="intake.photoLabel" class="block text-xs font-semibold mt-text">Foto pakaian &amp; tandai titik kerusakan *</p>
+            <div class="flex flex-wrap items-center gap-2.5">
+              <label for="intake-photo-input" class="mt-btn mt-btn-secondary text-xs">
+                <i data-lucide="upload" class="w-4 h-4" aria-hidden="true"></i>
+                <span id="intake-photo-btn-label" data-i18n="intake.photoChooseBtn">Pilih Foto Pakaian</span>
+              </label>
+              <input id="intake-photo-input" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="intake-photo-label intake-photo-status" class="sr-only" />
+              <span id="intake-photo-status" data-i18n="intake.photoHint" class="text-xs mt-muted">Format JPG, PNG, atau WebP (otomatis dikompres, maks. 5 MB).</span>
+            </div>
+            <div id="intake-pin-canvas"></div>
+          </div>
+
+          <div>
+            <label for="intake-notes" data-i18n="intake.notesLabel" class="block text-xs font-semibold mt-text mb-1">Catatan tambahan (opsional)</label>
+            <textarea id="intake-notes" rows="2" maxlength="1000" data-i18n-placeholder="intake.notesPlaceholder" placeholder="Contoh: Minta benang warna mendekati asli, atau jelaskan kondisi kain" class="mt-textarea"></textarea>
+          </div>
+
+          <button type="submit" id="intake-submit-btn" class="mt-btn mt-btn-primary w-full">
+            <i data-lucide="send" class="w-4 h-4" aria-hidden="true"></i>
+            <span data-i18n="intake.submitBtn">Kirim Permintaan Estimasi</span>
+          </button>
+        </form>
+      </div>
+
+      <div id="intake-success-card" class="hidden mt-card p-6 sm:p-8 text-center space-y-4"></div>
+    </section>
+
+    <section id="quote-approval-section" class="hidden space-y-4" aria-live="polite"></section>
 
     <section id="initial-guide" class="grid grid-cols-1 md:grid-cols-3 gap-4" aria-labelledby="guide-heading">
       <div class="mt-card p-5 md:col-span-2 space-y-3">
