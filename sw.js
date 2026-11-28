@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mendtrack-shell-v29-vouchers-warranty';
+const CACHE_NAME = 'mendtrack-shell-v30-voucher-list-guard';
 const APP_SHELL = [
   '/admin.html',
   '/index.html',
