@@ -86,6 +86,8 @@ let activeAppliedVoucher = null;
 let currentVoucherModalRecord = null;
 let activeOrderWarrantySourceTicket = '';
 let lastReportsLoyalCustomers = [];
+let workshopVouchersCache = [];
+let voucherListFilter = 'all';
 
 const EMAIL_FORMAT_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -1170,17 +1172,31 @@ async function renderReports() {
 
   let cashRows = [];
   let cashFetchError = null;
+  let vouchersFetchError = null;
+  const tenantId = getActiveTenantId();
   try {
-    const tenantId = getActiveTenantId();
     if (!tenantId) throw new Error(t('common.noActiveTenant'));
     let q = supabase
       .from('cash_transactions')
       .select('transaction_type,category,amount,occurred_at')
       .eq('tenant_id', tenantId);
     if (period !== 'all') q = q.gte('occurred_at', start.toISOString()).lte('occurred_at', now.toISOString());
-    const { data, error } = await q;
-    if (error) throw error;
-    cashRows = data || [];
+    const [cashRes, vouchersRes] = await Promise.all([
+      q,
+      supabase
+        .from('vouchers')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .order('created_at', { ascending: false })
+        .limit(100),
+    ]);
+    if (cashRes.error) throw cashRes.error;
+    cashRows = cashRes.data || [];
+    if (vouchersRes.error) {
+      vouchersFetchError = vouchersRes.error.message || t('common.genericError');
+    } else {
+      workshopVouchersCache = vouchersRes.data || [];
+    }
   } catch (err) {
     console.warn('Data diagram kas gagal dimuat:', err);
     cashFetchError = err.message || t('reports.cashLoadError');
@@ -1344,8 +1360,9 @@ async function renderReports() {
         ${
           loyalCustomers.length
             ? loyalCustomers
-                .map(
-                  (cust, idx) => `<div class="mt-loyal-row">
+                .map((cust, idx) => {
+                  const activeVoucher = findActiveVoucherForCustomer(workshopVouchersCache, cust);
+                  return `<div class="mt-loyal-row">
                     <div class="flex items-center gap-2.5 min-w-0 flex-1">
                       <span class="mt-loyal-rank ${idx === 0 ? 'is-top' : ''}">#${idx + 1}</span>
                       <div class="min-w-0">
@@ -1355,14 +1372,21 @@ async function renderReports() {
                           <span aria-hidden="true"> · </span>
                           <b class="font-mono-code mt-text">${escapeHTML(formatCurrency(cust.total_spend))}</b>
                         </p>
+                        ${
+                          activeVoucher
+                            ? `<span class="mt-badge mt-badge-voucher-active font-mono-code mt-1">${escapeHTML(
+                                t('voucher.activeBadgeInline', { code: activeVoucher.code })
+                              )}</span>`
+                            : ''
+                        }
                       </div>
                     </div>
                     <button type="button" data-create-loyal-voucher="${idx}" class="mt-btn mt-btn-secondary text-xs shrink-0">
                       <i data-lucide="ticket" class="w-4 h-4" aria-hidden="true"></i>
-                      <span>${escapeHTML(t('reports.createVoucherBtn'))}</span>
+                      <span>${escapeHTML(activeVoucher ? t('voucher.viewActiveBtn') : t('reports.createVoucherBtn'))}</span>
                     </button>
-                  </div>`
-                )
+                  </div>`;
+                })
                 .join('')
             : `<p class="text-sm mt-muted">${escapeHTML(t('reports.noLoyalCustomers'))}</p>`
         }
@@ -1383,6 +1407,29 @@ async function renderReports() {
         }
       </section>
     </div>
+    <section id="reports-vouchers-section" class="mt-card p-4 space-y-3">
+      <div class="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 class="font-bold mt-text">${escapeHTML(t('voucher.listHeading'))}</h3>
+          <p class="text-xs mt-muted mt-0.5">${escapeHTML(t('voucher.listDesc'))}</p>
+        </div>
+        <button type="button" id="reports-refresh-vouchers-btn" class="mt-btn mt-btn-secondary text-xs shrink-0">
+          <i data-lucide="refresh-cw" class="w-4 h-4" aria-hidden="true"></i>
+          <span>${escapeHTML(t('common.reload'))}</span>
+        </button>
+      </div>
+      <div id="reports-voucher-filters" class="mt-filter-pills" role="group" aria-label="${escapeHTML(t('voucher.listHeading'))}">
+        <button type="button" data-voucher-filter="all" aria-pressed="${voucherListFilter === 'all'}" class="mt-filter-pill ${voucherListFilter === 'all' ? 'is-active' : ''}">${escapeHTML(t('voucher.filterAll'))}</button>
+        <button type="button" data-voucher-filter="active" aria-pressed="${voucherListFilter === 'active'}" class="mt-filter-pill ${voucherListFilter === 'active' ? 'is-active' : ''}">${escapeHTML(t('voucher.filterActive'))}</button>
+        <button type="button" data-voucher-filter="used" aria-pressed="${voucherListFilter === 'used'}" class="mt-filter-pill ${voucherListFilter === 'used' ? 'is-active' : ''}">${escapeHTML(t('voucher.filterUsed'))}</button>
+        <button type="button" data-voucher-filter="inactive" aria-pressed="${voucherListFilter === 'inactive'}" class="mt-filter-pill ${voucherListFilter === 'inactive' ? 'is-active' : ''}">${escapeHTML(t('voucher.filterInactive'))}</button>
+      </div>
+      ${
+        vouchersFetchError
+          ? `<div role="alert" class="mt-notice-error p-3 text-xs">${escapeHTML(t('voucher.loadFailed', { message: vouchersFetchError }))}</div>`
+          : `<div id="reports-vouchers-list" class="space-y-2.5">${renderWorkshopVouchersRowsHTML()}</div>`
+      }
+    </section>
     <p class="text-xs mt-muted">${escapeHTML(t('reports.footnote'))}</p>
   `;
 
@@ -1394,6 +1441,7 @@ async function renderReports() {
       if (picked) openVoucherModal(picked);
     });
   });
+  bindReportsVouchersEvents(target);
   if (window.lucide) window.lucide.createIcons();
 }
 
@@ -2069,6 +2117,8 @@ function resetTenantState({ clearMemberships = true } = {}) {
   currentVoucherModalRecord = null;
   activeOrderWarrantySourceTicket = '';
   lastReportsLoyalCustomers = [];
+  workshopVouchersCache = [];
+  voucherListFilter = 'all';
   expandedWorkstationOrderIds = new Set();
   activeStaffOrderDetailId = null;
   activeCustomerDetail = null;
@@ -5754,7 +5804,7 @@ function syncOrderVoucherControls() {
   if (activeAppliedVoucher) {
     codeInput.value = activeAppliedVoucher.code;
     clearBtn.classList.remove('hidden');
-    const msg =
+    let msg =
       activeAppliedVoucher.discount_type === 'percent'
         ? t('orderForm.voucherAppliedPercent', {
             code: activeAppliedVoucher.code,
@@ -5764,6 +5814,19 @@ function syncOrderVoucherControls() {
             code: activeAppliedVoucher.code,
             value: formatCurrency(Number(activeAppliedVoucher.discount_value || 0)),
           });
+    if (activeAppliedVoucher.customer_name) {
+      const formName = (document.getElementById('form-customer-name')?.value || '').trim().toLocaleLowerCase();
+      const formPhone = normalizePhone(document.getElementById('form-customer-phone')?.value || '');
+      const vName = String(activeAppliedVoucher.customer_name || '').trim().toLocaleLowerCase();
+      const vPhone = normalizePhone(activeAppliedVoucher.customer_phone || '');
+      const isDifferentRecipient =
+        (vPhone && formPhone && vPhone !== formPhone) ||
+        (!vPhone && formName && vName && vName !== formName) ||
+        (!formPhone && !formName);
+      if (isDifferentRecipient) {
+        msg += t('orderForm.voucherTransferNote', { customer: activeAppliedVoucher.customer_name });
+      }
+    }
     setOrderVoucherFeedback(msg, 'success');
   } else {
     clearBtn.classList.add('hidden');
@@ -5786,7 +5849,7 @@ async function handleApplyOrderVoucher() {
   try {
     const { data: voucher, error } = await supabase
       .from('vouchers')
-      .select('id, code, discount_type, discount_value, status, expires_at')
+      .select('id, code, discount_type, discount_value, status, expires_at, customer_name, customer_phone')
       .eq('tenant_id', tenantId)
       .eq('code', cleanCode)
       .maybeSingle();
@@ -5830,6 +5893,8 @@ async function handleApplyOrderVoucher() {
       code: voucher.code,
       discount_type: voucher.discount_type,
       discount_value: Number(voucher.discount_value || 0),
+      customer_name: voucher.customer_name || '',
+      customer_phone: voucher.customer_phone || '',
       isExistingLocked: false,
     };
     syncOrderVoucherControls();
@@ -9036,7 +9101,250 @@ function updateVoucherShareControls() {
   hint?.classList.toggle('hidden', isSaved);
 }
 
-function openVoucherModal(customer = {}) {
+function getEffectiveVoucherStatus(voucher) {
+  if (!voucher) return 'revoked';
+  const raw = String(voucher.status || 'active').toLowerCase();
+  if (raw === 'active' && voucher.expires_at && String(voucher.expires_at) < toLocalDateKey(new Date())) {
+    return 'expired';
+  }
+  return raw;
+}
+
+function findActiveVoucherForCustomer(vouchersList, customer = {}) {
+  const list = Array.isArray(vouchersList) ? vouchersList : [];
+  const targetId = String(customer.customer_id || '').trim();
+  const targetPhone = normalizePhone(customer.customer_phone || '');
+  const targetName = String(customer.customer_name || '').trim().toLocaleLowerCase();
+
+  return (
+    list.find((v) => {
+      if (getEffectiveVoucherStatus(v) !== 'active') return false;
+      const vId = String(v.customer_id || '').trim();
+      const vPhone = normalizePhone(v.customer_phone || '');
+      const vName = String(v.customer_name || '').trim().toLocaleLowerCase();
+      if (targetId && vId && targetId === vId) return true;
+      if (targetPhone.length >= 10 && vPhone.length >= 10 && targetPhone === vPhone) return true;
+      if (targetName && vName && targetName === vName) return true;
+      return false;
+    }) || null
+  );
+}
+
+async function fetchWorkshopVouchers() {
+  const tenantId = getActiveTenantId();
+  if (!tenantId || !isAdminOrOwnerRole()) return [];
+  const { data, error } = await supabase
+    .from('vouchers')
+    .select('*')
+    .eq('tenant_id', tenantId)
+    .order('created_at', { ascending: false })
+    .limit(100);
+  if (error) throw error;
+  workshopVouchersCache = data || [];
+  return workshopVouchersCache;
+}
+
+function renderWorkshopVouchersRowsHTML() {
+  const list = Array.isArray(workshopVouchersCache) ? workshopVouchersCache : [];
+  if (!list.length) {
+    return `<p class="text-sm mt-muted">${escapeHTML(t('voucher.listEmpty'))}</p>`;
+  }
+
+  const filtered = list.filter((v) => {
+    const eff = getEffectiveVoucherStatus(v);
+    if (voucherListFilter === 'active') return eff === 'active';
+    if (voucherListFilter === 'used') return eff === 'used';
+    if (voucherListFilter === 'inactive') return eff === 'expired' || eff === 'revoked';
+    return true;
+  });
+
+  if (!filtered.length) {
+    return `<p class="text-sm mt-muted">${escapeHTML(t('voucher.listEmptyFilter'))}</p>`;
+  }
+
+  const orderById = new Map(allOrders.map((o) => [o.id, o]));
+  const canDelete = isOwnerRole();
+
+  return filtered
+    .map((v) => {
+      const eff = getEffectiveVoucherStatus(v);
+      const badgeClass = `mt-badge mt-badge-voucher-${eff}`;
+      const statusLabel = t(`voucher.status.${eff}`);
+      const discountLabel = getFormattedVoucherDiscount(v.discount_type, v.discount_value, false);
+      const expiryText = v.expires_at
+        ? t('voucher.cardValidUntil', { date: formatDateID(v.expires_at) })
+        : t('voucher.cardNoExpiry');
+      const usedOrder = v.used_order_id ? orderById.get(v.used_order_id) : null;
+      const usedTicketHTML = usedOrder?.ticket_code
+        ? `<span class="mt-badge mt-badge-walk_in font-mono-code">${escapeHTML(
+            t('voucher.usedOnTicket', { ticket: usedOrder.ticket_code })
+          )}</span>`
+        : '';
+      const emailBadgeHTML =
+        v.email_status === 'sent'
+          ? `<span class="mt-email-badge is-sent">${escapeHTML(t('email.badgeSent'))}</span>`
+          : v.email_status === 'failed'
+            ? `<span class="mt-email-badge is-failed">${escapeHTML(t('email.badgeFailed'))}</span>`
+            : '';
+
+      return `<div class="mt-voucher-list-row">
+        <div class="min-w-0 space-y-1">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="font-mono-code font-bold text-sm mt-text">${escapeHTML(v.code)}</span>
+            <span class="${badgeClass}">${escapeHTML(statusLabel)}</span>
+            <span class="font-mono-code text-xs font-bold mt-accent">${escapeHTML(discountLabel)}</span>
+            ${usedTicketHTML}
+            ${emailBadgeHTML}
+          </div>
+          <p class="text-xs mt-muted">
+            <strong class="mt-text">${escapeHTML(v.customer_name || t('voucher.cardDefaultCustomer'))}</strong>
+            <span aria-hidden="true"> · </span>
+            <span>${escapeHTML(expiryText)}</span>
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 shrink-0">
+          <button type="button" data-copy-voucher-code="${escapeHTML(v.code)}" class="mt-btn mt-btn-secondary text-xs">
+            <i data-lucide="copy" class="w-4 h-4" aria-hidden="true"></i>
+            <span>${escapeHTML(t('voucher.copyCodeBtn'))}</span>
+          </button>
+          <button type="button" data-open-saved-voucher="${escapeHTML(v.id)}" class="mt-btn mt-btn-secondary text-xs">
+            <i data-lucide="ticket" class="w-4 h-4" aria-hidden="true"></i>
+            <span>${escapeHTML(t('voucher.openCardBtn'))}</span>
+          </button>
+          ${
+            eff === 'active'
+              ? `<button type="button" data-revoke-voucher="${escapeHTML(v.id)}" class="mt-btn mt-btn-danger-ghost text-xs">
+                  <span>${escapeHTML(t('voucher.revokeBtn'))}</span>
+                </button>`
+              : ''
+          }
+          ${
+            canDelete
+              ? `<button type="button" data-delete-voucher="${escapeHTML(v.id)}" class="mt-btn mt-btn-danger-ghost text-xs">
+                  <i data-lucide="trash-2" class="w-4 h-4" aria-hidden="true"></i>
+                  <span>${escapeHTML(t('common.delete'))}</span>
+                </button>`
+              : ''
+          }
+        </div>
+      </div>`;
+    })
+    .join('');
+}
+
+function bindReportsVouchersEvents(rootEl) {
+  if (!rootEl) return;
+  const refreshBtn = rootEl.querySelector('#reports-refresh-vouchers-btn');
+  refreshBtn?.addEventListener('click', () => renderReports());
+
+  rootEl.querySelectorAll('[data-voucher-filter]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      voucherListFilter = btn.getAttribute('data-voucher-filter') || 'all';
+      rootEl.querySelectorAll('[data-voucher-filter]').forEach((b) => {
+        const active = b.getAttribute('data-voucher-filter') === voucherListFilter;
+        b.classList.toggle('is-active', active);
+        b.setAttribute('aria-pressed', String(active));
+      });
+      const listEl = rootEl.querySelector('#reports-vouchers-list');
+      if (listEl) {
+        listEl.innerHTML = renderWorkshopVouchersRowsHTML();
+        bindReportsVouchersRowActions(listEl);
+        if (window.lucide) window.lucide.createIcons();
+      }
+    });
+  });
+
+  const listEl = rootEl.querySelector('#reports-vouchers-list');
+  if (listEl) bindReportsVouchersRowActions(listEl);
+}
+
+function bindReportsVouchersRowActions(listEl) {
+  listEl.querySelectorAll('[data-copy-voucher-code]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const code = btn.getAttribute('data-copy-voucher-code') || '';
+      if (!code) return;
+      try {
+        await navigator.clipboard.writeText(code);
+        const span = btn.querySelector('span');
+        if (span) {
+          span.textContent = t('voucher.codeCopied');
+          setTimeout(() => {
+            span.textContent = t('voucher.copyCodeBtn');
+          }, 1500);
+        }
+      } catch (_) {}
+    });
+  });
+
+  listEl.querySelectorAll('[data-open-saved-voucher]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-open-saved-voucher');
+      const voucher = workshopVouchersCache.find((v) => v.id === id);
+      if (voucher) openVoucherModal({}, { existingVoucher: voucher });
+    });
+  });
+
+  listEl.querySelectorAll('[data-revoke-voucher]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-revoke-voucher');
+      const voucher = workshopVouchersCache.find((v) => v.id === id);
+      const tenantId = getActiveTenantId();
+      if (!voucher || !tenantId) return;
+      if (!confirm(t('voucher.revokeConfirm', { code: voucher.code }))) return;
+      btn.disabled = true;
+      try {
+        const { error } = await supabase
+          .from('vouchers')
+          .update({ status: 'revoked', updated_at: new Date().toISOString() })
+          .eq('id', voucher.id)
+          .eq('tenant_id', tenantId);
+        if (error) throw error;
+        await renderReports();
+      } catch (err) {
+        alert(t('voucher.revokeFailed', { message: err.message || t('common.genericError') }));
+        btn.disabled = false;
+      }
+    });
+  });
+
+  listEl.querySelectorAll('[data-delete-voucher]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-delete-voucher');
+      const voucher = workshopVouchersCache.find((v) => v.id === id);
+      const tenantId = getActiveTenantId();
+      if (!voucher || !tenantId || !isOwnerRole()) return;
+      if (!confirm(t('voucher.deleteConfirm', { code: voucher.code }))) return;
+      btn.disabled = true;
+      try {
+        const { error } = await supabase
+          .from('vouchers')
+          .delete()
+          .eq('id', voucher.id)
+          .eq('tenant_id', tenantId);
+        if (error) throw error;
+        await renderReports();
+      } catch (err) {
+        alert(t('voucher.deleteFailed', { message: err.message || t('common.genericError') }));
+        btn.disabled = false;
+      }
+    });
+  });
+}
+
+function populateVoucherModalFromRecord(voucher) {
+  document.getElementById('voucher-customer-id').value = voucher.customer_id || '';
+  document.getElementById('voucher-customer-phone').value = voucher.customer_phone || '';
+  document.getElementById('voucher-customer-name').value = voucher.customer_name || '';
+  document.getElementById('voucher-customer-email').value = voucher.customer_email || '';
+  document.getElementById('voucher-code-input').value = voucher.code || '';
+  document.getElementById('voucher-type-select').value = voucher.discount_type === 'fixed' ? 'fixed' : 'percent';
+  syncVoucherTypeUI();
+  document.getElementById('voucher-value-input').value = String(Number(voucher.discount_value || 0));
+  document.getElementById('voucher-expires-input').value = voucher.expires_at || '';
+  document.getElementById('voucher-notes-input').value = voucher.notes || '';
+}
+
+async function openVoucherModal(customer = {}, { existingVoucher = null } = {}) {
   if (!isAdminOrOwnerRole()) return;
   const modal = document.getElementById('voucher-modal');
   if (!modal) return;
@@ -9044,6 +9352,57 @@ function openVoucherModal(customer = {}) {
   currentVoucherModalRecord = null;
   setVoucherFeedback('');
 
+  const titleEl = document.getElementById('voucher-modal-title');
+  const saveBtn = document.getElementById('save-voucher-btn');
+
+  if (existingVoucher) {
+    currentVoucherModalRecord = existingVoucher;
+    if (titleEl) titleEl.textContent = t('voucher.modalViewTitle');
+    populateVoucherModalFromRecord(existingVoucher);
+    setVoucherFieldsLocked(true);
+    if (saveBtn) saveBtn.classList.add('hidden');
+    updateVoucherShareControls();
+    renderVoucherVisualCard();
+    modal.classList.remove('hidden');
+    document.getElementById('voucher-download-png-btn')?.focus();
+    if (window.lucide) window.lucide.createIcons();
+    return;
+  }
+
+  // Enforce max 1 active voucher per customer before opening create mode.
+  let activeMatch = findActiveVoucherForCustomer(workshopVouchersCache, customer);
+  try {
+    const freshVouchers = await fetchWorkshopVouchers();
+    activeMatch = findActiveVoucherForCustomer(freshVouchers, customer);
+  } catch (_) {}
+
+  if (activeMatch) {
+    currentVoucherModalRecord = activeMatch;
+    if (titleEl) titleEl.textContent = t('voucher.modalViewTitle');
+    populateVoucherModalFromRecord(activeMatch);
+    setVoucherFieldsLocked(true);
+    if (saveBtn) saveBtn.classList.add('hidden');
+    updateVoucherShareControls();
+    renderVoucherVisualCard();
+    const expiryLabel = activeMatch.expires_at
+      ? t('voucher.cardValidUntil', { date: formatDateID(activeMatch.expires_at) })
+      : t('voucher.cardNoExpiry');
+    setVoucherFeedback(
+      t('voucher.activeExistsNotice', {
+        customer: activeMatch.customer_name || customer.customer_name || t('voucher.cardDefaultCustomer'),
+        code: activeMatch.code,
+        discount: getFormattedVoucherDiscount(activeMatch.discount_type, activeMatch.discount_value, false),
+        expiry: expiryLabel,
+      }),
+      'warn'
+    );
+    modal.classList.remove('hidden');
+    document.getElementById('voucher-download-png-btn')?.focus();
+    if (window.lucide) window.lucide.createIcons();
+    return;
+  }
+
+  if (titleEl) titleEl.textContent = t('voucher.modalTitle');
   const defaultExpiry = new Date();
   defaultExpiry.setDate(defaultExpiry.getDate() + 30);
 
@@ -9057,7 +9416,6 @@ function openVoucherModal(customer = {}) {
   document.getElementById('voucher-expires-input').value = toLocalDateKey(defaultExpiry);
   document.getElementById('voucher-notes-input').value = '';
 
-  const saveBtn = document.getElementById('save-voucher-btn');
   if (saveBtn) {
     saveBtn.disabled = false;
     saveBtn.classList.remove('hidden');
@@ -9106,6 +9464,32 @@ async function handleSaveVoucherSubmit(event) {
   setVoucherFeedback('');
 
   try {
+    const freshVouchers = await fetchWorkshopVouchers();
+    const existingActive = findActiveVoucherForCustomer(freshVouchers, data);
+    if (existingActive) {
+      currentVoucherModalRecord = existingActive;
+      const titleEl = document.getElementById('voucher-modal-title');
+      if (titleEl) titleEl.textContent = t('voucher.modalViewTitle');
+      populateVoucherModalFromRecord(existingActive);
+      setVoucherFieldsLocked(true);
+      updateVoucherShareControls();
+      renderVoucherVisualCard();
+      const expiryLabel = existingActive.expires_at
+        ? t('voucher.cardValidUntil', { date: formatDateID(existingActive.expires_at) })
+        : t('voucher.cardNoExpiry');
+      setVoucherFeedback(
+        t('voucher.activeExistsNotice', {
+          customer: existingActive.customer_name || data.customer_name || t('voucher.cardDefaultCustomer'),
+          code: existingActive.code,
+          discount: getFormattedVoucherDiscount(existingActive.discount_type, existingActive.discount_value, false),
+          expiry: expiryLabel,
+        }),
+        'warn'
+      );
+      if (saveBtn) saveBtn.classList.add('hidden');
+      return;
+    }
+
     const { data: inserted, error } = await supabase
       .from('vouchers')
       .insert({
@@ -9134,11 +9518,15 @@ async function handleSaveVoucherSubmit(event) {
     }
 
     currentVoucherModalRecord = inserted;
+    workshopVouchersCache = [inserted, ...workshopVouchersCache.filter((v) => v.id !== inserted.id)];
     setVoucherFieldsLocked(true);
     renderVoucherVisualCard();
     updateVoucherShareControls();
     setVoucherFeedback(t('voucher.savedBanner', { code: inserted.code }), 'ok');
     if (saveBtn) saveBtn.classList.add('hidden');
+    if (currentAppPage === 'reports') {
+      renderReports();
+    }
   } catch (err) {
     setVoucherFeedback(t('voucher.saveFailed', { message: err.message || t('common.genericError') }), 'error');
     if (saveBtn) saveBtn.disabled = false;

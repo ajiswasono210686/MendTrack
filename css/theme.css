@@ -2838,6 +2838,65 @@ html[data-theme="dark"] .mt-badge-warranty {
   color: #18253e;
 }
 
+.mt-voucher-list-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--mt-border);
+  background-color: var(--mt-surface-muted);
+}
+
+@media (min-width: 768px) {
+  .mt-voucher-list-row {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+  }
+}
+
+.mt-badge-voucher-active {
+  background-color: #dcfce7;
+  color: #14532d;
+}
+
+.mt-badge-voucher-used {
+  background-color: #dbeafe;
+  color: #1e3a8a;
+}
+
+.mt-badge-voucher-expired {
+  background-color: #fef3c7;
+  color: #78350f;
+}
+
+.mt-badge-voucher-revoked {
+  background-color: #ffe4e6;
+  color: #881337;
+}
+
+html[data-theme="dark"] .mt-badge-voucher-active {
+  background-color: #144936;
+  color: #d1fae5;
+}
+
+html[data-theme="dark"] .mt-badge-voucher-used {
+  background-color: #1d3b6e;
+  color: #dbeafe;
+}
+
+html[data-theme="dark"] .mt-badge-voucher-expired {
+  background-color: #5c3d0e;
+  color: #fef3c7;
+}
+
+html[data-theme="dark"] .mt-badge-voucher-revoked {
+  background-color: #6b1c2d;
+  color: #ffe4e6;
+}
+
 .mt-voucher-stage {
   background-color: var(--mt-surface-muted);
   border: 1px dashed var(--mt-border);
