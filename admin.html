@@ -115,10 +115,16 @@
           />
         </div>
 
+        <div class="flex justify-end">
+          <button type="button" id="forgot-password-link-btn" data-i18n="admin.forgotLink" class="mt-auth-link-btn">
+            Lupa kata sandi?
+          </button>
+        </div>
+
         <button
           type="submit"
           id="login-submit-btn"
-          class="mt-btn mt-btn-primary w-full mt-2"
+          class="mt-btn mt-btn-primary w-full"
         >
           <i data-lucide="log-in" class="w-4 h-4" aria-hidden="true"></i>
           <span data-i18n="admin.loginSubmitBtn">Masuk ke Workshop</span>
@@ -212,7 +218,7 @@
             <h3 data-i18n="admin.verifyTitle" class="text-sm font-bold mt-text">Verifikasi email diperlukan</h3>
           </div>
           <p class="text-xs mt-muted leading-relaxed">
-            <span data-i18n="admin.verifyDescPrefix">Kami telah mengirim tautan konfirmasi ke </span><strong id="verify-email-address" class="mt-text font-mono-code">-</strong><span data-i18n="admin.verifyDescSuffix">. Buka inbox atau folder spam, lalu klik tautan verifikasi untuk melanjutkan pembuatan workshop.</span>
+            <span data-i18n="admin.verifyDescPrefix">Kami telah mengirim tautan konfirmasi ke </span><strong id="verify-email-address" class="mt-text font-mono-code">-</strong><span id="verify-email-desc-suffix" data-i18n="admin.verifyDescSuffix">. Buka inbox atau folder spam, lalu klik tautan verifikasi untuk melanjutkan pembuatan workshop.</span>
           </p>
         </div>
 
@@ -226,6 +232,78 @@
           </button>
         </div>
       </div>
+
+      <form id="forgot-password-form" class="hidden space-y-4">
+        <p data-i18n="admin.forgotDesc" class="text-xs mt-muted leading-relaxed">
+          Masukkan email akun Anda. Kami akan mengirim tautan untuk mengatur ulang kata sandi.
+        </p>
+        <div>
+          <label for="forgot-email" data-i18n="admin.loginEmailLabel" class="block text-xs font-semibold mt-text mb-1.5">
+            Email admin
+          </label>
+          <input
+            type="email"
+            id="forgot-email"
+            required
+            autocomplete="email"
+            data-i18n-placeholder="admin.loginEmailPlaceholder"
+            placeholder="nama@workshop.com"
+            class="mt-input"
+          />
+        </div>
+        <div class="flex flex-col gap-2">
+          <button type="submit" id="forgot-submit-btn" class="mt-btn mt-btn-primary w-full">
+            <i data-lucide="mail" class="w-4 h-4" aria-hidden="true"></i>
+            <span data-i18n="admin.forgotSubmitBtn">Kirim Tautan Reset Sandi</span>
+          </button>
+          <button type="button" id="forgot-back-btn" data-i18n="admin.forgotBackBtn" class="mt-btn mt-btn-secondary w-full text-xs">
+            Kembali ke Masuk
+          </button>
+        </div>
+      </form>
+
+      <form id="recovery-password-form" class="hidden space-y-4">
+        <div class="mt-card-muted p-3.5 space-y-1">
+          <h3 data-i18n="admin.recoveryTitle" class="text-sm font-bold mt-text">Buat kata sandi baru</h3>
+          <p data-i18n="admin.recoveryDesc" class="text-xs mt-muted leading-relaxed">
+            Masukkan kata sandi baru minimal 8 karakter untuk mengamankan akun Anda.
+          </p>
+        </div>
+        <div>
+          <label for="recovery-password" data-i18n="admin.recoveryNewLabel" class="block text-xs font-semibold mt-text mb-1.5">
+            Kata sandi baru (minimal 8 karakter)
+          </label>
+          <input
+            type="password"
+            id="recovery-password"
+            required
+            minlength="8"
+            autocomplete="new-password"
+            data-i18n-placeholder="admin.signupPasswordPlaceholder"
+            placeholder="Buat kata sandi yang kuat"
+            class="mt-input"
+          />
+        </div>
+        <div>
+          <label for="recovery-password-confirm" data-i18n="admin.recoveryConfirmLabel" class="block text-xs font-semibold mt-text mb-1.5">
+            Ulangi kata sandi baru
+          </label>
+          <input
+            type="password"
+            id="recovery-password-confirm"
+            required
+            minlength="8"
+            autocomplete="new-password"
+            data-i18n-placeholder="admin.signupConfirmPlaceholder"
+            placeholder="Ketik ulang kata sandi"
+            class="mt-input"
+          />
+        </div>
+        <button type="submit" id="recovery-submit-btn" class="mt-btn mt-btn-primary w-full">
+          <i data-lucide="key-round" class="w-4 h-4" aria-hidden="true"></i>
+          <span data-i18n="admin.recoverySubmitBtn">Simpan Kata Sandi Baru</span>
+        </button>
+      </form>
 
       <div class="mt-6 pt-4 mt-seam-t flex flex-wrap items-center justify-between gap-2 text-xs mt-muted">
         <a href="/" data-i18n="admin.homeLink" class="inline-flex items-center min-h-11 px-2 hover:underline mt-text font-medium">Beranda MendTrack</a>
@@ -940,6 +1018,21 @@
             </article>
           </div>
         </section>
+        <section class="mt-card p-4 sm:p-5 space-y-3" aria-labelledby="team-email-logs-heading">
+          <div class="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h3 id="team-email-logs-heading" data-i18n="email.logsHeading" class="text-sm font-bold mt-text">Riwayat pengiriman email</h3>
+              <p data-i18n="email.logsDesc" class="text-xs mt-muted mt-0.5">Catatan 30 pengiriman email transaksional terakhir untuk workshop ini (khusus Pemilik &amp; Admin).</p>
+            </div>
+            <button type="button" id="refresh-email-logs-btn" class="mt-btn mt-btn-secondary text-xs shrink-0">
+              <i data-lucide="refresh-cw" class="w-4 h-4" aria-hidden="true"></i>
+              <span data-i18n="email.logsRefreshBtn">Muat Ulang</span>
+            </button>
+          </div>
+          <div id="team-email-logs-list" class="space-y-2" aria-live="polite">
+            <p class="text-xs mt-muted" role="status" data-i18n="email.logsLoading">Memuat riwayat email...</p>
+          </div>
+        </section>
       </section>
 
     </main>
@@ -963,6 +1056,20 @@
 
       <form id="order-crud-form" class="p-5 space-y-5">
         <input type="hidden" id="form-order-id" />
+        <input type="hidden" id="form-warranty-source-order-id" />
+
+        <div id="form-warranty-banner" class="hidden mt-warranty-banner space-y-1 text-xs">
+          <p class="font-bold flex items-center gap-1.5">
+            <i data-lucide="shield-check" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
+            <span data-i18n="warranty.bannerTitle">Order Klaim Garansi</span>
+          </p>
+          <p id="form-warranty-banner-desc"></p>
+        </div>
+
+        <label class="mt-warranty-check-row mt-card-muted text-xs font-semibold mt-text">
+          <input type="checkbox" id="form-is-warranty" />
+          <span data-i18n="warranty.toggleLabel">Tandai sebagai order Klaim Garansi</span>
+        </label>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
           <div>
@@ -1036,6 +1143,11 @@
             <input type="tel" id="form-customer-phone" required data-i18n-placeholder="admin.onboardPhonePlaceholder" placeholder="08xxxxxxxxxx" class="mt-input" />
             <p id="customer-lookup-status" data-i18n="orderForm.lookupIdle" class="mt-1 text-xs mt-muted" aria-live="polite">Nomor HP akan diperiksa saat diisi.</p>
           </div>
+
+          <div class="mt-span-full-sm">
+            <label for="form-customer-email" data-i18n="orderForm.customerEmailLabel" class="block text-xs font-semibold mt-text mb-1">Email pelanggan (opsional)</label>
+            <input type="email" id="form-customer-email" maxlength="254" autocomplete="email" data-i18n-placeholder="orderForm.customerEmailPlaceholder" placeholder="Otomatis terisi jika tersimpan di data pelanggan" class="mt-input" />
+          </div>
         </div>
 
         <fieldset>
@@ -1095,10 +1207,53 @@
         </div>
 
         <div class="mt-card-muted p-4 space-y-3">
+          <div class="space-y-2 pb-3 mt-seam-b">
+            <label for="form-voucher-code" data-i18n="orderForm.voucherLabel" class="block text-xs font-semibold mt-text">Kode voucher (opsional)</label>
+            <div class="mt-voucher-input-row">
+              <input
+                type="text"
+                id="form-voucher-code"
+                maxlength="32"
+                autocomplete="off"
+                data-i18n-placeholder="orderForm.voucherPlaceholder"
+                placeholder="Contoh: LOYAL-A1B2"
+                class="mt-input font-mono-code uppercase"
+              />
+              <button type="button" id="apply-voucher-btn" data-i18n="orderForm.voucherApplyBtn" class="mt-btn mt-btn-secondary text-xs shrink-0">
+                Terapkan
+              </button>
+              <button type="button" id="clear-voucher-btn" data-i18n="orderForm.voucherClearBtn" class="hidden mt-btn mt-btn-danger-ghost text-xs shrink-0">
+                Hapus
+              </button>
+            </div>
+            <p id="form-voucher-feedback" role="status" aria-live="polite" class="hidden text-xs font-medium"></p>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center pt-1">
+              <label for="form-manual-discount" class="text-xs font-semibold mt-text">
+                <span data-i18n="orderForm.manualDiscountPrefix">Diskon nominal tambahan (</span><span data-currency-label>Rp</span>)
+              </label>
+              <input type="number" id="form-manual-discount" data-currency-input="nonneg" min="0" step="1000" value="0" class="mt-input font-mono-code text-right font-semibold" />
+            </div>
+          </div>
+
+          <div id="form-subtotal-row" class="hidden flex items-center justify-between text-xs mt-muted">
+            <span data-i18n="orderForm.subtotalLabel">Subtotal item</span>
+            <span id="form-subtotal-preview" class="font-mono-code font-semibold mt-text">Rp 0</span>
+          </div>
+
+          <div id="form-discount-row" class="hidden flex items-center justify-between text-xs mt-discount-row font-semibold">
+            <span id="form-discount-label">Diskon</span>
+            <span id="form-discount-preview" class="font-mono-code">-Rp 0</span>
+          </div>
+
           <div class="flex items-center justify-between text-sm">
             <span data-i18n="orderForm.totalCost" class="font-semibold mt-text">Total biaya layanan</span>
             <span id="form-total-preview" class="font-mono-code font-bold text-base mt-text">Rp 0</span>
           </div>
+
+          <p id="form-warranty-zero-hint" data-i18n="warranty.zeroPaidHint" class="hidden text-xs font-semibold mt-success-text">
+            Total biaya 0 pada order garansi otomatis berstatus Lunas saat disimpan.
+          </p>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center">
             <label for="form-paid-amount" class="text-xs font-semibold mt-text">
@@ -1379,6 +1534,7 @@
         <i data-lucide="x" class="w-4 h-4" aria-hidden="true"></i>
       </button>
     </div>
+    <div id="wa-toast-email-status" class="hidden mt-toast-email-status" aria-live="polite"></div>
     <div class="mt-3">
       <a id="wa-toast-send-link" href="https://wa.me/" target="_blank" rel="noopener noreferrer" class="mt-btn mt-btn-success w-full text-xs">
         <i data-lucide="send" class="w-3.5 h-3.5" aria-hidden="true"></i>
@@ -1407,6 +1563,11 @@
           <label for="new-customer-phone" data-i18n="customers.phoneLabel" class="block text-xs font-semibold mt-text mb-1">Nomor HP / WhatsApp *</label>
           <input id="new-customer-phone" name="phone" type="tel" required inputmode="tel" autocomplete="tel" data-i18n-placeholder="admin.onboardPhonePlaceholder" placeholder="08xxxxxxxxxx" class="mt-input" />
           <p data-i18n="customers.phoneHint" class="mt-1 text-xs mt-muted">Nomor HP digunakan untuk mengenali akun pelanggan.</p>
+        </div>
+        <div>
+          <label for="new-customer-email" data-i18n="customers.emailLabel" class="block text-xs font-semibold mt-text mb-1">Email pelanggan (opsional)</label>
+          <input id="new-customer-email" name="email" type="email" maxlength="254" autocomplete="email" data-i18n-placeholder="customers.emailPlaceholder" placeholder="pelanggan@email.com" class="mt-input" />
+          <p data-i18n="customers.emailHint" class="mt-1 text-xs mt-muted">Opsional. Digunakan untuk notifikasi otomatis saat order siap atau dikirim.</p>
         </div>
         <div class="flex gap-2 pt-1">
           <button type="button" id="cancel-customer-form-btn" data-i18n="common.cancel" class="mt-btn mt-btn-secondary flex-1">Batal</button>
@@ -1485,6 +1646,11 @@
           <div>
             <label for="store-phone-input" data-i18n="settings.phoneLabel" class="block text-xs font-semibold mt-text mb-1">Nomor WhatsApp (format 08... atau 62...)</label>
             <input id="store-phone-input" type="tel" inputmode="tel" maxlength="20" class="mt-input" />
+          </div>
+          <div>
+            <label for="store-notification-email-input" data-i18n="settings.notificationEmailLabel" class="block text-xs font-semibold mt-text mb-1">Email notifikasi workshop (opsional)</label>
+            <input id="store-notification-email-input" type="email" maxlength="254" autocomplete="email" data-i18n-placeholder="settings.notificationEmailPlaceholder" placeholder="halo@workshop.com" class="mt-input" />
+            <p data-i18n="settings.notificationEmailHint" class="mt-1 text-xs mt-muted">Menerima notifikasi permintaan quote baru dan dipakai sebagai alamat Reply-To. Jika kosong, dikirim ke email Pemilik (Owner) aktif.</p>
           </div>
           <div>
             <label for="store-tagline-input" data-i18n="settings.taglineLabel" class="block text-xs font-semibold mt-text mb-1">Tagline</label>
@@ -1682,6 +1848,7 @@
                 <input id="quote-approval-url-input" type="text" readonly class="mt-input mt-input-locked font-mono-code text-xs flex-1" />
                 <button type="button" id="copy-quote-approval-url-btn" data-i18n="quotes.copyLinkBtn" class="mt-btn mt-btn-secondary text-xs shrink-0">Salin Link</button>
               </div>
+              <div id="quote-email-status-row" class="flex flex-wrap items-center justify-between gap-2 pt-1"></div>
               <a id="quote-send-wa-link" href="#" target="_blank" rel="noopener noreferrer" class="mt-btn mt-btn-success w-full text-xs">
                 <i data-lucide="message-circle" class="w-4 h-4" aria-hidden="true"></i>
                 <span data-i18n="quotes.sendWaBtn">Kirim Link via WhatsApp</span>
@@ -1748,6 +1915,108 @@
         </button>
       </div>
       <div id="staff-order-detail-body" class="p-5 space-y-4"></div>
+    </div>
+  </div>
+
+  <div id="voucher-modal" role="dialog" aria-modal="true" aria-labelledby="voucher-modal-title" class="hidden fixed inset-0 mt-modal-layer-voucher mt-modal-backdrop overflow-y-auto p-3 sm:p-6">
+    <div class="max-w-xl mx-auto my-2 mt-modal-panel overflow-hidden">
+      <div class="mt-modal-head px-5 py-4 flex items-center justify-between gap-2 no-print">
+        <div class="min-w-0">
+          <h2 id="voucher-modal-title" data-i18n="voucher.modalTitle" class="font-bold text-base truncate">Buat Voucher Pelanggan</h2>
+          <p data-i18n="voucher.modalSub" class="text-xs mt-0.5" style="color: var(--mt-hero-muted);">Voucher 1x pakai ber-branding workshop untuk apresiasi pelanggan loyal</p>
+        </div>
+        <button type="button" id="close-voucher-modal-btn" data-i18n-aria-label="voucher.closeAria" aria-label="Tutup modal voucher" class="mt-btn-icon mt-btn-on-dark shrink-0">
+          <i data-lucide="x" class="w-5 h-5" aria-hidden="true"></i>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-4">
+        <div class="mt-voucher-stage">
+          <div id="voucher-visual-card" class="mt-voucher-card"></div>
+        </div>
+
+        <div id="voucher-feedback-banner" role="status" aria-live="polite" class="hidden p-3 text-xs font-medium no-print"></div>
+
+        <form id="voucher-form" class="space-y-3.5 no-print">
+          <input type="hidden" id="voucher-customer-id" />
+          <input type="hidden" id="voucher-customer-phone" />
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label for="voucher-customer-name" data-i18n="voucher.customerLabel" class="block text-xs font-semibold mt-text mb-1">Pelanggan penerima</label>
+              <input type="text" id="voucher-customer-name" maxlength="120" class="mt-input" />
+            </div>
+            <div>
+              <label for="voucher-customer-email" data-i18n="voucher.customerEmailLabel" class="block text-xs font-semibold mt-text mb-1">Email pelanggan (opsional, untuk kirim via email)</label>
+              <input type="email" id="voucher-customer-email" maxlength="254" data-i18n-placeholder="voucher.customerEmailPlaceholder" placeholder="nama@email.com" class="mt-input" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label for="voucher-code-input" data-i18n="voucher.codeLabel" class="block text-xs font-semibold mt-text mb-1">Kode voucher *</label>
+              <div class="mt-voucher-input-row">
+                <input type="text" id="voucher-code-input" required maxlength="32" class="mt-input font-mono-code font-bold uppercase" />
+                <button type="button" id="voucher-regenerate-code-btn" data-i18n="voucher.codeRegenerateBtn" class="mt-btn mt-btn-secondary text-xs shrink-0">Acak</button>
+              </div>
+              <p data-i18n="voucher.codeHint" class="text-xs mt-muted mt-1">Huruf kapital, angka, tanda hubung (-), atau garis bawah (_), 3-32 karakter.</p>
+            </div>
+            <div>
+              <label for="voucher-expires-input" data-i18n="voucher.expiresLabel" class="block text-xs font-semibold mt-text mb-1">Berlaku hingga (opsional)</label>
+              <input type="date" id="voucher-expires-input" class="mt-input" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label for="voucher-type-select" data-i18n="voucher.typeLabel" class="block text-xs font-semibold mt-text mb-1">Jenis potongan *</label>
+              <select id="voucher-type-select" class="mt-select">
+                <option value="percent" data-i18n="voucher.typePercent">Persentase (%)</option>
+                <option value="fixed" data-i18n="voucher.typeFixed">Nominal tetap</option>
+              </select>
+            </div>
+            <div>
+              <label for="voucher-value-input" id="voucher-value-label" data-i18n="voucher.valueLabelPercent" class="block text-xs font-semibold mt-text mb-1">Nilai potongan (%)</label>
+              <input type="number" id="voucher-value-input" required min="1" max="100" step="1" value="10" class="mt-input font-mono-code font-bold text-right" />
+            </div>
+          </div>
+
+          <div>
+            <label for="voucher-notes-input" data-i18n="voucher.notesLabel" class="block text-xs font-semibold mt-text mb-1">Catatan voucher (opsional)</label>
+            <input type="text" id="voucher-notes-input" maxlength="200" data-i18n-placeholder="voucher.notesPlaceholder" placeholder="Contoh: Berlaku untuk reparasi denim atau jahit custom berikutnya" class="mt-input" />
+          </div>
+
+          <div class="flex flex-wrap items-center justify-end gap-2 pt-1">
+            <button type="button" id="cancel-voucher-modal-btn" data-i18n="common.cancel" class="mt-btn mt-btn-secondary text-xs">Batal</button>
+            <button type="submit" id="save-voucher-btn" class="mt-btn mt-btn-primary text-xs">
+              <i data-lucide="ticket" class="w-4 h-4" aria-hidden="true"></i>
+              <span data-i18n="voucher.saveBtn">Simpan Voucher</span>
+            </button>
+          </div>
+        </form>
+
+        <div id="voucher-share-section" class="pt-3 mt-seam-t space-y-2.5 no-print">
+          <p id="voucher-save-first-hint" data-i18n="voucher.saveFirstHint" class="text-xs mt-muted">Simpan voucher terlebih dahulu untuk mengaktifkan tombol bagikan via WhatsApp dan Email.</p>
+          <div class="mt-voucher-actions-grid">
+            <button type="button" id="voucher-download-png-btn" class="mt-btn mt-btn-secondary text-xs">
+              <i data-lucide="download" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
+              <span data-i18n="voucher.downloadPngBtn">Unduh PNG</span>
+            </button>
+            <button type="button" id="voucher-print-btn" class="mt-btn mt-btn-secondary text-xs">
+              <i data-lucide="printer" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
+              <span data-i18n="voucher.printBtn">Cetak</span>
+            </button>
+            <button type="button" id="voucher-share-wa-btn" disabled class="mt-btn mt-btn-success text-xs">
+              <i data-lucide="message-circle" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
+              <span data-i18n="voucher.shareWaBtn">Kirim via WhatsApp</span>
+            </button>
+            <button type="button" id="voucher-send-email-btn" disabled class="mt-btn mt-btn-primary text-xs">
+              <i data-lucide="mail" class="w-4 h-4 shrink-0" aria-hidden="true"></i>
+              <span data-i18n="voucher.sendEmailBtn">Kirim via Email</span>
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 

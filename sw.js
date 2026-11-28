@@ -1,4 +1,4 @@
-const CACHE_NAME = 'mendtrack-shell-v27-workflow-icon';
+const CACHE_NAME = 'mendtrack-shell-v29-vouchers-warranty';
 const APP_SHELL = [
   '/admin.html',
   '/index.html',
@@ -9,6 +9,7 @@ const APP_SHELL = [
   '/js/sidebar.js',
   '/js/i18n.js',
   '/js/qr-svg.js',
+  '/js/voucher-card.js',
   '/js/pin-canvas.js',
   '/js/config.js',
   '/js/utils.js',

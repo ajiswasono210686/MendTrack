@@ -588,6 +588,9 @@ function renderTicketSelectionList(tickets) {
       const orderType = ticket.order_type === 'mail_in' ? 'mail_in' : 'walk_in';
       const statusInfo = getStatusMeta(ticket.status, null, orderType);
       const typeInfo = orderType === 'mail_in' ? getOrderTypeMeta(orderType) : null;
+      const warrantyBadgeHTML = ticket.is_warranty
+        ? `<span class="mt-badge mt-badge-warranty">${escapeHTML(t('warranty.badge'))}</span>`
+        : '';
       return `
         <button
           type="button"
@@ -598,6 +601,7 @@ function renderTicketSelectionList(tickets) {
             <div class="flex items-center gap-2 flex-wrap">
               <span class="font-mono-code font-bold text-sm mt-text">${escapeHTML(ticket.ticket_code)}</span>
               ${typeInfo ? `<span class="${typeInfo.badgeClass}">${escapeHTML(typeInfo.label)}</span>` : ''}
+              ${warrantyBadgeHTML}
               <span class="${statusInfo.badgeClass}">
                 <span class="${statusInfo.dotClass}" aria-hidden="true"></span>
                 <span>${escapeHTML(statusInfo.label)}</span>
@@ -874,6 +878,27 @@ function renderOrderDetail(payload) {
         </div>`
       : '';
 
+  const discountAmount = Math.max(0, Number(order.discount_amount || 0));
+  const itemsSubtotal = items.reduce((sum, item) => sum + Number(item.price || 0), 0);
+  const displaySubtotal = itemsSubtotal > 0 ? itemsSubtotal : Number(order.total_amount || 0) + discountAmount;
+  const discountLabelText = order.voucher_code
+    ? t('tracker.discountCostWithCode', { code: order.voucher_code })
+    : t('tracker.discountCost');
+  const warrantyBadgeHTML = order.is_warranty
+    ? `<span class="mt-badge mt-badge-warranty">${escapeHTML(t('warranty.badge'))}</span>`
+    : '';
+  const discountBreakdownHTML =
+    discountAmount > 0
+      ? `<div class="flex justify-between mt-muted">
+           <span>${escapeHTML(t('tracker.subtotalCost'))}</span>
+           <span class="font-mono-code font-medium mt-text">${escapeHTML(formatCurrency(displaySubtotal))}</span>
+         </div>
+         <div class="flex justify-between mt-discount-row font-semibold">
+           <span>${escapeHTML(discountLabelText)}</span>
+           <span class="font-mono-code">- ${escapeHTML(formatCurrency(discountAmount))}</span>
+         </div>`
+      : '';
+
   resultEl.innerHTML = `
     ${backToListHTML}
     ${
@@ -898,6 +923,7 @@ function renderOrderDetail(payload) {
         <div class="flex flex-col items-start sm:items-end gap-1.5">
           <div class="flex items-center gap-1.5 flex-wrap">
             ${isMailIn ? `<span class="${typeInfo.badgeClass}">${escapeHTML(typeInfo.label)}</span>` : ''}
+            ${warrantyBadgeHTML}
             <span class="${statusInfo.badgeClass}">
               <span class="${statusInfo.dotClass}" aria-hidden="true"></span>
               <span>${escapeHTML(statusInfo.label)}</span>
@@ -958,6 +984,7 @@ function renderOrderDetail(payload) {
       </div>
 
       <div class="space-y-2 text-sm">
+        ${discountBreakdownHTML}
         <div class="flex justify-between mt-muted">
           <span>${escapeHTML(t('tracker.totalServiceCost'))}</span>
           <span class="font-mono-code font-semibold mt-text">${escapeHTML(formatCurrency(order.total_amount))}</span>
@@ -1295,6 +1322,7 @@ function bindPortalTabsAndIntakeEvents() {
     const customerName = document.getElementById('intake-name')?.value.trim() || '';
     const rawPhone = document.getElementById('intake-phone')?.value.trim() || '';
     const customerPhone = normalizePhone(rawPhone);
+    const customerEmail = (document.getElementById('intake-email')?.value || '').trim().toLowerCase();
     const orderType =
       document.querySelector('input[name="intake_order_type"]:checked')?.value === 'mail_in'
         ? 'mail_in'
@@ -1312,6 +1340,11 @@ function bindPortalTabsAndIntakeEvents() {
     if (customerPhone.length < 10) {
       showIntakeError(t('tracker.invalidPhoneMsg'));
       document.getElementById('intake-phone')?.focus();
+      return;
+    }
+    if (customerEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) {
+      showIntakeError(t('intake.emailInvalid'));
+      document.getElementById('intake-email')?.focus();
       return;
     }
     if (!garmentName) {
@@ -1347,6 +1380,7 @@ function bindPortalTabsAndIntakeEvents() {
       formData.append('website', honeypot);
       formData.append('customer_name', customerName);
       formData.append('customer_phone', customerPhone);
+      if (customerEmail) formData.append('customer_email', customerEmail);
       formData.append('order_type', orderType);
       formData.append('garment_name', garmentName);
       formData.append('requested_service', requestedService);
@@ -1366,7 +1400,10 @@ function bindPortalTabsAndIntakeEvents() {
       renderIntakeSuccessCard(lastIntakeSuccess);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
-      if (err.mode === 'rate_limited' || err.status === 429) {
+      if (err.mode === 'invalid_email') {
+        showIntakeError(t('intake.emailInvalid'));
+        document.getElementById('intake-email')?.focus();
+      } else if (err.mode === 'rate_limited' || err.status === 429) {
         showIntakeError(t('intake.rateLimited'));
       } else {
         showIntakeError(err.message || t('intake.submitFailed'));

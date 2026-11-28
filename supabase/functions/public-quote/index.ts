@@ -1,5 +1,14 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  buildQuoteReceivedCustomerEmail,
+  buildQuoteReceivedWorkshopEmail,
+  getEmailEnvConfig,
+  isValidEmail,
+  normalizeEmail,
+  normalizeLocale,
+  sendResendEmailAndLog,
+} from "../_shared/transactional-email.ts";
 
 const BUCKET_NAME = "garment-photos";
 const SIGNED_URL_TTL_SECONDS = 1800; // 30 minutes
@@ -7,6 +16,7 @@ const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB
 const MAX_PINS = 10;
 const RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const RATE_LIMIT_MAX_PER_PHONE = 5;
+const MAX_WORKSHOP_ALERT_RECIPIENTS = 5;
 const SLUG_REGEX = /^[a-z0-9](?:[a-z0-9-]{1,46}[a-z0-9])$/;
 const TOKEN_REGEX = /^[a-f0-9]{32,128}$/i;
 
@@ -74,11 +84,9 @@ function normalizePhone(raw: unknown): string {
 
 function detectImageType(bytes: Uint8Array): { ext: string; mime: string } | null {
   if (bytes.length < 12) return null;
-  // JPEG: FF D8 FF
   if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
     return { ext: "jpg", mime: "image/jpeg" };
   }
-  // PNG: 89 50 4E 47 0D 0A 1A 0A
   if (
     bytes[0] === 0x89 &&
     bytes[1] === 0x50 &&
@@ -91,7 +99,6 @@ function detectImageType(bytes: Uint8Array): { ext: string; mime: string } | nul
   ) {
     return { ext: "png", mime: "image/png" };
   }
-  // WebP: RIFF....WEBP
   if (
     bytes[0] === 0x52 &&
     bytes[1] === 0x49 &&
@@ -182,6 +189,48 @@ function getExtensionFromPath(path: string): string {
   return "jpg";
 }
 
+async function resolveWorkshopAlertRecipients(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  tenant: { id: string; notification_email?: string | null }
+): Promise<string[]> {
+  const configured = normalizeEmail(tenant.notification_email);
+  if (configured && isValidEmail(configured)) {
+    return [configured];
+  }
+
+  const { data: members, error } = await supabaseAdmin
+    .from("tenant_members")
+    .select("user_id, role")
+    .eq("tenant_id", tenant.id)
+    .eq("is_active", true)
+    .in("role", ["owner", "admin"])
+    .limit(12);
+
+  if (error || !Array.isArray(members) || members.length === 0) {
+    return [];
+  }
+
+  const ownerIds = members.filter((m) => m.role === "owner").map((m) => m.user_id);
+  const adminIds = members.filter((m) => m.role === "admin").map((m) => m.user_id);
+  const targetIds = (ownerIds.length > 0 ? ownerIds : adminIds).slice(0, MAX_WORKSHOP_ALERT_RECIPIENTS);
+
+  const lookups = await Promise.allSettled(
+    targetIds.map((uid) => supabaseAdmin.auth.admin.getUserById(uid))
+  );
+
+  const emails = new Set<string>();
+  for (const res of lookups) {
+    if (res.status === "fulfilled" && res.value?.data?.user) {
+      const u = res.value.data.user;
+      const email = normalizeEmail(u.email);
+      if (email && isValidEmail(email) && u.email_confirmed_at) {
+        emails.add(email);
+      }
+    }
+  }
+  return Array.from(emails).slice(0, MAX_WORKSHOP_ALERT_RECIPIENTS);
+}
+
 Deno.serve(async (req: Request) => {
   const origin = req.headers.get("origin");
 
@@ -218,7 +267,6 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ok: false, mode: "invalid_payload", error: "Gagal membaca data formulir." }, origin, 400);
     }
 
-    // Silent bot trap
     const honeypot = String(formData.get("website") || "").trim();
     if (honeypot.length > 0) {
       return jsonResponse({ ok: false, mode: "blocked", error: "Permintaan ditolak." }, origin, 400);
@@ -231,7 +279,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: tenant, error: tenantError } = await supabaseAdmin
       .from("tenants")
-      .select("id, slug, name, is_active")
+      .select("id, slug, name, is_active, locale, currency, timezone, admin_phone, notification_email")
       .eq("slug", slug)
       .eq("is_active", true)
       .maybeSingle();
@@ -246,6 +294,7 @@ Deno.serve(async (req: Request) => {
 
     const customerName = String(formData.get("customer_name") || "").trim().slice(0, 120);
     const customerPhone = normalizePhone(formData.get("customer_phone"));
+    const customerEmail = normalizeEmail(formData.get("customer_email"));
     const orderTypeRaw = String(formData.get("order_type") || "walk_in").trim().toLowerCase();
     const orderType = orderTypeRaw === "mail_in" ? "mail_in" : "walk_in";
     const garmentName = String(formData.get("garment_name") || "").trim().slice(0, 160);
@@ -257,6 +306,9 @@ Deno.serve(async (req: Request) => {
     }
     if (customerPhone.length < 10) {
       return jsonResponse({ ok: false, mode: "invalid_phone", error: "Nomor WhatsApp minimal 10 digit." }, origin, 400);
+    }
+    if (customerEmail && !isValidEmail(customerEmail)) {
+      return jsonResponse({ ok: false, mode: "invalid_email", error: "Format alamat email tidak valid." }, origin, 400);
     }
     if (!garmentName) {
       return jsonResponse({ ok: false, mode: "invalid_fields", error: "Nama atau deskripsi pakaian wajib diisi." }, origin, 400);
@@ -327,7 +379,6 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ok: false, error: "Gagal mengunggah foto pakaian." }, origin, 500);
     }
 
-    // Compute a readable quote code with collision retry.
     const { count: monthCount } = await supabaseAdmin
       .from("quote_requests")
       .select("id", { count: "exact", head: true })
@@ -349,6 +400,7 @@ Deno.serve(async (req: Request) => {
           status: "new",
           customer_name: customerName,
           customer_phone: customerPhone,
+          customer_email: customerEmail,
           order_type: orderType,
           garment_name: garmentName,
           requested_service: requestedService,
@@ -372,6 +424,80 @@ Deno.serve(async (req: Request) => {
       console.error("public-quote db insert failed:", insertErr?.message);
       await supabaseAdmin.storage.from(BUCKET_NAME).remove([intakePhotoPath]).catch(() => {});
       return jsonResponse({ ok: false, error: "Gagal menyimpan permintaan estimasi." }, origin, 500);
+    }
+
+    // Non-blocking transactional email notifications (customer confirmation + workshop alert).
+    try {
+      const locale = normalizeLocale(tenant.locale);
+      const env = getEmailEnvConfig();
+      const trackingUrl = `${env.appBaseUrl}/t/${encodeURIComponent(tenant.slug)}`;
+      const adminUrl = `${env.appBaseUrl}/admin`;
+      const emailTasks: Array<Promise<unknown>> = [];
+
+      if (customerEmail) {
+        const custRendered = buildQuoteReceivedCustomerEmail({
+          locale,
+          workshopName: tenant.name,
+          quoteCode: insertedCode,
+          customerName,
+          garmentName,
+          orderType,
+          trackingUrl,
+          adminPhone: tenant.admin_phone || null,
+        });
+        emailTasks.push(
+          sendResendEmailAndLog(supabaseAdmin, {
+            tenantId: tenant.id,
+            eventType: "quote_received_customer",
+            recipientEmail: customerEmail,
+            subject: custRendered.subject,
+            html: custRendered.html,
+            text: custRendered.text,
+            locale,
+            replyTo: tenant.notification_email || null,
+            relatedEntityType: "quote",
+            relatedEntityId: quoteId,
+          })
+        );
+      }
+
+      const workshopRecipients = await resolveWorkshopAlertRecipients(supabaseAdmin, tenant);
+      if (workshopRecipients.length > 0) {
+        const wsRendered = buildQuoteReceivedWorkshopEmail({
+          locale,
+          workshopName: tenant.name,
+          quoteCode: insertedCode,
+          customerName,
+          customerPhone,
+          customerEmail,
+          garmentName,
+          orderType,
+          pinCount: pinsResult.pins.length,
+          adminUrl,
+        });
+        for (const wsEmail of workshopRecipients) {
+          emailTasks.push(
+            sendResendEmailAndLog(supabaseAdmin, {
+              tenantId: tenant.id,
+              eventType: "quote_received_workshop",
+              recipientEmail: wsEmail,
+              subject: wsRendered.subject,
+              html: wsRendered.html,
+              text: wsRendered.text,
+              locale,
+              replyTo: customerEmail || null,
+              relatedEntityType: "quote",
+              relatedEntityId: quoteId,
+            })
+          );
+        }
+      }
+
+      if (emailTasks.length > 0) {
+        await Promise.allSettled(emailTasks);
+      }
+    } catch (emailErr) {
+      console.error("public-quote non-blocking email warning:", emailErr instanceof Error ? emailErr.message : String(emailErr));
     }
 
     return jsonResponse(
@@ -512,7 +638,6 @@ Deno.serve(async (req: Request) => {
   }
 
   if (action === "approve") {
-    // Fast idempotent path if already converted.
     if (quote.status === "approved" && quote.converted_order_id) {
       const { data: ord } = await supabaseAdmin
         .from("orders")
@@ -586,7 +711,6 @@ Deno.serve(async (req: Request) => {
     }
 
     const row = rpcRows[0];
-    // Clean up unused promoted photo if a concurrent click won the conversion race.
     if (row.already_approved && promotedBeforePath && row.order_id !== newOrderId) {
       await supabaseAdmin.storage.from(BUCKET_NAME).remove([promotedBeforePath]).catch(() => {});
     }

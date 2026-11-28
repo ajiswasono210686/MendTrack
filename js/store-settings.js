@@ -15,10 +15,11 @@ export const DEFAULT_STORE_SETTINGS = {
   CURRENCY: 'IDR',
   TIMEZONE: 'Asia/Jakarta',
   TICKET_PREFIX: 'MND',
+  NOTIFICATION_EMAIL: '',
 };
 
 const TENANT_COLUMNS =
-  'id,slug,name,address,admin_phone,tagline,opening_hours,logo_data_url,daily_capacity_minutes,locale,currency,timezone,ticket_prefix';
+  'id,slug,name,address,admin_phone,notification_email,tagline,opening_hours,logo_data_url,daily_capacity_minutes,locale,currency,timezone,ticket_prefix';
 
 export function mapTenantToSettings(data) {
   if (!data) return { ...DEFAULT_STORE_SETTINGS };
@@ -27,6 +28,7 @@ export function mapTenantToSettings(data) {
     SLUG: data.slug || '',
     ADDRESS: data.address || '',
     ADMIN_PHONE: data.admin_phone || '',
+    NOTIFICATION_EMAIL: String(data.notification_email || '').trim().toLowerCase(),
     TAGLINE: data.tagline || '',
     OPENING_HOURS: data.opening_hours || '',
     LOGO: /^data:image\/(?:png|jpeg|webp);base64,/.test(data.logo_data_url || '') ? data.logo_data_url : '',
@@ -57,10 +59,12 @@ export async function fetchStoreSettings(tenantId) {
 
 export async function persistStoreSettings(tenantId, s) {
   if (!tenantId) throw new Error(t('common.noActiveTenant'));
+  const normalizedNotifEmail = String(s.NOTIFICATION_EMAIL || '').trim().toLowerCase() || null;
   const payload = {
     name: s.NAME,
     address: s.ADDRESS,
     admin_phone: s.ADMIN_PHONE,
+    notification_email: normalizedNotifEmail,
     tagline: s.TAGLINE,
     opening_hours: s.OPENING_HOURS,
     logo_data_url: s.LOGO || null,

@@ -2579,4 +2579,466 @@ html[data-theme="dark"] .mt-workflow-tag.is-accent {
   color: var(--mt-accent-text);
 }
 
+/* Stage 6: Email delivery badges, auth link button, toast email status, and Email Delivery Logs */
+.mt-auth-link-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: transparent;
+  border: 0;
+  color: var(--mt-accent-text);
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.mt-auth-link-btn:hover {
+  color: var(--mt-ink);
+  background-color: var(--mt-surface-muted);
+}
+
+.mt-auth-link-btn:active {
+  background-color: var(--mt-border);
+  transform: translateY(0.5px);
+}
+
+.mt-auth-link-btn:focus-visible {
+  outline: 2px solid var(--mt-focus);
+  outline-offset: 2px;
+}
+
+.mt-auth-link-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.mt-quote-email-resend-btn {
+  width: 100%;
+}
+
+@media (min-width: 480px) {
+  .mt-quote-email-resend-btn {
+    width: auto;
+  }
+}
+
+.mt-email-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.mt-email-badge.is-sent {
+  background-color: #dcfce7;
+  color: #14532d;
+}
+
+.mt-email-badge.is-failed {
+  background-color: #ffe4e6;
+  color: #881337;
+}
+
+.mt-email-badge.is-skipped {
+  background-color: #fef3c7;
+  color: #78350f;
+}
+
+html[data-theme="dark"] .mt-email-badge.is-sent {
+  background-color: #144936;
+  color: #d1fae5;
+}
+
+html[data-theme="dark"] .mt-email-badge.is-failed {
+  background-color: #6b1c2d;
+  color: #ffe4e6;
+}
+
+html[data-theme="dark"] .mt-email-badge.is-skipped {
+  background-color: #5c3d0e;
+  color: #fef3c7;
+}
+
+.mt-email-log-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid var(--mt-border);
+  background-color: var(--mt-surface-muted);
+}
+
+@media (min-width: 640px) {
+  .mt-email-log-row {
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+  }
+}
+
+.mt-toast-email-status {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  background-color: rgba(255, 255, 255, 0.08);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  color: var(--mt-hero-ink);
+  word-break: break-word;
+}
+
+.mt-toast-email-status.is-sent {
+  border-color: rgba(110, 231, 183, 0.55);
+  color: #d1fae5;
+}
+
+.mt-toast-email-status.is-failed {
+  border-color: rgba(253, 164, 175, 0.55);
+  color: #ffe4e6;
+}
+
+.mt-toast-email-status.is-skipped {
+  border-color: rgba(252, 211, 77, 0.55);
+  color: #fef3c7;
+}
+
+.mt-break-all {
+  word-break: break-all;
+}
+
+.mt-break-words {
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+@media (min-width: 640px) {
+  .mt-span-full-sm {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Loyal Customers, Branded Vouchers & Warranty Claims (Tema A Craft Ledger) */
+.mt-badge-warranty {
+  background-color: #ccfbf1;
+  color: #115e59;
+  border: 1px solid #99f6e4;
+}
+
+html[data-theme="dark"] .mt-badge-warranty {
+  background-color: #134e4a;
+  color: #ccfbf1;
+  border-color: #0f766e;
+}
+
+.mt-loyal-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--mt-border);
+}
+
+.mt-loyal-row:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.mt-loyal-rank {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background-color: var(--mt-surface-muted);
+  border: 1px solid var(--mt-border);
+  color: var(--mt-ink);
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mt-loyal-rank.is-top {
+  background-color: var(--mt-accent);
+  border-color: var(--mt-accent);
+  color: var(--mt-accent-ink);
+}
+
+.mt-reports-kpi-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+}
+
+@media (min-width: 640px) {
+  .mt-reports-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .mt-reports-kpi-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.mt-voucher-eyebrow {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #4a5568;
+}
+
+.mt-modal-layer-voucher {
+  z-index: 65;
+}
+
+.mt-voucher-actions-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+}
+
+@media (min-width: 380px) {
+  .mt-voucher-actions-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.mt-voucher-customer {
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: #18253e;
+}
+
+.mt-voucher-note {
+  font-size: 0.75rem;
+  color: #4a5568;
+  margin-top: 4px;
+}
+
+.mt-voucher-foot-expiry {
+  font-weight: 600;
+  color: #18253e;
+}
+
+.mt-voucher-stage {
+  background-color: var(--mt-surface-muted);
+  border: 1px dashed var(--mt-border);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.mt-voucher-card {
+  background-color: #fffdf9;
+  color: #18253e;
+  border: 1.5px solid #d8d1c4;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(24, 37, 62, 0.08);
+}
+
+.mt-voucher-card-head {
+  background-color: #18253e;
+  color: #fffdf9;
+  padding: 14px 18px;
+  border-bottom: 2px dashed #9e4316;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mt-voucher-card-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.mt-voucher-card-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background-color: #fffdf9;
+  object-fit: contain;
+  padding: 3px;
+  flex-shrink: 0;
+}
+
+.mt-voucher-card-monogram {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background-color: #9e4316;
+  color: #fffdf9;
+  font-weight: 800;
+  font-size: 0.875rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.mt-voucher-card-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ece7dc;
+  white-space: nowrap;
+}
+
+.mt-voucher-card-body {
+  padding: 18px;
+  background-color: #fffdf9;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.mt-voucher-discount-val {
+  font-size: 1.85rem;
+  line-height: 1.1;
+  font-weight: 800;
+  color: #9e4316;
+  letter-spacing: -0.02em;
+}
+
+.mt-voucher-code-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: 8px;
+  background-color: #18253e;
+  color: #fffdf9;
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, monospace;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.mt-voucher-card-foot {
+  background-color: #f5f2eb;
+  border-top: 1px dashed #d8d1c4;
+  padding: 10px 18px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.72rem;
+  color: #4a5568;
+}
+
+.mt-voucher-input-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.mt-voucher-input-row .mt-input {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.mt-warranty-banner {
+  background-color: #f0fdfa;
+  color: #115e59;
+  border: 1px solid #99f6e4;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+html[data-theme="dark"] .mt-warranty-banner {
+  background-color: #113836;
+  color: #ccfbf1;
+  border-color: #0f766e;
+}
+
+.mt-warranty-check-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.mt-warranty-check-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #0f766e;
+  flex-shrink: 0;
+}
+
+.mt-discount-row {
+  color: #166534;
+}
+
+html[data-theme="dark"] .mt-discount-row {
+  color: #86efac;
+}
+
+@media print {
+  body:not(.mt-printing-voucher-card) #voucher-modal {
+    display: none !important;
+  }
+  body.mt-printing-voucher-card #receipt-modal,
+  body.mt-printing-voucher-card #qr-tag-modal {
+    display: none !important;
+  }
+  body.mt-printing-voucher-card #voucher-modal {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    background: #ffffff !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  body.mt-printing-voucher-card #voucher-modal .mt-modal-panel {
+    box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+    max-width: 150mm !important;
+    margin: 0 auto !important;
+    padding: 0 !important;
+  }
+  body.mt-printing-voucher-card .mt-voucher-stage {
+    background: #ffffff !important;
+    border: none !important;
+    padding: 0 !important;
+  }
+  body.mt-printing-voucher-card .mt-voucher-card {
+    box-shadow: none !important;
+    border: 1.5px solid #18253e !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    page-break-inside: avoid;
+  }
+}
+
+
+
+
 

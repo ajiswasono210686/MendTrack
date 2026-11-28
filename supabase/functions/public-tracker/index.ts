@@ -190,7 +190,7 @@ Deno.serve(async (req: Request) => {
   if (action === "lookup") {
     const { data: orders, error: ordersError } = await supabaseAdmin
       .from("orders")
-      .select("id, ticket_code, order_type, status, estimated_done_date, created_at, order_items(id)")
+      .select("id, ticket_code, order_type, is_warranty, status, estimated_done_date, created_at, order_items(id)")
       .eq("tenant_id", tenant.id)
       .eq("customer_phone", normalizedPhone)
       .order("created_at", { ascending: false });
@@ -214,6 +214,7 @@ Deno.serve(async (req: Request) => {
     const tickets = orders.map((order) => ({
       ticket_code: order.ticket_code,
       order_type: order.order_type || "walk_in",
+      is_warranty: Boolean(order.is_warranty),
       status: order.status,
       estimated_done_date: order.estimated_done_date,
       created_at: order.created_at,
@@ -235,7 +236,7 @@ Deno.serve(async (req: Request) => {
     const { data: order, error: orderError } = await supabaseAdmin
       .from("orders")
       .select(
-        "id, ticket_code, customer_name, order_type, inbound_courier, inbound_tracking, outbound_courier, outbound_tracking, status, total_amount, paid_amount, payment_status, estimated_done_date, notes, created_at, updated_at"
+        "id, ticket_code, customer_name, order_type, is_warranty, voucher_code, discount_amount, inbound_courier, inbound_tracking, outbound_courier, outbound_tracking, status, total_amount, paid_amount, payment_status, estimated_done_date, notes, created_at, updated_at"
       )
       .eq("tenant_id", tenant.id)
       .eq("customer_phone", normalizedPhone)
@@ -332,6 +333,9 @@ Deno.serve(async (req: Request) => {
           ticket_code: order.ticket_code,
           customer_name: order.customer_name,
           order_type: order.order_type || "walk_in",
+          is_warranty: Boolean(order.is_warranty),
+          voucher_code: order.voucher_code || null,
+          discount_amount: Math.max(0, Number(order.discount_amount || 0)),
           inbound_courier: order.inbound_courier || null,
           inbound_tracking: order.inbound_tracking || null,
           outbound_courier: order.outbound_courier || null,

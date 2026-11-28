@@ -61,6 +61,7 @@ import {
 } from './i18n.js';
 import { renderQrSvg } from './qr-svg.js';
 import { createPinCanvas } from './pin-canvas.js';
+import { downloadVoucherCardPng } from './voucher-card.js';
 
 const PENDING_ADMIN_TICKET_KEY = 'mendtrack_pending_admin_ticket';
 const PENDING_ADMIN_INVITE_KEY = 'mendtrack_pending_admin_invite';
@@ -77,6 +78,191 @@ let onboardingSlugTouched = false;
 let onboardingHoursTouched = false;
 let currentAppPage = 'orders';
 let currentAuthMode = 'login';
+let isPasswordRecoveryActive = false;
+
+let emailLogsCache = [];
+let activeQuoteEmailState = null;
+let activeAppliedVoucher = null;
+let currentVoucherModalRecord = null;
+let activeOrderWarrantySourceTicket = '';
+let lastReportsLoyalCustomers = [];
+
+const EMAIL_FORMAT_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeOptionalEmail(raw) {
+  return String(raw || '').trim().toLowerCase();
+}
+
+function isValidEmailFormat(email) {
+  return Boolean(email && email.length <= 254 && EMAIL_FORMAT_REGEX.test(email));
+}
+
+function isPasswordRecoveryUrl() {
+  const hash = String(window.location.hash || '');
+  const search = String(window.location.search || '');
+  return /(?:^|[#&?])type=recovery(?:&|$)/i.test(hash) || /(?:^|[?&])type=recovery(?:&|$)/i.test(search);
+}
+
+async function dispatchTransactionalEmail(payload) {
+  if (!isSupabaseConfigured || !payload?.tenant_id || !payload?.event_type) {
+    return { ok: false, status: 'skipped', reason: 'invalid_payload' };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const accessToken = session?.access_token || '';
+    if (!accessToken) {
+      return { ok: false, status: 'failed', reason: 'no_session' };
+    }
+    const endpoint = `${SUPABASE_CONFIG.URL.replace(/\/+$/, '')}/functions/v1/send-transactional-email`;
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: SUPABASE_CONFIG.ANON_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    let data = null;
+    try {
+      data = await response.json();
+    } catch (_) {
+      data = null;
+    }
+    if (!response.ok || !data) {
+      return {
+        ok: false,
+        status: 'failed',
+        reason: data?.error || `HTTP ${response.status}`,
+      };
+    }
+    return data;
+  } catch (err) {
+    return {
+      ok: false,
+      status: 'failed',
+      reason: err?.name === 'AbortError' ? 'timeout' : err?.message || 'network_error',
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function getEmailEventLabel(eventType) {
+  const key = `email.event.${eventType || ''}`;
+  const translated = t(key);
+  return translated === key ? String(eventType || '-') : translated;
+}
+
+function renderEmailStatusBadgeHtml(status) {
+  if (status === 'sending') {
+    return `<span class="mt-email-badge is-skipped">${escapeHTML(t('email.statusSending'))}</span>`;
+  }
+  if (status === 'sent') {
+    return `<span class="mt-email-badge is-sent">${escapeHTML(t('email.statusSent'))}</span>`;
+  }
+  if (status === 'failed') {
+    return `<span class="mt-email-badge is-failed">${escapeHTML(t('email.statusFailed'))}</span>`;
+  }
+  if (status === 'skipped') {
+    return `<span class="mt-email-badge is-skipped">${escapeHTML(t('email.statusSkipped'))}</span>`;
+  }
+  return '';
+}
+
+function findLatestEmailLog(entityType, entityId, eventType = null, fallbackRecipient = null) {
+  if (!Array.isArray(emailLogsCache) || !emailLogsCache.length) return null;
+  const direct = emailLogsCache.find(
+    (log) =>
+      (!entityType || log.related_entity_type === entityType) &&
+      entityId &&
+      log.related_entity_id === entityId &&
+      (!eventType || log.event_type === eventType)
+  );
+  if (direct) return direct;
+  if (fallbackRecipient) {
+    const cleanEmail = normalizeOptionalEmail(fallbackRecipient);
+    return (
+      emailLogsCache.find(
+        (log) =>
+          (!eventType || log.event_type === eventType) &&
+          normalizeOptionalEmail(log.recipient_email) === cleanEmail
+      ) || null
+    );
+  }
+  return null;
+}
+
+async function fetchRecentEmailLogs({ render = true } = {}) {
+  const tenantId = getActiveTenantId();
+  const listEl = document.getElementById('team-email-logs-list');
+  const refreshBtn = render ? document.getElementById('refresh-email-logs-btn') : null;
+  if (!tenantId || !isAdminOrOwnerRole()) return [];
+  if (refreshBtn) refreshBtn.disabled = true;
+  if (render && listEl) {
+    listEl.innerHTML = `<p class="text-xs mt-muted" role="status">${escapeHTML(t('email.logsLoading'))}</p>`;
+  }
+  try {
+    const { data, error } = await supabase
+      .from('email_logs')
+      .select(
+        'id, event_type, recipient_email, subject, locale, status, error_message, related_entity_type, related_entity_id, created_at'
+      )
+      .eq('tenant_id', tenantId)
+      .order('created_at', { ascending: false })
+      .limit(30);
+    if (error) throw error;
+    emailLogsCache = Array.isArray(data) ? data : [];
+    if (render) renderEmailLogsList();
+    return emailLogsCache;
+  } catch (err) {
+    if (render && listEl) {
+      listEl.innerHTML = `<div role="alert" class="mt-notice-error p-3 text-xs flex flex-wrap items-center justify-between gap-2">
+        <span>${escapeHTML(t('email.logsLoadFailed', { message: err.message || '' }))}</span>
+        <button type="button" data-retry-email-logs class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('common.reload'))}</button>
+      </div>`;
+      listEl.querySelector('[data-retry-email-logs]')?.addEventListener('click', () => fetchRecentEmailLogs({ render: true }));
+    }
+    return emailLogsCache;
+  } finally {
+    if (refreshBtn) refreshBtn.disabled = false;
+  }
+}
+
+function renderEmailLogsList() {
+  const listEl = document.getElementById('team-email-logs-list');
+  if (!listEl || !isAdminOrOwnerRole()) return;
+  if (!emailLogsCache.length) {
+    listEl.innerHTML = `<p class="text-xs mt-muted">${escapeHTML(t('email.logsEmpty'))}</p>`;
+    return;
+  }
+  listEl.innerHTML = emailLogsCache
+    .map((log) => {
+      const badgeHtml = renderEmailStatusBadgeHtml(log.status);
+      const errLine =
+        log.error_message && log.status !== 'sent'
+          ? `<p class="text-xs mt-danger-text mt-break-words">${escapeHTML(log.error_message)}</p>`
+          : '';
+      return `<article class="mt-email-log-row">
+        <div class="min-w-0 space-y-1">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs font-bold mt-text">${escapeHTML(getEmailEventLabel(log.event_type))}</span>
+            ${badgeHtml}
+          </div>
+          <p class="font-mono-code text-xs mt-text mt-break-all">${escapeHTML(log.recipient_email)}</p>
+          <p class="text-xs mt-muted truncate">${escapeHTML(log.subject || '')}</p>
+          ${errLine}
+        </div>
+        <span class="font-mono-code text-xs mt-muted shrink-0">${escapeHTML(formatDateID(log.created_at, true))}</span>
+      </article>`;
+    })
+    .join('');
+}
 
 let allOrders = [];
 let workloadDateFilter = null;
@@ -357,7 +543,10 @@ function applyWorkspaceLocalization() {
     if (currentAppPage === 'services' && isAdminOrOwnerRole()) renderServicesList();
     if (currentAppPage === 'measurements' && isAdminOrOwnerRole()) renderMeasurementTemplateSettings();
     if (currentAppPage === 'workstations' && isAdminOrOwnerRole()) renderWorkstationsManagementList();
-    if (currentAppPage === 'team' && isAdminOrOwnerRole()) renderTeamPage();
+    if (currentAppPage === 'team' && isAdminOrOwnerRole()) {
+      renderTeamPage();
+      renderEmailLogsList();
+    }
     const staffModalEl = document.getElementById('staff-order-detail-modal');
     if (activeStaffOrderDetailId && staffModalEl && !staffModalEl.classList.contains('hidden')) {
       const target = allOrders.find((o) => o.id === activeStaffOrderDetailId);
@@ -454,6 +643,8 @@ function openStoreSettings() {
   document.getElementById('store-name-input').value = workshopSettings.NAME;
   document.getElementById('store-address-input').value = workshopSettings.ADDRESS;
   document.getElementById('store-phone-input').value = workshopSettings.ADMIN_PHONE;
+  const notifEmailInput = document.getElementById('store-notification-email-input');
+  if (notifEmailInput) notifEmailInput.value = workshopSettings.NOTIFICATION_EMAIL || '';
   document.getElementById('store-tagline-input').value = workshopSettings.TAGLINE;
   document.getElementById('store-hours-input').value = workshopSettings.OPENING_HOURS;
   const localeSelect = document.getElementById('store-locale-input');
@@ -649,6 +840,8 @@ const adminDocHeading = document.getElementById('admin-doc-heading');
 const loginForm = document.getElementById('login-form');
 const signupForm = document.getElementById('signup-form');
 const verifyEmailPanel = document.getElementById('verify-email-panel');
+const forgotPasswordForm = document.getElementById('forgot-password-form');
+const recoveryPasswordForm = document.getElementById('recovery-password-form');
 const authModeTabs = document.getElementById('auth-mode-tabs');
 const authTabLogin = document.getElementById('auth-tab-login');
 const authTabSignup = document.getElementById('auth-tab-signup');
@@ -791,10 +984,52 @@ function showAppPage(page) {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+function renderWarrantyBadgeHTML(order) {
+  if (!order?.is_warranty) return '';
+  return `<span class="mt-badge mt-badge-warranty">${escapeHTML(t('warranty.badge'))}</span>`;
+}
+
+function buildCatalogServiceSelectOptionsHTML(selectedValue = '') {
+  const rawSelected = String(selectedValue || '').trim();
+  const normalizedSelected = rawSelected.toLocaleLowerCase();
+  const activeServices = [...activeServiceCatalog]
+    .filter((svc) => svc && svc.is_active !== false && String(svc.name || '').trim())
+    .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
+  if (!activeServices.length && !rawSelected) {
+    return `<option value="" disabled selected>${escapeHTML(t('orderForm.serviceCatalogEmpty'))}</option>`;
+  }
+
+  let matchedActive = false;
+  const optionParts = [
+    `<option value=""${rawSelected ? '' : ' selected'}>${escapeHTML(t('orderForm.serviceSelectPlaceholder'))}</option>`,
+  ];
+
+  const activeOptions = activeServices.map((svc) => {
+    const svcName = String(svc.name).trim();
+    const isMatch = Boolean(normalizedSelected) && svcName.toLocaleLowerCase() === normalizedSelected;
+    if (isMatch) matchedActive = true;
+    const basePrice = Number(svc.base_price || 0);
+    const optionLabel = basePrice > 0 ? `${svcName} (${formatCurrency(basePrice)})` : svcName;
+    return `<option value="${escapeHTML(svcName)}"${isMatch ? ' selected' : ''}>${escapeHTML(optionLabel)}</option>`;
+  });
+
+  if (rawSelected && !matchedActive) {
+    optionParts.push(
+      `<option value="${escapeHTML(rawSelected)}" selected>${escapeHTML(rawSelected)} ${escapeHTML(
+        t('orderForm.serviceLegacyTag')
+      )}</option>`
+    );
+  }
+
+  return optionParts.concat(activeOptions).join('');
+}
+
 function renderArchiveOrders() {
   const target = document.getElementById('archive-orders-list');
   if (!target) return;
   const archived = allOrders.filter((order) => order.status === 'completed');
+  const canCreateWarranty = isAdminOrOwnerRole();
   target.innerHTML = archived.length
     ? archived
         .map((order) => {
@@ -806,6 +1041,7 @@ function renderArchiveOrders() {
               <div class="flex items-center gap-2 flex-wrap">
                 <p class="font-mono-code font-bold mt-text">${escapeHTML(order.ticket_code || '')}</p>
                 ${typeMeta ? `<span class="${typeMeta.badgeClass}">${escapeHTML(typeMeta.label)}</span>` : ''}
+                ${renderWarrantyBadgeHTML(order)}
               </div>
               <p class="text-sm mt-text">${escapeHTML(order.customer_name || '')}</p>
               <p class="text-xs mt-muted">${escapeHTML(t('archive.completedMeta', { date: formatDateID(order.updated_at || order.created_at) }))}</p>
@@ -813,6 +1049,14 @@ function renderArchiveOrders() {
             <div class="text-right flex flex-col items-end gap-1.5">
               <p class="font-mono-code font-bold mt-text">${escapeHTML(formatCurrency(order.total_amount))}</p>
               <div class="flex flex-wrap items-center justify-end gap-2">
+                ${
+                  canCreateWarranty
+                    ? `<button type="button" data-warranty-claim="${order.id}" class="mt-btn mt-btn-secondary text-xs">
+                        <i data-lucide="shield-check" class="w-4 h-4" aria-hidden="true"></i>
+                        <span>${escapeHTML(t('warranty.claimBtn'))}</span>
+                      </button>`
+                    : ''
+                }
                 <button type="button" data-open-qr-tag="${order.id}" title="${escapeHTML(t('orders.qrTagTitle'))}" class="mt-btn mt-btn-secondary text-xs">
                   <i data-lucide="qr-code" class="w-4 h-4" aria-hidden="true"></i>
                   <span>${escapeHTML(t('orders.qrTagBtn'))}</span>
@@ -848,17 +1092,81 @@ async function renderReports() {
   const paidNow = inRange.reduce((s, o) => s + Number(o.paid_amount || 0), 0);
   const receivable = inRange.reduce((s, o) => s + Math.max(0, Number(o.total_amount || 0) - Number(o.paid_amount || 0)), 0);
   const unpaidOrders = inRange.filter((o) => Number(o.total_amount || 0) > Number(o.paid_amount || 0));
+  const warrantyClaimsCount = inRange.filter((o) => Boolean(o.is_warranty)).length;
 
-  const services = {};
+  // Merge service names case-insensitively, preferring canonical catalog casing when available.
+  const catalogCanonicalMap = new Map();
+  [...workloadServices, ...activeServiceCatalog].forEach((svc) => {
+    const clean = String(svc?.name || '').trim();
+    if (!clean) return;
+    const key = clean.toLocaleLowerCase();
+    if (!catalogCanonicalMap.has(key)) catalogCanonicalMap.set(key, clean);
+  });
+
+  const serviceAggMap = new Map();
   inRange.forEach((o) =>
     (o.order_items || []).forEach((it) => {
-      const name = it.service_type || t('cashCategory.lain_lain');
-      services[name] = (services[name] || 0) + 1;
+      const rawName = String(it.service_type || '').trim() || t('cashCategory.lain_lain');
+      const normKey = rawName.toLocaleLowerCase();
+      const canonicalLabel = catalogCanonicalMap.get(normKey) || rawName;
+      if (!serviceAggMap.has(normKey)) {
+        serviceAggMap.set(normKey, { label: canonicalLabel, count: 0 });
+      }
+      serviceAggMap.get(normKey).count += 1;
     })
   );
-  const top = Object.entries(services)
-    .sort((a, b) => b[1] - a[1])
+  const top = [...serviceAggMap.values()]
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
     .slice(0, 5);
+
+  // Aggregate Top 5 Loyal Customers by highest total transaction value in selected reporting range.
+  const customerLookupById = new Map();
+  const customerLookupByPhone = new Map();
+  customerRecords.forEach((c) => {
+    if (c.id) customerLookupById.set(c.id, c);
+    const normPhone = normalizePhone(c.phone || '');
+    if (normPhone) customerLookupByPhone.set(normPhone, c);
+  });
+
+  const loyalMap = new Map();
+  inRange.forEach((o) => {
+    const normPhone = normalizePhone(o.customer_phone || '');
+    const cleanName = String(o.customer_name || '').trim();
+    const key = o.customer_id
+      ? `id:${o.customer_id}`
+      : normPhone
+        ? `phone:${normPhone}`
+        : cleanName
+          ? `name:${cleanName.toLocaleLowerCase()}`
+          : '';
+    if (!key) return;
+    const matchedCustomer =
+      (o.customer_id && customerLookupById.get(o.customer_id)) ||
+      (normPhone && customerLookupByPhone.get(normPhone)) ||
+      null;
+    if (!loyalMap.has(key)) {
+      loyalMap.set(key, {
+        customer_id: o.customer_id || matchedCustomer?.id || null,
+        customer_name: cleanName || matchedCustomer?.name || '-',
+        customer_phone: normPhone || normalizePhone(matchedCustomer?.phone || '') || '',
+        customer_email:
+          normalizeOptionalEmail(o.customer_email) || normalizeOptionalEmail(matchedCustomer?.email) || '',
+        order_count: 0,
+        total_spend: 0,
+      });
+    }
+    const entry = loyalMap.get(key);
+    entry.order_count += 1;
+    entry.total_spend += Math.max(0, Number(o.total_amount || 0));
+    if (!entry.customer_email && o.customer_email) {
+      entry.customer_email = normalizeOptionalEmail(o.customer_email);
+    }
+  });
+
+  const loyalCustomers = [...loyalMap.values()]
+    .sort((a, b) => b.total_spend - a.total_spend || b.order_count - a.order_count || a.customer_name.localeCompare(b.customer_name))
+    .slice(0, 5);
+  lastReportsLoyalCustomers = loyalCustomers;
 
   let cashRows = [];
   let cashFetchError = null;
@@ -1017,30 +1325,46 @@ async function renderReports() {
   target.innerHTML = `
     ${cashErrorBanner}
     ${cashCharts}
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+    <div class="mt-reports-kpi-grid">
       ${moneyCard(t('reports.orderValue'), totalSales, t('reports.orderValueSub', { count: inRange.length }))}
       ${moneyCard(t('reports.recordedPayments'), paidNow, t('reports.recordedPaymentsSub'))}
       ${moneyCard(t('reports.unpaidReceivables'), receivable, t('reports.unpaidOrdersSub', { count: unpaidOrders.length }))}
+      <article class="mt-card p-4">
+        <p class="text-xs font-semibold mt-muted">${escapeHTML(t('reports.warrantyClaimsLabel'))}</p>
+        <p class="font-mono-code text-xl font-bold mt-text mt-1">${escapeHTML(t('reports.warrantyClaimsCount', { count: warrantyClaimsCount }))}</p>
+        <p class="text-xs mt-muted mt-1">${escapeHTML(t('reports.warrantyClaimsSub'))}</p>
+      </article>
     </div>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
       <section class="mt-card p-4">
-        <h3 class="font-bold mt-text mb-3">${escapeHTML(t('reports.unpaidOrdersTitle'))}</h3>
+        <div class="mb-3">
+          <h3 class="font-bold mt-text">${escapeHTML(t('reports.loyalCustomersTitle'))}</h3>
+          <p class="text-xs mt-muted mt-0.5">${escapeHTML(t('reports.loyalCustomersDesc'))}</p>
+        </div>
         ${
-          unpaidOrders.length
-            ? unpaidOrders
-                .sort((a, b) => Number(b.total_amount || 0) - Number(a.total_amount || 0))
-                .slice(0, 20)
+          loyalCustomers.length
+            ? loyalCustomers
                 .map(
-                  (o) => `<div class="py-2.5 border-b flex justify-between gap-3 text-sm" style="border-color: var(--mt-border);">
-                    <div>
-                      <b class="font-mono-code mt-text">${escapeHTML(o.ticket_code || '')}</b>
-                      <p class="text-xs mt-muted">${escapeHTML(o.customer_name || '')}</p>
+                  (cust, idx) => `<div class="mt-loyal-row">
+                    <div class="flex items-center gap-2.5 min-w-0 flex-1">
+                      <span class="mt-loyal-rank ${idx === 0 ? 'is-top' : ''}">#${idx + 1}</span>
+                      <div class="min-w-0">
+                        <p class="font-semibold text-sm mt-text truncate">${escapeHTML(cust.customer_name)}</p>
+                        <p class="text-xs mt-muted">
+                          <span>${escapeHTML(t('reports.orderCountLabel', { count: cust.order_count }))}</span>
+                          <span aria-hidden="true"> · </span>
+                          <b class="font-mono-code mt-text">${escapeHTML(formatCurrency(cust.total_spend))}</b>
+                        </p>
+                      </div>
                     </div>
-                    <b class="font-mono-code mt-danger-text">${escapeHTML(formatCurrency(Math.max(0, Number(o.total_amount || 0) - Number(o.paid_amount || 0))))}</b>
+                    <button type="button" data-create-loyal-voucher="${idx}" class="mt-btn mt-btn-secondary text-xs shrink-0">
+                      <i data-lucide="ticket" class="w-4 h-4" aria-hidden="true"></i>
+                      <span>${escapeHTML(t('reports.createVoucherBtn'))}</span>
+                    </button>
                   </div>`
                 )
                 .join('')
-            : `<p class="text-sm mt-muted">${escapeHTML(t('reports.noReceivables'))}</p>`
+            : `<p class="text-sm mt-muted">${escapeHTML(t('reports.noLoyalCustomers'))}</p>`
         }
       </section>
       <section class="mt-card p-4">
@@ -1049,9 +1373,9 @@ async function renderReports() {
           top.length
             ? top
                 .map(
-                  ([name, count], i) => `<div class="py-2.5 border-b flex justify-between text-sm" style="border-color: var(--mt-border);">
-                    <span class="mt-text">${i + 1}. ${escapeHTML(name)}</span>
-                    <b class="font-mono-code mt-text">${escapeHTML(t('common.itemCount', { count }))}</b>
+                  (svc, i) => `<div class="py-2.5 border-b flex justify-between text-sm" style="border-color: var(--mt-border);">
+                    <span class="mt-text">${i + 1}. ${escapeHTML(svc.label)}</span>
+                    <b class="font-mono-code mt-text">${escapeHTML(t('common.itemCount', { count: svc.count }))}</b>
                   </div>`
                 )
                 .join('')
@@ -1063,6 +1387,14 @@ async function renderReports() {
   `;
 
   target.querySelector('[data-retry-reports]')?.addEventListener('click', renderReports);
+  target.querySelectorAll('[data-create-loyal-voucher]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.getAttribute('data-create-loyal-voucher'));
+      const picked = lastReportsLoyalCustomers[idx];
+      if (picked) openVoucherModal(picked);
+    });
+  });
+  if (window.lucide) window.lucide.createIcons();
 }
 
 // Workload assigns all estimated minutes to estimated_done_date; ready/completed orders are excluded immediately.
@@ -1251,6 +1583,7 @@ function renderWorkloadSelectedOrders(dateKey) {
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="font-mono-code font-bold text-sm mt-text">${escapeHTML(order.ticket_code)}</span>
                 ${typeMeta ? `<span class="${typeMeta.badgeClass}">${escapeHTML(typeMeta.label)}</span>` : ''}
+                ${renderWarrantyBadgeHTML(order)}
                 <span class="${statusMeta.badgeClass}">
                   <span class="${statusMeta.dotClass}" aria-hidden="true"></span>
                   <span>${escapeHTML(statusMeta.label)}</span>
@@ -1538,6 +1871,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   const oauthRedirectError = consumeAuthRedirectError();
+  if (isPasswordRecoveryUrl()) {
+    isPasswordRecoveryActive = true;
+  }
 
   const {
     data: { session },
@@ -1549,7 +1885,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   supabase.auth.onAuthStateChange((event, newSession) => {
+    if (event === 'PASSWORD_RECOVERY') {
+      isPasswordRecoveryActive = true;
+      showAuthScreen('recovery');
+      return;
+    }
     if (event === 'SIGNED_OUT') {
+      isPasswordRecoveryActive = false;
       resetTenantState({ clearMemberships: true });
       showAuthScreen('login');
       return;
@@ -1565,18 +1907,35 @@ function clearAuthNotices() {
   if (authInfoBox) authInfoBox.textContent = '';
 }
 
+function syncVerifyEmailCopy() {
+  const suffixEl = document.getElementById('verify-email-desc-suffix');
+  if (!suffixEl) return;
+  const key = getPendingInviteToken() ? 'admin.verifyDescInviteSuffix' : 'admin.verifyDescSuffix';
+  suffixEl.setAttribute('data-i18n', key);
+  suffixEl.textContent = t(key);
+}
+
 function setAuthMode(mode = 'login') {
   currentAuthMode = mode;
   clearAuthNotices();
   const isLogin = mode === 'login';
   const isSignup = mode === 'signup';
   const isVerify = mode === 'verify';
+  const isForgot = mode === 'forgot';
+  const isRecovery = mode === 'recovery';
+  const hideStandardChrome = isVerify || isForgot || isRecovery;
 
-  authModeTabs?.classList.toggle('hidden', isVerify);
+  authModeTabs?.classList.toggle('hidden', hideStandardChrome);
   loginForm?.classList.toggle('hidden', !isLogin);
   signupForm?.classList.toggle('hidden', !isSignup);
-  authSsoSection?.classList.toggle('hidden', isVerify);
+  authSsoSection?.classList.toggle('hidden', hideStandardChrome);
   verifyEmailPanel?.classList.toggle('hidden', !isVerify);
+  forgotPasswordForm?.classList.toggle('hidden', !isForgot);
+  recoveryPasswordForm?.classList.toggle('hidden', !isRecovery);
+
+  if (isVerify) {
+    syncVerifyEmailCopy();
+  }
 
   if (googleSsoLabel) {
     googleSsoLabel.textContent = isSignup ? t('admin.googleSignup') : t('admin.googleContinue');
@@ -1595,18 +1954,26 @@ function setAuthMode(mode = 'login') {
 
   const subheading = document.getElementById('auth-subheading');
   if (subheading) {
-    subheading.textContent = isVerify
-      ? t('admin.authSubVerify')
-      : isSignup
-        ? t('admin.authSubSignup')
-        : t('admin.authSubLogin');
+    subheading.textContent = isRecovery
+      ? t('admin.authSubRecovery')
+      : isForgot
+        ? t('admin.authSubForgot')
+        : isVerify
+          ? t('admin.authSubVerify')
+          : isSignup
+            ? t('admin.authSubSignup')
+            : t('admin.authSubLogin');
   }
   if (adminDocHeading) {
-    adminDocHeading.textContent = isVerify
-      ? t('admin.docHeadingVerify')
-      : isSignup
-        ? t('admin.docHeadingSignup')
-        : t('admin.docHeadingLogin');
+    adminDocHeading.textContent = isRecovery
+      ? t('admin.docHeadingRecovery')
+      : isForgot
+        ? t('admin.docHeadingForgot')
+        : isVerify
+          ? t('admin.docHeadingVerify')
+          : isSignup
+            ? t('admin.docHeadingSignup')
+            : t('admin.docHeadingLogin');
   }
   if (window.lucide) window.lucide.createIcons();
 }
@@ -1627,6 +1994,7 @@ function showVerifyEmailPanel(email = '') {
   const emailEl = document.getElementById('verify-email-address');
   if (emailEl) emailEl.textContent = pendingVerifyEmail || '-';
   showAuthScreen('verify');
+  syncVerifyEmailCopy();
 }
 
 function updateOnboardingSlugPreview() {
@@ -1695,6 +2063,12 @@ function resetTenantState({ clearMemberships = true } = {}) {
   workshopWorkstations = [];
   tenantStaffLabels = [];
   teamDataCache = { caller_role: null, members: [], invitations: [] };
+  emailLogsCache = [];
+  activeQuoteEmailState = null;
+  activeAppliedVoucher = null;
+  currentVoucherModalRecord = null;
+  activeOrderWarrantySourceTicket = '';
+  lastReportsLoyalCustomers = [];
   expandedWorkstationOrderIds = new Set();
   activeStaffOrderDetailId = null;
   activeCustomerDetail = null;
@@ -1735,6 +2109,8 @@ function resetTenantState({ clearMemberships = true } = {}) {
   paymentModal?.classList.add('hidden');
   receiptModal?.classList.add('hidden');
   document.getElementById('qr-tag-modal')?.classList.add('hidden');
+  document.getElementById('voucher-modal')?.classList.add('hidden');
+  document.body.classList.remove('mt-printing-voucher-card');
   document.getElementById('quote-detail-modal')?.classList.add('hidden');
   document.getElementById('staff-order-detail-modal')?.classList.add('hidden');
   document.getElementById('admin-photo-lightbox')?.classList.add('hidden');
@@ -1759,6 +2135,8 @@ function resetTenantState({ clearMemberships = true } = {}) {
   if (teamMembersEl) teamMembersEl.innerHTML = '';
   const teamInvEl = document.getElementById('team-invitations-list');
   if (teamInvEl) teamInvEl.innerHTML = '';
+  const emailLogsEl = document.getElementById('team-email-logs-list');
+  if (emailLogsEl) emailLogsEl.innerHTML = '';
   const wsListEl = document.getElementById('workstations-list');
   if (wsListEl) wsListEl.innerHTML = '';
 }
@@ -1768,6 +2146,11 @@ async function resolveAuthSession(session) {
   if (!session?.user) {
     resetTenantState({ clearMemberships: true });
     showAuthScreen('login');
+    return;
+  }
+
+  if (isPasswordRecoveryActive) {
+    showAuthScreen('recovery');
     return;
   }
 
@@ -2112,6 +2495,11 @@ function closeActiveDialogOnEscape() {
     closeAdminPhotoLightbox();
     return;
   }
+  const voucherModal = document.getElementById('voucher-modal');
+  if (voucherModal && !voucherModal.classList.contains('hidden')) {
+    closeVoucherModal();
+    return;
+  }
   const staffOrderDetailModal = document.getElementById('staff-order-detail-modal');
   if (staffOrderDetailModal && !staffOrderDetailModal.classList.contains('hidden')) {
     closeStaffOrderDetailModal();
@@ -2401,6 +2789,12 @@ function bindGlobalEvents() {
   document.getElementById('cash-form')?.addEventListener('submit', submitCashForm);
   document.getElementById('sidebar-new-order-btn')?.addEventListener('click', () => openOrderModal(null));
   document.getElementById('archive-orders-list')?.addEventListener('click', (event) => {
+    const warrantyBtn = event.target.closest('[data-warranty-claim]');
+    if (warrantyBtn) {
+      const order = allOrders.find((item) => item.id === warrantyBtn.dataset.warrantyClaim);
+      if (order) openWarrantyClaimFromOrder(order);
+      return;
+    }
     const qrBtn = event.target.closest('[data-open-qr-tag]');
     if (qrBtn) {
       const order = allOrders.find((item) => item.id === qrBtn.dataset.openQrTag);
@@ -2427,6 +2821,101 @@ function bindGlobalEvents() {
     (nextMode === 'signup' ? authTabSignup : authTabLogin)?.focus();
   });
   document.getElementById('back-to-login-btn')?.addEventListener('click', () => setAuthMode('login'));
+  document.getElementById('forgot-password-link-btn')?.addEventListener('click', () => {
+    const loginEmailVal = document.getElementById('login-email')?.value.trim() || '';
+    const forgotEmailEl = document.getElementById('forgot-email');
+    if (forgotEmailEl && loginEmailVal && !forgotEmailEl.value.trim()) {
+      forgotEmailEl.value = loginEmailVal;
+    }
+    setAuthMode('forgot');
+    forgotEmailEl?.focus();
+  });
+  document.getElementById('forgot-back-btn')?.addEventListener('click', () => setAuthMode('login'));
+
+  forgotPasswordForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    clearAuthNotices();
+    const emailInput = document.getElementById('forgot-email');
+    const submitBtn = document.getElementById('forgot-submit-btn');
+    const email = normalizeOptionalEmail(emailInput?.value || '');
+    if (!isValidEmailFormat(email)) {
+      showAuthError(t('admin.signupEmailRequired'));
+      emailInput?.focus();
+      return;
+    }
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = `<span>${escapeHTML(t('admin.forgotSubmitting'))}</span>`;
+    }
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: getAdminRedirectUrl(),
+      });
+      if (error) throw error;
+      showAuthInfo(t('admin.forgotSentInfo', { email }));
+    } catch (err) {
+      showAuthError(err.message || t('common.genericError'));
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = `<i data-lucide="mail" class="w-4 h-4" aria-hidden="true"></i><span>${escapeHTML(t('admin.forgotSubmitBtn'))}</span>`;
+        if (window.lucide) window.lucide.createIcons();
+      }
+    }
+  });
+
+  recoveryPasswordForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    clearAuthNotices();
+    const passInput = document.getElementById('recovery-password');
+    const confirmInput = document.getElementById('recovery-password-confirm');
+    const submitBtn = document.getElementById('recovery-submit-btn');
+    const password = passInput?.value || '';
+    const confirmPassword = confirmInput?.value || '';
+
+    if (password.length < 8) {
+      showAuthError(t('admin.signupPasswordMin'));
+      passInput?.focus();
+      return;
+    }
+    if (password !== confirmPassword) {
+      showAuthError(t('admin.signupPasswordMismatch'));
+      confirmInput?.focus();
+      return;
+    }
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = `<span>${escapeHTML(t('admin.recoverySubmitting'))}</span>`;
+    }
+    try {
+      const { data, error } = await supabase.auth.updateUser({ password });
+      if (error) throw error;
+      isPasswordRecoveryActive = false;
+      recoveryPasswordForm.reset();
+      if (window.location.hash && window.location.hash.includes('recovery')) {
+        window.history.replaceState({}, '', `${window.location.pathname}${window.location.search}`);
+      }
+      showAuthInfo(t('admin.recoverySuccess'));
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      setTimeout(() => {
+        if (session?.user) {
+          resolveAuthSession(session);
+        } else {
+          showAuthScreen('login');
+        }
+      }, 650);
+    } catch (err) {
+      showAuthError(t('admin.recoveryFailed', { message: err.message || t('common.genericError') }));
+    } finally {
+      if (submitBtn) {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = `<i data-lucide="key-round" class="w-4 h-4" aria-hidden="true"></i><span>${escapeHTML(t('admin.recoverySubmitBtn'))}</span>`;
+        if (window.lucide) window.lucide.createIcons();
+      }
+    }
+  });
 
   googleSsoBtn?.addEventListener('click', async () => {
     clearAuthNotices();
@@ -2711,6 +3200,7 @@ function bindGlobalEvents() {
       NAME: document.getElementById('store-name-input').value.trim(),
       ADDRESS: document.getElementById('store-address-input').value.trim(),
       ADMIN_PHONE: normalizePhone(document.getElementById('store-phone-input').value),
+      NOTIFICATION_EMAIL: normalizeOptionalEmail(document.getElementById('store-notification-email-input')?.value || ''),
       TAGLINE: document.getElementById('store-tagline-input').value.trim(),
       OPENING_HOURS: document.getElementById('store-hours-input').value.trim(),
       LOCALE: document.getElementById('store-locale-input')?.value === 'en' ? 'en' : 'id',
@@ -2726,6 +3216,11 @@ function bindGlobalEvents() {
     };
     if (!settings.NAME) {
       alert(t('settings.nameRequired'));
+      return;
+    }
+    if (settings.NOTIFICATION_EMAIL && !isValidEmailFormat(settings.NOTIFICATION_EMAIL)) {
+      alert(t('settings.notificationEmailInvalid'));
+      document.getElementById('store-notification-email-input')?.focus();
       return;
     }
     if (!/^[A-Z0-9]{2,8}$/.test(settings.TICKET_PREFIX)) {
@@ -2748,6 +3243,7 @@ function bindGlobalEvents() {
           name: workshopSettings.NAME,
           address: workshopSettings.ADDRESS,
           admin_phone: workshopSettings.ADMIN_PHONE,
+          notification_email: workshopSettings.NOTIFICATION_EMAIL || null,
           tagline: workshopSettings.TAGLINE,
           opening_hours: workshopSettings.OPENING_HOURS,
           logo_data_url: workshopSettings.LOGO || null,
@@ -3016,7 +3512,7 @@ async function fetchCustomers() {
   customersList.innerHTML = `<p class="py-5 text-center text-sm mt-muted" role="status">${escapeHTML(t('customers.loading'))}</p>`;
   const { data, error } = await supabase
     .from('customers')
-    .select('id, name, phone, created_at, updated_at')
+    .select('id, name, phone, email, created_at, updated_at')
     .eq('tenant_id', tenantId)
     .order('name', { ascending: true });
   if (error) {
@@ -3035,7 +3531,7 @@ function renderCustomersList() {
   if (!customersList) return;
   const query = (document.getElementById('customers-search-input')?.value || '').trim().toLowerCase();
   const filtered = customerRecords.filter((customer) =>
-    `${customer.name} ${customer.phone}`.toLowerCase().includes(query)
+    `${customer.name} ${customer.phone} ${customer.email || ''}`.toLowerCase().includes(query)
   );
   const count = document.getElementById('customers-count');
   if (count) count.textContent = t('customers.count', { count: customerRecords.length });
@@ -3052,6 +3548,7 @@ function renderCustomersList() {
       <div class="min-w-0 flex-1 text-left">
         <span class="block text-sm font-semibold mt-text truncate">${escapeHTML(customer.name)}</span>
         <span class="block text-xs mt-muted font-mono-code truncate">${escapeHTML(customer.phone)}</span>
+        ${customer.email ? `<span class="block text-xs mt-muted font-mono-code truncate">${escapeHTML(customer.email)}</span>` : ''}
       </div>
       <div class="flex items-center gap-2 shrink-0">
         <button type="button" data-customer-edit="${customer.id}" class="mt-btn-icon mt-btn-secondary" title="${escapeHTML(t('customers.editTitle'))}" aria-label="${escapeHTML(t('customers.editAria', { name: customer.name }))}">
@@ -3076,7 +3573,11 @@ async function handleCustomerListAction(event) {
   if (!customer) return;
   if (orderButton) {
     showAppPage('orders');
-    openOrderModal(null, { customer_name: customer.name, customer_phone: customer.phone });
+    openOrderModal(null, {
+      customer_name: customer.name,
+      customer_phone: customer.phone,
+      customer_email: customer.email || '',
+    });
     return;
   }
   if (editButton) openCustomerEdit(customer);
@@ -3102,9 +3603,15 @@ async function handleCustomerCreateSubmit(event) {
   const submit = document.getElementById('save-customer-btn');
   const name = document.getElementById('new-customer-name')?.value.trim() || '';
   const phone = normalizePhone(document.getElementById('new-customer-phone')?.value || '');
+  const email = normalizeOptionalEmail(document.getElementById('new-customer-email')?.value || '');
 
   if (!name) return alert(t('customers.nameRequired'));
   if (!phone || phone.length < 10) return alert(t('customers.phoneInvalid'));
+  if (email && !isValidEmailFormat(email)) {
+    alert(t('customers.emailInvalid'));
+    document.getElementById('new-customer-email')?.focus();
+    return;
+  }
 
   submit.disabled = true;
   submit.textContent = t('common.saving');
@@ -3119,8 +3626,8 @@ async function handleCustomerCreateSubmit(event) {
 
     const { data, error } = await supabase
       .from('customers')
-      .insert({ tenant_id: tenantId, name, phone })
-      .select('id, name, phone, created_at, updated_at')
+      .insert({ tenant_id: tenantId, name, phone, email: email || null })
+      .select('id, name, phone, email, created_at, updated_at')
       .single();
     if (error) throw error;
 
@@ -3197,6 +3704,11 @@ function openCustomerEdit(customer = activeCustomerDetail) {
         <label for="edit-customer-phone" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('customers.phoneLabelWa'))}</label>
         <input id="edit-customer-phone" type="tel" inputmode="tel" required value="${escapeHTML(customer.phone)}" class="mt-input font-mono-code" />
       </div>
+      <div>
+        <label for="edit-customer-email" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('customers.emailLabel'))}</label>
+        <input id="edit-customer-email" type="email" maxlength="254" autocomplete="email" placeholder="${escapeHTML(t('customers.emailPlaceholder'))}" value="${escapeHTML(customer.email || '')}" class="mt-input" />
+        <p class="mt-1 text-xs mt-muted">${escapeHTML(t('customers.emailHint'))}</p>
+      </div>
       <div class="grid grid-cols-1 gap-3 pt-1">
         <button type="button" data-customer-detail-view="measurements" class="mt-card-muted min-h-16 p-3 text-left flex items-center gap-3 hover:border-[var(--mt-accent)]">
           <span class="w-10 h-10 rounded-lg mt-card flex items-center justify-center shrink-0" aria-hidden="true">
@@ -3234,8 +3746,14 @@ async function handleCustomerEditSubmit(event) {
   event.preventDefault();
   const name = document.getElementById('edit-customer-name')?.value.trim() || '';
   const phone = normalizePhone(document.getElementById('edit-customer-phone')?.value || '');
+  const email = normalizeOptionalEmail(document.getElementById('edit-customer-email')?.value || '');
   if (!name) return alert(t('customers.nameRequired'));
   if (!phone || phone.length < 10) return alert(t('customers.phoneInvalidWa'));
+  if (email && !isValidEmailFormat(email)) {
+    alert(t('customers.emailInvalid'));
+    document.getElementById('edit-customer-email')?.focus();
+    return;
+  }
   const duplicate = customerRecords.find((item) => item.id !== activeCustomerDetail.id && item.phone === phone);
   if (duplicate) return alert(t('customers.duplicatePhoneShort', { name: duplicate.name }));
   const submit = event.target.querySelector('button[type="submit"]');
@@ -3247,10 +3765,10 @@ async function handleCustomerEditSubmit(event) {
   if (!tenantId) return alert(t('common.noActiveTenant'));
   const { data, error } = await supabase
     .from('customers')
-    .update({ name, phone, updated_at: new Date().toISOString() })
+    .update({ name, phone, email: email || null, updated_at: new Date().toISOString() })
     .eq('id', activeCustomerDetail.id)
     .eq('tenant_id', tenantId)
-    .select('id, name, phone, created_at, updated_at')
+    .select('id, name, phone, email, created_at, updated_at')
     .single();
   if (error) {
     if (submit) {
@@ -4228,6 +4746,7 @@ function renderOrdersList() {
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="font-mono-code font-bold text-sm sm:text-base mt-text">${escapeHTML(order.ticket_code)}</span>
                 ${typeMeta ? `<span class="${typeMeta.badgeClass}">${escapeHTML(typeMeta.label)}</span>` : ''}
+                ${renderWarrantyBadgeHTML(order)}
                 <span class="${statusMeta.badgeClass}">
                   <span class="${statusMeta.dotClass}" aria-hidden="true"></span>
                   <span>${escapeHTML(statusMeta.label)}</span>
@@ -4591,7 +5110,10 @@ async function handleOutboundShipmentSubmit(event) {
     closeOutboundShipmentModal();
     await fetchOrders();
     const updatedOrder = allOrders.find((o) => o.id === orderId);
-    if (updatedOrder) showWhatsAppStatusToast(updatedOrder, 'shipped');
+    if (updatedOrder) {
+      showWhatsAppStatusToast(updatedOrder, 'shipped');
+      triggerOrderStatusEmail(updatedOrder, 'order_completed');
+    }
   } catch (err) {
     alert(t('shipment.saveFailed', { message: err.message || t('common.genericError') }));
   } finally {
@@ -4708,6 +5230,14 @@ async function updateOrderStatus(orderId, newStatus, { skipWorkstationGate = fal
         p_next_status: newStatus,
       });
       if (error) throw error;
+      if (newStatus === 'ready') {
+        // Zero-PII: silent fire-and-forget server-side notification without returning customer email to staff.
+        dispatchTransactionalEmail({
+          tenant_id: tenantId,
+          event_type: 'order_ready',
+          order_id: orderId,
+        });
+      }
       await fetchOrders();
       return;
     }
@@ -4746,14 +5276,79 @@ async function updateOrderStatus(orderId, newStatus, { skipWorkstationGate = fal
       showWhatsAppStatusToast(updatedOrder, 'mail_in_received');
     } else if (newStatus === 'ready') {
       showWhatsAppStatusToast(updatedOrder, updatedOrder.order_type === 'mail_in' ? 'mail_in_ready' : 'ready');
+      triggerOrderStatusEmail(updatedOrder, 'order_ready');
+    } else if (newStatus === 'completed') {
+      const hasEmail = Boolean(resolveOrderRecipientEmail(updatedOrder));
+      if (hasEmail) {
+        showWhatsAppStatusToast(updatedOrder, 'completed');
+        triggerOrderStatusEmail(updatedOrder, 'order_completed');
+      }
     }
   } catch (err) {
     alert(t('orders.statusUpdateFailed', { message: err.message }));
   }
 }
 
+function resolveOrderRecipientEmail(order) {
+  if (!order) return '';
+  const direct = normalizeOptionalEmail(order.customer_email);
+  if (isValidEmailFormat(direct)) return direct;
+  const matched = customerRecords.find(
+    (c) => (order.customer_id && c.id === order.customer_id) || (order.customer_phone && c.phone === order.customer_phone)
+  );
+  const fallback = normalizeOptionalEmail(matched?.email);
+  return isValidEmailFormat(fallback) ? fallback : '';
+}
+
+function setWaToastEmailStatus(state, email = '') {
+  const el = document.getElementById('wa-toast-email-status');
+  if (!el) return;
+  if (!state) {
+    el.className = 'hidden mt-toast-email-status';
+    el.textContent = '';
+    return;
+  }
+  if (state === 'sending') {
+    el.className = 'mt-toast-email-status';
+    el.textContent = t('email.toastSending', { email });
+  } else if (state === 'sent') {
+    el.className = 'mt-toast-email-status is-sent';
+    el.textContent = t('email.toastSent', { email });
+  } else if (state === 'skipped') {
+    el.className = 'mt-toast-email-status is-skipped';
+    el.textContent = t('email.toastSkipped');
+  } else {
+    el.className = 'mt-toast-email-status is-failed';
+    el.textContent = t('email.toastFailed');
+  }
+}
+
+async function triggerOrderStatusEmail(order, eventType) {
+  const tenantId = getActiveTenantId();
+  if (!tenantId || !order || isStaffRole()) return;
+  const recipientEmail = resolveOrderRecipientEmail(order);
+  if (!recipientEmail) {
+    setWaToastEmailStatus(null);
+    return;
+  }
+  setWaToastEmailStatus('sending', recipientEmail);
+  const res = await dispatchTransactionalEmail({
+    tenant_id: tenantId,
+    event_type: eventType,
+    order_id: order.id,
+  });
+  if (res?.status === 'sent') {
+    setWaToastEmailStatus('sent', res.recipient_email || recipientEmail);
+  } else if (res?.status === 'skipped') {
+    setWaToastEmailStatus('skipped', recipientEmail);
+  } else {
+    setWaToastEmailStatus('failed', recipientEmail);
+  }
+}
+
 function showWhatsAppStatusToast(order, mode = 'ready') {
   if (!waReadyToast || !waToastSendLink) return;
+  setWaToastEmailStatus(null);
 
   const remaining = Math.max(0, Number(order.total_amount) - Number(order.paid_amount));
   const trackingUrl = getPublicTrackingUrl();
@@ -4800,6 +5395,15 @@ function showWhatsAppStatusToast(order, mode = 'ready') {
       store: workshopSettings.NAME,
       ticket: order.ticket_code,
       outboundLine,
+      trackingUrl,
+    });
+  } else if (mode === 'completed') {
+    title = t('wa.completedTitle');
+    desc = t('wa.completedDesc', { customer: order.customer_name, ticket: order.ticket_code });
+    message = t('wa.completedMessage', {
+      customer: order.customer_name,
+      store: workshopSettings.NAME,
+      ticket: order.ticket_code,
       trackingUrl,
     });
   } else {
@@ -5098,6 +5702,178 @@ async function fetchCustomerPassports(customerId) {
   return data || [];
 }
 
+function syncOrderWarrantyUI() {
+  const isWarranty = Boolean(document.getElementById('form-is-warranty')?.checked);
+  const banner = document.getElementById('form-warranty-banner');
+  const desc = document.getElementById('form-warranty-banner-desc');
+  if (banner && desc) {
+    banner.classList.toggle('hidden', !isWarranty);
+    if (isWarranty) {
+      desc.textContent = activeOrderWarrantySourceTicket
+        ? t('warranty.bannerFromTicket', { ticket: activeOrderWarrantySourceTicket })
+        : t('warranty.bannerGeneric');
+    }
+  }
+  recalculateFormTotals();
+}
+
+function setOrderVoucherFeedback(text = '', tone = 'muted') {
+  const el = document.getElementById('form-voucher-feedback');
+  if (!el) return;
+  if (!text) {
+    el.textContent = '';
+    el.className = 'hidden text-xs font-medium';
+    return;
+  }
+  const toneClass =
+    tone === 'error' ? 'mt-danger-text' : tone === 'success' ? 'mt-success-text' : 'mt-muted';
+  el.textContent = text;
+  el.className = `text-xs font-medium ${toneClass}`;
+}
+
+function syncOrderVoucherControls() {
+  const codeInput = document.getElementById('form-voucher-code');
+  const applyBtn = document.getElementById('apply-voucher-btn');
+  const clearBtn = document.getElementById('clear-voucher-btn');
+  if (!codeInput || !applyBtn || !clearBtn) return;
+
+  if (activeAppliedVoucher?.isExistingLocked) {
+    codeInput.value = activeAppliedVoucher.code;
+    codeInput.readOnly = true;
+    codeInput.disabled = true;
+    applyBtn.classList.add('hidden');
+    clearBtn.classList.add('hidden');
+    setOrderVoucherFeedback(t('orderForm.voucherLockedEdit', { code: activeAppliedVoucher.code }), 'success');
+    return;
+  }
+
+  codeInput.readOnly = false;
+  codeInput.disabled = false;
+  applyBtn.classList.remove('hidden');
+
+  if (activeAppliedVoucher) {
+    codeInput.value = activeAppliedVoucher.code;
+    clearBtn.classList.remove('hidden');
+    const msg =
+      activeAppliedVoucher.discount_type === 'percent'
+        ? t('orderForm.voucherAppliedPercent', {
+            code: activeAppliedVoucher.code,
+            value: Number(activeAppliedVoucher.discount_value || 0),
+          })
+        : t('orderForm.voucherAppliedFixed', {
+            code: activeAppliedVoucher.code,
+            value: formatCurrency(Number(activeAppliedVoucher.discount_value || 0)),
+          });
+    setOrderVoucherFeedback(msg, 'success');
+  } else {
+    clearBtn.classList.add('hidden');
+  }
+}
+
+async function handleApplyOrderVoucher() {
+  const tenantId = getActiveTenantId();
+  const codeInput = document.getElementById('form-voucher-code');
+  const applyBtn = document.getElementById('apply-voucher-btn');
+  if (!tenantId || !codeInput) return;
+
+  const cleanCode = codeInput.value.trim().toUpperCase();
+  if (!cleanCode) {
+    setOrderVoucherFeedback(t('orderForm.voucherEnterFirst'), 'error');
+    return;
+  }
+
+  if (applyBtn) applyBtn.disabled = true;
+  try {
+    const { data: voucher, error } = await supabase
+      .from('vouchers')
+      .select('id, code, discount_type, discount_value, status, expires_at')
+      .eq('tenant_id', tenantId)
+      .eq('code', cleanCode)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!voucher) {
+      activeAppliedVoucher = null;
+      syncOrderVoucherControls();
+      setOrderVoucherFeedback(t('orderForm.voucherNotFound'), 'error');
+      recalculateFormTotals();
+      return;
+    }
+
+    if (voucher.status === 'used') {
+      activeAppliedVoucher = null;
+      syncOrderVoucherControls();
+      setOrderVoucherFeedback(t('orderForm.voucherAlreadyUsed'), 'error');
+      recalculateFormTotals();
+      return;
+    }
+
+    const todayKey = toLocalDateKey(new Date());
+    if (voucher.status === 'expired' || (voucher.expires_at && String(voucher.expires_at) < todayKey)) {
+      activeAppliedVoucher = null;
+      syncOrderVoucherControls();
+      setOrderVoucherFeedback(t('orderForm.voucherExpired'), 'error');
+      recalculateFormTotals();
+      return;
+    }
+
+    if (voucher.status !== 'active') {
+      activeAppliedVoucher = null;
+      syncOrderVoucherControls();
+      setOrderVoucherFeedback(t('orderForm.voucherInactive'), 'error');
+      recalculateFormTotals();
+      return;
+    }
+
+    activeAppliedVoucher = {
+      id: voucher.id,
+      code: voucher.code,
+      discount_type: voucher.discount_type,
+      discount_value: Number(voucher.discount_value || 0),
+      isExistingLocked: false,
+    };
+    syncOrderVoucherControls();
+    recalculateFormTotals();
+  } catch (err) {
+    setOrderVoucherFeedback(err.message || t('common.genericError'), 'error');
+  } finally {
+    if (applyBtn) applyBtn.disabled = false;
+  }
+}
+
+function handleClearOrderVoucher() {
+  activeAppliedVoucher = null;
+  const codeInput = document.getElementById('form-voucher-code');
+  if (codeInput) codeInput.value = '';
+  setOrderVoucherFeedback('');
+  syncOrderVoucherControls();
+  recalculateFormTotals();
+}
+
+function openWarrantyClaimFromOrder(sourceOrder) {
+  if (!sourceOrder || !isAdminOrOwnerRole()) return;
+  const sourceItems = (sourceOrder.order_items || []).map((it) => ({
+    garment_name: it.garment_name || '',
+    service_type: it.service_type || '',
+    measurement_specs: it.measurement_specs || {},
+    price: 0,
+  }));
+
+  const draft = {
+    customer_name: sourceOrder.customer_name || '',
+    customer_phone: sourceOrder.customer_phone || '',
+    customer_email: resolveOrderRecipientEmail(sourceOrder) || '',
+    order_type: sourceOrder.order_type || 'walk_in',
+    notes: t('warranty.defaultNote', { ticket: sourceOrder.ticket_code || '' }),
+    paid_amount: 0,
+    is_warranty: true,
+    warranty_source_order_id: sourceOrder.id,
+    warranty_source_ticket: sourceOrder.ticket_code || '',
+    items: sourceItems,
+  };
+  openOrderModal(null, draft);
+}
+
 async function openOrderModal(existingOrder = null, draftOverride = null) {
   if (!isAdminOrOwnerRole()) return;
   if (!orderFormModal) return;
@@ -5112,10 +5888,27 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
   }
 
   const isEdit = Boolean(existingOrder);
+  const isWarrantyDraft = Boolean(draftOverride?.is_warranty);
   document.getElementById('order-modal-title').textContent = isEdit
     ? t('orderForm.editTitle', { code: existingOrder.ticket_code })
-    : t('orderForm.newTitle');
+    : isWarrantyDraft
+      ? t('warranty.modalTitle')
+      : t('orderForm.newTitle');
   document.getElementById('form-order-id').value = isEdit ? existingOrder.id : '';
+
+  activeAppliedVoucher = null;
+  activeOrderWarrantySourceTicket = '';
+  setOrderVoucherFeedback('');
+
+  const warrantyCheckEl = document.getElementById('form-is-warranty');
+  const warrantySourceInput = document.getElementById('form-warranty-source-order-id');
+  const voucherCodeInput = document.getElementById('form-voucher-code');
+  const manualDiscountInput = document.getElementById('form-manual-discount');
+
+  if (warrantyCheckEl) warrantyCheckEl.checked = false;
+  if (warrantySourceInput) warrantySourceInput.value = '';
+  if (voucherCodeInput) voucherCodeInput.value = '';
+  if (manualDiscountInput) manualDiscountInput.value = '0';
 
   formItemsContainer.innerHTML = '';
   clearEstimatedDateError();
@@ -5128,15 +5921,22 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
   const outboundCourierEl = document.getElementById('form-outbound-courier');
   const outboundTrackingEl = document.getElementById('form-outbound-tracking');
 
+  const customerEmailEl = document.getElementById('form-customer-email');
+
   if (draftOverride) {
     lockedOrderTicketCode =
       draftOverride.ticket_code || generateTicketCode(allOrders.length + 1, ticketPrefix);
     ticketInput.value = lockedOrderTicketCode;
     document.getElementById('form-customer-name').value = draftOverride.customer_name || '';
     document.getElementById('form-customer-phone').value = draftOverride.customer_phone || '';
+    if (customerEmailEl) customerEmailEl.value = draftOverride.customer_email || '';
     document.getElementById('form-estimated-date').value = draftOverride.estimated_done_date || '';
     document.getElementById('form-notes').value = draftOverride.notes || '';
     document.getElementById('form-paid-amount').value = draftOverride.paid_amount || 0;
+    if (warrantyCheckEl) warrantyCheckEl.checked = Boolean(draftOverride.is_warranty);
+    if (warrantySourceInput) warrantySourceInput.value = draftOverride.warranty_source_order_id || '';
+    activeOrderWarrantySourceTicket = draftOverride.warranty_source_ticket || '';
+    if (manualDiscountInput) manualDiscountInput.value = String(Number(draftOverride.manual_discount || 0));
     setFormOrderType(draftOverride.order_type || 'walk_in', false);
     if (inboundCourierEl) inboundCourierEl.value = draftOverride.inbound_courier || '';
     if (inboundTrackingEl) inboundTrackingEl.value = draftOverride.inbound_tracking || '';
@@ -5151,9 +5951,16 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
     ticketInput.value = lockedOrderTicketCode;
     document.getElementById('form-customer-name').value = existingOrder.customer_name;
     document.getElementById('form-customer-phone').value = existingOrder.customer_phone;
+    if (customerEmailEl) customerEmailEl.value = existingOrder.customer_email || '';
     document.getElementById('form-estimated-date').value = existingOrder.estimated_done_date || '';
     document.getElementById('form-notes').value = existingOrder.notes || '';
     document.getElementById('form-paid-amount').value = Number(existingOrder.paid_amount || 0);
+    if (warrantyCheckEl) warrantyCheckEl.checked = Boolean(existingOrder.is_warranty);
+    if (warrantySourceInput) warrantySourceInput.value = existingOrder.warranty_source_order_id || '';
+    if (existingOrder.warranty_source_order_id) {
+      const srcOrd = allOrders.find((o) => o.id === existingOrder.warranty_source_order_id);
+      activeOrderWarrantySourceTicket = srcOrd?.ticket_code || '';
+    }
     setFormOrderType(existingOrder.order_type || 'walk_in', true);
     if (inboundCourierEl) inboundCourierEl.value = existingOrder.inbound_courier || '';
     if (inboundTrackingEl) inboundTrackingEl.value = existingOrder.inbound_tracking || '';
@@ -5161,6 +5968,40 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
     if (outboundTrackingEl) outboundTrackingEl.value = existingOrder.outbound_tracking || '';
 
     const items = existingOrder.order_items || [];
+    const existingSubtotal = items.reduce((s, it) => s + Number(it.price || 0), 0);
+    const existingTotalDiscount = Math.max(0, Number(existingOrder.discount_amount || 0));
+    if (existingOrder.voucher_code) {
+      try {
+        const { data: redeemedVoucher } = await supabase
+          .from('vouchers')
+          .select('id, code, discount_type, discount_value')
+          .eq('tenant_id', tenantId)
+          .eq('code', String(existingOrder.voucher_code).trim().toUpperCase())
+          .maybeSingle();
+        if (redeemedVoucher) {
+          activeAppliedVoucher = {
+            id: redeemedVoucher.id,
+            code: redeemedVoucher.code,
+            discount_type: redeemedVoucher.discount_type,
+            discount_value: Number(redeemedVoucher.discount_value || 0),
+            isExistingLocked: true,
+          };
+          const vDisc =
+            redeemedVoucher.discount_type === 'percent'
+              ? roundCurrencyAmount((existingSubtotal * Number(redeemedVoucher.discount_value || 0)) / 100)
+              : roundCurrencyAmount(Number(redeemedVoucher.discount_value || 0));
+          const remManual = Math.max(0, roundCurrencyAmount(existingTotalDiscount - vDisc));
+          if (manualDiscountInput) manualDiscountInput.value = String(remManual);
+        } else if (manualDiscountInput) {
+          manualDiscountInput.value = String(existingTotalDiscount);
+        }
+      } catch (_) {
+        if (manualDiscountInput) manualDiscountInput.value = String(existingTotalDiscount);
+      }
+    } else if (manualDiscountInput) {
+      manualDiscountInput.value = String(existingTotalDiscount);
+    }
+
     const signedUrlMap = await signGarmentPhotoPaths(
       items.flatMap((it) => [it.before_photo_path, it.after_photo_path]).filter(Boolean)
     );
@@ -5171,6 +6012,7 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
     ticketInput.value = lockedOrderTicketCode;
     document.getElementById('form-customer-name').value = '';
     document.getElementById('form-customer-phone').value = '';
+    if (customerEmailEl) customerEmailEl.value = '';
     document.getElementById('form-estimated-date').value = '';
     document.getElementById('form-notes').value = '';
     document.getElementById('form-paid-amount').value = 0;
@@ -5184,8 +6026,9 @@ async function openOrderModal(existingOrder = null, draftOverride = null) {
   ticketInput.readOnly = true;
   ticketInput.disabled = true;
 
+  syncOrderVoucherControls();
   syncCurrencyInputs(orderFormModal);
-  recalculateFormTotals();
+  syncOrderWarrantyUI();
   const customerLookupStatus = document.getElementById('customer-lookup-status');
   if (customerLookupStatus) {
     customerLookupStatus.textContent = t('orderForm.lookupPrompt');
@@ -5233,14 +6076,8 @@ function appendItemRow(itemData = {}, signedUrlMap = {}) {
     .map(([k, v]) => `${k}: ${v}`)
     .join(', ');
 
-  // Keep archived service names on historical edits while offering active catalog items for new orders.
-  const serviceNames = [...activeServiceCatalog.map((service) => service.name)];
-  if (itemData.service_type && !serviceNames.includes(itemData.service_type)) {
-    serviceNames.push(itemData.service_type);
-  }
-  const presetOptions = serviceNames
-    .map((serviceName) => `<option value="${escapeHTML(serviceName)}"></option>`)
-    .join('');
+  // Sync service picker to active catalog while preserving archived/legacy labels on historical edits.
+  const serviceOptionsHTML = buildCatalogServiceSelectOptionsHTML(itemData.service_type || '');
 
   const beforePath = itemData.before_photo_path || '';
   const afterPath = itemData.after_photo_path || '';
@@ -5270,8 +6107,7 @@ function appendItemRow(itemData = {}, signedUrlMap = {}) {
 
       <div>
         <label for="item-service-${uid}" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('orderForm.serviceLabel'))}</label>
-        <input id="item-service-${uid}" type="text" required list="service-presets-${uid}" data-field="service_type" value="${escapeHTML(itemData.service_type || '')}" placeholder="${escapeHTML(t('orderForm.servicePlaceholder'))}" class="mt-input" />
-        <datalist id="service-presets-${uid}">${presetOptions}</datalist>
+        <select id="item-service-${uid}" required data-field="service_type" class="mt-select">${serviceOptionsHTML}</select>
       </div>
     </div>
 
@@ -5466,16 +6302,58 @@ function renumberItemLabels() {
   });
 }
 
-function recalculateFormTotals() {
-  let total = 0;
+function computeOrderFormPricing() {
+  let subtotal = 0;
   formItemsContainer.querySelectorAll('.item-price-input').forEach((inp) => {
-    total += Number(inp.value || 0);
+    subtotal += Math.max(0, Number(inp.value || 0));
   });
+  subtotal = roundCurrencyAmount(subtotal);
 
-  const paid = Number(formPaidAmountInput?.value || 0);
-  const remaining = Math.max(0, total - paid);
+  let voucherDiscount = 0;
+  if (activeAppliedVoucher) {
+    if (activeAppliedVoucher.discount_type === 'percent') {
+      voucherDiscount = roundCurrencyAmount((subtotal * Number(activeAppliedVoucher.discount_value || 0)) / 100);
+    } else {
+      voucherDiscount = roundCurrencyAmount(Number(activeAppliedVoucher.discount_value || 0));
+    }
+  }
+  const manualDiscount = roundCurrencyAmount(
+    Math.max(0, Number(document.getElementById('form-manual-discount')?.value || 0))
+  );
+  const totalDiscount = Math.min(subtotal, roundCurrencyAmount(voucherDiscount + manualDiscount));
+  const netTotal = Math.max(0, roundCurrencyAmount(subtotal - totalDiscount));
+  return { subtotal, voucherDiscount, manualDiscount, totalDiscount, netTotal };
+}
 
-  document.getElementById('form-total-preview').textContent = formatCurrency(total);
+function recalculateFormTotals() {
+  const { subtotal, totalDiscount, netTotal } = computeOrderFormPricing();
+  const paid = Math.max(0, Number(formPaidAmountInput?.value || 0));
+  const remaining = Math.max(0, roundCurrencyAmount(netTotal - paid));
+  const isWarranty = Boolean(document.getElementById('form-is-warranty')?.checked);
+
+  const subtotalRow = document.getElementById('form-subtotal-row');
+  const discountRow = document.getElementById('form-discount-row');
+  const subtotalPreview = document.getElementById('form-subtotal-preview');
+  const discountLabel = document.getElementById('form-discount-label');
+  const discountPreview = document.getElementById('form-discount-preview');
+  const zeroHint = document.getElementById('form-warranty-zero-hint');
+
+  const showBreakdown = totalDiscount > 0;
+  subtotalRow?.classList.toggle('hidden', !showBreakdown);
+  discountRow?.classList.toggle('hidden', !showBreakdown);
+  if (subtotalPreview) subtotalPreview.textContent = formatCurrency(subtotal);
+  if (discountLabel) {
+    discountLabel.textContent = activeAppliedVoucher?.code
+      ? t('orderForm.discountLabelWithCode', { code: activeAppliedVoucher.code })
+      : t('orderForm.discountLabel');
+  }
+  if (discountPreview) discountPreview.textContent = `-${formatCurrency(totalDiscount)}`;
+
+  if (zeroHint) {
+    zeroHint.classList.toggle('hidden', !(isWarranty && netTotal === 0));
+  }
+
+  document.getElementById('form-total-preview').textContent = formatCurrency(netTotal);
   document.getElementById('form-remaining-preview').textContent = formatCurrency(remaining);
 }
 
@@ -5522,7 +6400,7 @@ async function findCustomerByPhone(phone) {
   if (!normalized || !tenantId) return null;
   const { data, error } = await supabase
     .from('customers')
-    .select('id, name, phone')
+    .select('id, name, phone, email')
     .eq('tenant_id', tenantId)
     .eq('phone', normalized)
     .maybeSingle();
@@ -5552,6 +6430,10 @@ async function checkCustomerPhoneInForm() {
     if (customer) {
       status.textContent = t('orderForm.lookupFound', { name: customer.name });
       status.className = 'mt-1 text-xs mt-accent font-medium';
+      const emailInput = document.getElementById('form-customer-email');
+      if (emailInput && !emailInput.value.trim() && customer.email) {
+        emailInput.value = customer.email;
+      }
       const passports = await fetchCustomerPassports(customer.id);
       if (requestId !== customerLookupRequest) return;
       updatePassportAutofillBar(passports, normalized);
@@ -5595,12 +6477,13 @@ async function handleSaveOrderSubmit(e) {
       .toUpperCase();
     const customerName = document.getElementById('form-customer-name').value.trim();
     const customerPhone = normalizePhone(document.getElementById('form-customer-phone').value);
+    const customerEmail = normalizeOptionalEmail(document.getElementById('form-customer-email')?.value || '');
     const notes = document.getElementById('form-notes').value.trim();
     const paidAmount = roundCurrencyAmount(Number(document.getElementById('form-paid-amount').value || 0));
     const orderType = getSelectedFormOrderType();
     const inboundCourier = orderType === 'mail_in' ? document.getElementById('form-inbound-courier')?.value.trim() || null : null;
     const inboundTracking = orderType === 'mail_in' ? document.getElementById('form-inbound-tracking')?.value.trim() || null : null;
-    const outboundCourier = orderType === 'mail_in' ? document.getElementById('form-outbound-courier')?.value.trim() || null : null;
+    const outboundCourier = orderType === 'mail_in' ? document.getElementById('form-outbound-courier')?.value || null : null;
     const outboundTracking = orderType === 'mail_in' ? document.getElementById('form-outbound-tracking')?.value.trim() || null : null;
     const initialStatus = 'received';
 
@@ -5608,6 +6491,7 @@ async function handleSaveOrderSubmit(e) {
     if (!estimatedDate || !parseLocalDateKey(estimatedDate)) throw new Error(t('orderForm.deadlineRequired'));
     if (!customerName) throw new Error(t('customers.nameRequired'));
     if (!customerPhone || customerPhone.length < 10) throw new Error(t('orderForm.phoneInvalid'));
+    if (customerEmail && !isValidEmailFormat(customerEmail)) throw new Error(t('customers.emailInvalid'));
     if (!Number.isFinite(paidAmount) || paidAmount < 0) throw new Error(t('orderForm.dpInvalid'));
 
     await findCustomerByPhone(customerPhone);
@@ -5669,13 +6553,65 @@ async function handleSaveOrderSubmit(e) {
     if (saveError) throw saveError;
     if (!savedOrderId) throw new Error(t('orderForm.noIdReturned'));
 
+    const isWarranty = Boolean(document.getElementById('form-is-warranty')?.checked);
+    const warrantySourceOrderId =
+      isWarranty && document.getElementById('form-warranty-source-order-id')?.value.trim()
+        ? document.getElementById('form-warranty-source-order-id').value.trim()
+        : null;
+    const manualDiscount = roundCurrencyAmount(
+      Math.max(0, Number(document.getElementById('form-manual-discount')?.value || 0))
+    );
+    const voucherCodeToApply = activeAppliedVoucher?.code || null;
+
+    let appliedSummary = null;
+    if (voucherCodeToApply || manualDiscount > 0 || isWarranty || existingOrderId) {
+      const { data: voucherSummary, error: voucherErr } = await supabase.rpc('apply_order_voucher_and_discount', {
+        p_tenant_id: tenantId,
+        p_order_id: savedOrderId,
+        p_voucher_code: voucherCodeToApply,
+        p_manual_discount: manualDiscount,
+        p_is_warranty: isWarranty,
+        p_warranty_source_order_id: warrantySourceOrderId,
+      });
+      if (voucherErr) {
+        const msg = String(voucherErr.message || '');
+        if (msg.includes('VOUCHER_NOT_FOUND')) throw new Error(t('orderForm.voucherNotFound'));
+        if (msg.includes('VOUCHER_ALREADY_USED')) throw new Error(t('orderForm.voucherAlreadyUsed'));
+        if (msg.includes('VOUCHER_EXPIRED')) throw new Error(t('orderForm.voucherExpired'));
+        if (msg.includes('VOUCHER_INACTIVE')) throw new Error(t('orderForm.voucherInactive'));
+        throw voucherErr;
+      }
+      appliedSummary = voucherSummary;
+    }
+
+    // Persist optional customer email on order & customer profile via owner/admin RLS without changing RPC signature.
+    if (customerEmail || existingOrderId) {
+      await supabase
+        .from('orders')
+        .update({ customer_email: customerEmail || null })
+        .eq('id', savedOrderId)
+        .eq('tenant_id', tenantId);
+    }
+    if (customerEmail) {
+      await supabase
+        .from('customers')
+        .update({ email: customerEmail, updated_at: new Date().toISOString() })
+        .eq('tenant_id', tenantId)
+        .eq('phone', customerPhone);
+    }
+
     clearOrderDraft(tenantId);
     draftBanner?.classList.add('hidden');
     closeOrderModal();
     await fetchOrders();
 
     if (!existingOrderId) {
-      const totalAmount = itemsPayload.reduce((sum, item) => sum + Number(item.price || 0), 0);
+      const itemsSubtotal = itemsPayload.reduce((sum, item) => sum + Number(item.price || 0), 0);
+      const finalDiscount = Number(appliedSummary?.discount_amount || 0);
+      const totalAmount =
+        appliedSummary && appliedSummary.total_amount !== undefined
+          ? Number(appliedSummary.total_amount)
+          : Math.max(0, itemsSubtotal - finalDiscount);
       const remaining = Math.max(0, totalAmount - paidAmount);
       const itemLines = itemsPayload
         .map((item, index) => `${index + 1}. ${item.garment_name} (${item.service_type}) - ${formatCurrency(item.price)}`)
@@ -5693,16 +6629,30 @@ async function handleSaveOrderSubmit(e) {
         trackingUrl,
         hours: workshopSettings.OPENING_HOURS,
       });
+      const extraLines = [];
+      if (isWarranty) extraLines.push(t('wa.warrantyLine'));
+      if (finalDiscount > 0) {
+        const codePart = appliedSummary?.voucher_code ? ` (${appliedSummary.voucher_code})` : '';
+        extraLines.push(
+          t('wa.discountLine', {
+            subtotal: formatCurrency(itemsSubtotal),
+            codePart,
+            discount: formatCurrency(finalDiscount),
+          })
+        );
+      }
       if (orderType === 'mail_in') {
-        const mailInExtras = [t('wa.mailInLineType')];
+        extraLines.push(t('wa.mailInLineType'));
         const inboundVal = [inboundCourier, inboundTracking].filter(Boolean).join(' - ');
         const outboundVal = [outboundCourier, outboundTracking].filter(Boolean).join(' - ');
-        if (inboundVal) mailInExtras.push(t('wa.mailInLineInbound', { value: inboundVal }));
-        if (outboundVal) mailInExtras.push(t('wa.mailInLineOutbound', { value: outboundVal }));
+        if (inboundVal) extraLines.push(t('wa.mailInLineInbound', { value: inboundVal }));
+        if (outboundVal) extraLines.push(t('wa.mailInLineOutbound', { value: outboundVal }));
         if (!inboundTracking && workshopSettings.ADDRESS) {
-          mailInExtras.push(t('wa.mailInSendAddressHint', { address: workshopSettings.ADDRESS }));
+          extraLines.push(t('wa.mailInSendAddressHint', { address: workshopSettings.ADDRESS }));
         }
-        receiptMessage = `${receiptMessage}\n\n${mailInExtras.join('\n')}`;
+      }
+      if (extraLines.length) {
+        receiptMessage = `${receiptMessage}\n\n${extraLines.join('\n')}`;
       }
       window.location.href = buildWhatsAppLink(customerPhone, receiptMessage);
     }
@@ -5735,9 +6685,14 @@ const triggerAutoSaveDraft = debounce(() => {
       ticket_code: lockedOrderTicketCode || document.getElementById('form-ticket-code')?.value || '',
       customer_name: document.getElementById('form-customer-name')?.value || '',
       customer_phone: document.getElementById('form-customer-phone')?.value || '',
+      customer_email: document.getElementById('form-customer-email')?.value || '',
       estimated_done_date: document.getElementById('form-estimated-date')?.value || '',
       notes: document.getElementById('form-notes')?.value || '',
       paid_amount: Number(document.getElementById('form-paid-amount')?.value || 0),
+      manual_discount: Number(document.getElementById('form-manual-discount')?.value || 0),
+      is_warranty: Boolean(document.getElementById('form-is-warranty')?.checked),
+      warranty_source_order_id: document.getElementById('form-warranty-source-order-id')?.value || '',
+      warranty_source_ticket: activeOrderWarrantySourceTicket || '',
       order_type: getSelectedFormOrderType(),
       inbound_courier: document.getElementById('form-inbound-courier')?.value || '',
       inbound_tracking: document.getElementById('form-inbound-tracking')?.value || '',
@@ -5986,9 +6941,15 @@ function openReceiptModal(order) {
 
   const items = order.order_items || [];
   const total = Number(order.total_amount || 0);
+  const discountAmount = Math.max(0, Number(order.discount_amount || 0));
+  const itemsSubtotal = items.reduce((sum, item) => sum + Number(item.price || 0), 0);
+  const displaySubtotal = itemsSubtotal > 0 ? itemsSubtotal : total + discountAmount;
   const paid = Number(order.paid_amount || 0);
   const remaining = Math.max(0, total - paid);
   const payMeta = getPaymentStatusMeta(order.payment_status);
+  const discountLabelText = order.voucher_code
+    ? t('receipt.discountWithCode', { code: order.voucher_code })
+    : t('receipt.discount');
 
   const itemsRowsHTML = items
     .map(
@@ -6039,6 +7000,12 @@ function openReceiptModal(order) {
           : ''
       }
 
+      ${
+        order.is_warranty
+          ? `<span class="mt-muted">${escapeHTML(t('receipt.warrantyRow'))}</span>
+             <span class="text-right"><span class="mt-badge mt-badge-warranty">${escapeHTML(t('warranty.badge'))}</span></span>`
+          : ''
+      }
       <span class="mt-muted">${escapeHTML(t('receipt.receivedDate'))}</span>
       <span class="text-right mt-text">${escapeHTML(formatDateID(order.created_at))}</span>
 
@@ -6052,6 +7019,18 @@ function openReceiptModal(order) {
     </div>
 
     <div class="space-y-1.5 text-xs pt-1">
+      ${
+        discountAmount > 0
+          ? `<div class="flex justify-between">
+               <span class="mt-muted">${escapeHTML(t('receipt.subtotal'))}</span>
+               <span class="font-mono-code font-semibold mt-text">${escapeHTML(formatCurrency(displaySubtotal))}</span>
+             </div>
+             <div class="flex justify-between mt-discount-row font-semibold">
+               <span>${escapeHTML(discountLabelText)}</span>
+               <span class="font-mono-code">-${escapeHTML(formatCurrency(discountAmount))}</span>
+             </div>`
+          : ''
+      }
       <div class="flex justify-between">
         <span class="mt-muted">${escapeHTML(t('receipt.totalBill'))}</span>
         <span class="font-mono-code font-bold mt-text">${escapeHTML(formatCurrency(total))}</span>
@@ -6108,13 +7087,29 @@ function handleSendReceiptViaWA() {
     hours: workshopSettings.OPENING_HOURS,
   });
 
+  const extraLines = [];
+  const discountAmount = Math.max(0, Number(o.discount_amount || 0));
+  const itemsSubtotal = items.reduce((sum, it) => sum + Number(it.price || 0), 0);
+  if (o.is_warranty) extraLines.push(t('wa.warrantyLine'));
+  if (discountAmount > 0) {
+    const codePart = o.voucher_code ? ` (${o.voucher_code})` : '';
+    extraLines.push(
+      t('wa.discountLine', {
+        subtotal: formatCurrency(itemsSubtotal > 0 ? itemsSubtotal : total + discountAmount),
+        codePart,
+        discount: formatCurrency(discountAmount),
+      })
+    );
+  }
   if (o.order_type === 'mail_in') {
-    const mailInLines = [t('wa.mailInLineType')];
+    extraLines.push(t('wa.mailInLineType'));
     const inboundVal = [o.inbound_courier, o.inbound_tracking].filter(Boolean).join(' - ');
     const outboundVal = [o.outbound_courier, o.outbound_tracking].filter(Boolean).join(' - ');
-    if (inboundVal) mailInLines.push(t('wa.mailInLineInbound', { value: inboundVal }));
-    if (outboundVal) mailInLines.push(t('wa.mailInLineOutbound', { value: outboundVal }));
-    receiptText = `${receiptText}\n\n${mailInLines.join('\n')}`;
+    if (inboundVal) extraLines.push(t('wa.mailInLineInbound', { value: inboundVal }));
+    if (outboundVal) extraLines.push(t('wa.mailInLineOutbound', { value: outboundVal }));
+  }
+  if (extraLines.length) {
+    receiptText = `${receiptText}\n\n${extraLines.join('\n')}`;
   }
 
   // Same-tab navigation lets Android Chrome hand wa.me links directly to the WhatsApp app.
@@ -6293,13 +7288,7 @@ function appendQuoteBuilderItemRow(itemData = {}, readonlyMode = false) {
   const uid = ++quoteItemRowCounter;
   const currencyMeta = getCurrencyMeta();
 
-  const serviceNames = [...activeServiceCatalog.map((s) => s.name)];
-  if (itemData.service_type && !serviceNames.includes(itemData.service_type)) {
-    serviceNames.push(itemData.service_type);
-  }
-  const datalistHTML = serviceNames
-    .map((name) => `<option value="${escapeHTML(name)}"></option>`)
-    .join('');
+  const serviceOptionsHTML = buildCatalogServiceSelectOptionsHTML(itemData.service_type || '');
 
   const row = document.createElement('div');
   row.className = 'quote-item-row mt-card-muted p-3 space-y-2.5';
@@ -6319,8 +7308,7 @@ function appendQuoteBuilderItemRow(itemData = {}, readonlyMode = false) {
       </div>
       <div>
         <label for="q-service-${uid}" class="block text-xs font-semibold mt-text mb-1">${escapeHTML(t('orderForm.serviceLabel'))}</label>
-        <input id="q-service-${uid}" type="text" required list="q-svc-presets-${uid}" data-qfield="service_type" value="${escapeHTML(itemData.service_type || '')}" ${readonlyMode ? 'readonly disabled' : ''} class="mt-input text-xs" />
-        <datalist id="q-svc-presets-${uid}">${datalistHTML}</datalist>
+        <select id="q-service-${uid}" required data-qfield="service_type" ${readonlyMode ? 'disabled' : ''} class="mt-select text-xs">${serviceOptionsHTML}</select>
       </div>
     </div>
     <div>
@@ -6408,6 +7396,68 @@ function renderPublishedQuoteBox(quote) {
     url: approvalUrl,
   });
   waLink.href = buildWhatsAppLink(quote.customer_phone, msg);
+
+  const emailRow = document.getElementById('quote-email-status-row');
+  if (emailRow) {
+    const customerEmail = normalizeOptionalEmail(quote.customer_email);
+    if (!customerEmail) {
+      emailRow.innerHTML = `<p class="text-xs mt-muted">${escapeHTML(t('quotes.emailNoAddress'))}</p>`;
+    } else {
+      const latestLog =
+        activeQuoteEmailState && activeQuoteEmailState.quoteId === quote.id
+          ? activeQuoteEmailState
+          : findLatestEmailLog('quote', quote.id, 'quote_published', customerEmail);
+      const badgeHtml = latestLog?.status ? renderEmailStatusBadgeHtml(latestLog.status) : '';
+      const canResend = quote.status === 'quoted' && latestLog?.status !== 'sending';
+      emailRow.innerHTML = `
+        <div class="flex flex-wrap items-center gap-2 min-w-0">
+          ${badgeHtml}
+          <span class="font-mono-code text-xs mt-muted truncate">${escapeHTML(customerEmail)}</span>
+        </div>
+        ${
+          quote.status === 'quoted'
+            ? `<button type="button" id="quote-resend-email-btn" ${canResend ? '' : 'disabled'} class="mt-btn mt-btn-secondary mt-quote-email-resend-btn text-xs shrink-0">
+                <i data-lucide="mail" class="w-4 h-4" aria-hidden="true"></i>
+                <span>${escapeHTML(latestLog?.status === 'sending' ? t('email.resendingBtn') : t('email.resendBtn'))}</span>
+              </button>`
+            : ''
+        }
+      `;
+      const resendBtn = document.getElementById('quote-resend-email-btn');
+      resendBtn?.addEventListener('click', () => handleResendQuoteEmail(quote));
+      if (window.lucide) window.lucide.createIcons();
+    }
+  }
+}
+
+async function handleResendQuoteEmail(quote) {
+  const tenantId = getActiveTenantId();
+  if (!tenantId || !quote || quote.status !== 'quoted') return;
+  const email = normalizeOptionalEmail(quote.customer_email);
+  if (!email) return;
+  activeQuoteEmailState = { quoteId: quote.id, status: 'sending', email };
+  renderPublishedQuoteBox(quote);
+  const res = await dispatchTransactionalEmail({
+    tenant_id: tenantId,
+    event_type: 'quote_published',
+    quote_id: quote.id,
+  });
+  activeQuoteEmailState = {
+    quoteId: quote.id,
+    status: res?.status || 'failed',
+    email: res?.recipient_email || email,
+  };
+  renderPublishedQuoteBox(quote);
+  if (isAdminOrOwnerRole()) {
+    fetchRecentEmailLogs({ render: currentAppPage === 'team' });
+  }
+  if (res?.status === 'sent') {
+    alert(t('email.resendSentToast', { email: res.recipient_email || email }));
+  } else if (res?.status === 'skipped') {
+    alert(t('email.resendSkippedToast'));
+  } else {
+    alert(t('email.resendFailedToast'));
+  }
 }
 
 async function openQuoteDetailModal(quote) {
@@ -6459,6 +7509,7 @@ async function openQuoteDetailModal(quote) {
       </div>
       <p class="font-bold mt-text">${escapeHTML(quote.customer_name)}</p>
       <p class="font-mono-code text-xs mt-muted">+${escapeHTML(quote.customer_phone)}</p>
+      <p class="text-xs mt-muted">${escapeHTML(t('quotes.customerEmailLabel'))}: <span class="${quote.customer_email ? 'font-mono-code mt-text' : 'mt-muted'}">${escapeHTML(quote.customer_email || t('quotes.customerEmailEmpty'))}</span></p>
       <p class="text-sm mt-text pt-1"><strong>${escapeHTML(quote.garment_name)}</strong></p>
       ${
         quote.requested_service
@@ -6506,7 +7557,13 @@ async function openQuoteDetailModal(quote) {
     }
   }
 
+  activeQuoteEmailState = null;
   renderPublishedQuoteBox(quote);
+  if (quote.customer_email && isAdminOrOwnerRole()) {
+    fetchRecentEmailLogs({ render: false }).then(() => {
+      if (activeQuoteDetail?.id === quote.id) renderPublishedQuoteBox(activeQuoteDetail);
+    });
+  }
 
   // Populate Quote Builder items
   const itemsWrap = document.getElementById('quote-builder-items');
@@ -6670,7 +7727,27 @@ async function handlePublishQuoteSubmit(event) {
     if (idx >= 0) allQuoteRequests[idx] = updated;
     updateQuotesSidebarBadge();
     renderQuoteRequestsList();
-    renderPublishedQuoteBox(updated);
+    if (normalizeOptionalEmail(updated.customer_email)) {
+      activeQuoteEmailState = { quoteId: updated.id, status: 'sending', email: updated.customer_email };
+      renderPublishedQuoteBox(updated);
+      dispatchTransactionalEmail({
+        tenant_id: tenantId,
+        event_type: 'quote_published',
+        quote_id: updated.id,
+      }).then((emailRes) => {
+        activeQuoteEmailState = {
+          quoteId: updated.id,
+          status: emailRes?.status || 'failed',
+          email: emailRes?.recipient_email || updated.customer_email,
+        };
+        if (activeQuoteDetail?.id === updated.id) {
+          renderPublishedQuoteBox(activeQuoteDetail);
+        }
+      });
+    } else {
+      activeQuoteEmailState = null;
+      renderPublishedQuoteBox(updated);
+    }
     alert(t('quotes.publishedToast'));
   } catch (err) {
     alert(err.message || t('common.genericError'));
@@ -7281,6 +8358,7 @@ async function openStaffOrderDetailModal(order, { preserveTrigger = false } = {}
     <div class="flex flex-wrap items-center justify-between gap-2 pb-3 mt-seam-b">
       <div class="flex flex-wrap items-center gap-2">
         ${typeMeta ? `<span class="${typeMeta.badgeClass}">${escapeHTML(typeMeta.label)}</span>` : ''}
+        ${renderWarrantyBadgeHTML(order)}
         <span class="${statusMeta.badgeClass}">
           <span class="${statusMeta.dotClass}" aria-hidden="true"></span>
           <span>${escapeHTML(statusMeta.label)}</span>
@@ -7340,9 +8418,13 @@ async function loadTeamPage() {
   invList.innerHTML = `<p class="text-xs mt-muted" role="status">${escapeHTML(t('team.membersLoading'))}</p>`;
 
   try {
-    const { data, error } = await supabase.rpc('get_tenant_team_data', {
-      p_tenant_id: tenantId,
-    });
+    const [teamResult] = await Promise.all([
+      supabase.rpc('get_tenant_team_data', {
+        p_tenant_id: tenantId,
+      }),
+      fetchRecentEmailLogs({ render: true }),
+    ]);
+    const { data, error } = teamResult;
     if (error) throw error;
     teamDataCache = {
       caller_role: data?.caller_role || getActiveRole(),
@@ -7350,6 +8432,7 @@ async function loadTeamPage() {
       invitations: Array.isArray(data?.invitations) ? data.invitations : [],
     };
     renderTeamPage();
+    renderEmailLogsList();
   } catch (err) {
     const errHTML = `<div role="alert" class="mt-notice-error p-3.5 text-xs flex flex-wrap items-center justify-between gap-2">
       <span>${escapeHTML(t('team.loadFailed', { message: err.message || '' }))}</span>
@@ -7398,18 +8481,25 @@ function renderTeamPage() {
             url: inviteUrl,
           });
           const waUrl = `https://wa.me/?text=${encodeURIComponent(waText)}`;
+          const latestEmailLog = findLatestEmailLog('invitation', inv.id, 'team_invite', inv.email);
+          const emailBadgeHtml = latestEmailLog?.status ? renderEmailStatusBadgeHtml(latestEmailLog.status) : '';
           return `<article class="mt-team-invite-row">
             <div class="min-w-0 space-y-1">
               <div class="flex flex-wrap items-center gap-2">
                 <span class="font-mono-code text-xs font-bold mt-text mt-tracking-code">${escapeHTML(inv.email)}</span>
                 <span class="${roleMeta.badgeClass}">${escapeHTML(roleMeta.label)}</span>
                 <span class="${stMeta.badgeClass}">${escapeHTML(stMeta.label)}</span>
+                ${emailBadgeHtml}
               </div>
               <p class="text-xs mt-muted">${escapeHTML(t('team.expiresAt', { date: formatDateID(inv.expires_at, true) }))}</p>
             </div>
             ${
               isPending
                 ? `<div class="flex flex-wrap items-center gap-2 shrink-0">
+                    <button type="button" data-resend-invite-id="${escapeHTML(inv.id)}" data-resend-invite-email="${escapeHTML(inv.email)}" class="mt-btn mt-btn-secondary text-xs">
+                      <i data-lucide="mail" class="w-4 h-4" aria-hidden="true"></i>
+                      <span>${escapeHTML(t('email.resendBtn'))}</span>
+                    </button>
                     <button type="button" data-copy-invite-url="${escapeHTML(inviteUrl)}" class="mt-btn mt-btn-secondary text-xs">${escapeHTML(t('team.copyLinkBtn'))}</button>
                     <a href="${escapeHTML(waUrl)}" target="_blank" rel="noopener noreferrer" class="mt-btn mt-btn-success text-xs">
                       <i data-lucide="message-circle" class="w-4 h-4" aria-hidden="true"></i>
@@ -7508,7 +8598,7 @@ async function handleTeamInviteSubmit(event) {
   if (feedbackEl) feedbackEl.classList.add('hidden');
 
   try {
-    const { error } = await supabase.rpc('create_tenant_invitation', {
+    const { data: createdInvite, error } = await supabase.rpc('create_tenant_invitation', {
       p_tenant_id: tenantId,
       p_email: email,
       p_role: role,
@@ -7520,6 +8610,23 @@ async function handleTeamInviteSubmit(event) {
       feedbackEl.setAttribute('role', 'status');
       feedbackEl.className = 'p-3 text-xs mt-notice-ok font-semibold';
       feedbackEl.textContent = t('team.inviteCreated', { email });
+    }
+    const invitationId = createdInvite?.id || null;
+    if (invitationId) {
+      const emailRes = await dispatchTransactionalEmail({
+        tenant_id: tenantId,
+        event_type: 'team_invite',
+        invitation_id: invitationId,
+      });
+      if (feedbackEl) {
+        const suffix =
+          emailRes?.status === 'sent'
+            ? t('email.inviteSentSuffix')
+            : emailRes?.status === 'skipped'
+              ? t('email.inviteSkippedSuffix')
+              : t('email.inviteFailedSuffix');
+        feedbackEl.textContent = `${t('team.inviteCreated', { email })}${suffix}`;
+      }
     }
     await loadTeamPage();
   } catch (err) {
@@ -7538,6 +8645,44 @@ async function handleTeamInviteSubmit(event) {
 }
 
 async function handleTeamInvitationsClick(event) {
+  const resendBtn = event.target.closest('[data-resend-invite-id]');
+  if (resendBtn) {
+    const invId = resendBtn.getAttribute('data-resend-invite-id');
+    const email = resendBtn.getAttribute('data-resend-invite-email') || '';
+    const tenantId = getActiveTenantId();
+    const feedbackEl = document.getElementById('team-invite-feedback');
+    if (!invId || !tenantId) return;
+    resendBtn.disabled = true;
+    const spanEl = resendBtn.querySelector('span');
+    if (spanEl) spanEl.textContent = t('email.resendingBtn');
+    const res = await dispatchTransactionalEmail({
+      tenant_id: tenantId,
+      event_type: 'team_invite',
+      invitation_id: invId,
+    });
+    if (feedbackEl) {
+      if (res?.status === 'sent') {
+        feedbackEl.setAttribute('role', 'status');
+        feedbackEl.className = 'p-3 text-xs mt-notice-ok font-semibold';
+        feedbackEl.textContent = t('email.resendSentToast', { email: res.recipient_email || email });
+      } else if (res?.status === 'skipped') {
+        feedbackEl.setAttribute('role', 'status');
+        feedbackEl.className = 'p-3 text-xs mt-notice-warn font-semibold';
+        feedbackEl.textContent = t('email.resendSkippedToast');
+      } else {
+        feedbackEl.setAttribute('role', 'alert');
+        feedbackEl.className = 'p-3 text-xs mt-notice-error font-semibold';
+        feedbackEl.textContent = t('email.resendFailedToast');
+      }
+    }
+    await loadTeamPage();
+    const refreshedBtn = Array.from(document.querySelectorAll('[data-resend-invite-id]')).find(
+      (el) => el.getAttribute('data-resend-invite-id') === invId
+    );
+    refreshedBtn?.focus();
+    return;
+  }
+
   const copyBtn = event.target.closest('[data-copy-invite-url]');
   if (copyBtn) {
     const url = copyBtn.getAttribute('data-copy-invite-url') || '';
@@ -7664,9 +8809,433 @@ function bindStage5Events() {
   document.getElementById('team-invitations-list')?.addEventListener('click', handleTeamInvitationsClick);
   document.getElementById('team-members-list')?.addEventListener('change', handleTeamMembersChange);
   document.getElementById('team-members-list')?.addEventListener('click', handleTeamMembersClick);
+  document.getElementById('refresh-email-logs-btn')?.addEventListener('click', () => {
+    fetchRecentEmailLogs({ render: true });
+  });
 
   document.getElementById('close-staff-order-detail-btn')?.addEventListener('click', closeStaffOrderDetailModal);
   document.getElementById('staff-order-detail-modal')?.addEventListener('click', (event) => {
     if (event.target.id === 'staff-order-detail-modal') closeStaffOrderDetailModal();
   });
+
+  // Order Form: Warranty toggle, Voucher validation & Manual discount listeners
+  document.getElementById('form-is-warranty')?.addEventListener('change', () => {
+    syncOrderWarrantyUI();
+    triggerAutoSaveDraft();
+  });
+  document.getElementById('apply-voucher-btn')?.addEventListener('click', handleApplyOrderVoucher);
+  document.getElementById('clear-voucher-btn')?.addEventListener('click', handleClearOrderVoucher);
+  document.getElementById('form-voucher-code')?.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handleApplyOrderVoucher();
+    }
+  });
+  document.getElementById('form-manual-discount')?.addEventListener('input', () => {
+    recalculateFormTotals();
+    triggerAutoSaveDraft();
+  });
+
+  // Branded Voucher Modal listeners
+  document.getElementById('close-voucher-modal-btn')?.addEventListener('click', closeVoucherModal);
+  document.getElementById('cancel-voucher-modal-btn')?.addEventListener('click', closeVoucherModal);
+  document.getElementById('voucher-modal')?.addEventListener('click', (event) => {
+    if (event.target.id === 'voucher-modal') closeVoucherModal();
+  });
+  document.getElementById('voucher-regenerate-code-btn')?.addEventListener('click', () => {
+    const codeEl = document.getElementById('voucher-code-input');
+    if (codeEl) {
+      codeEl.value = generateVoucherCode();
+      renderVoucherVisualCard();
+    }
+  });
+  document.getElementById('voucher-type-select')?.addEventListener('change', () => {
+    syncVoucherTypeUI();
+    renderVoucherVisualCard();
+  });
+  ['voucher-customer-name', 'voucher-customer-email', 'voucher-code-input', 'voucher-value-input', 'voucher-expires-input', 'voucher-notes-input'].forEach(
+    (id) => {
+      document.getElementById(id)?.addEventListener('input', renderVoucherVisualCard);
+    }
+  );
+  document.getElementById('voucher-form')?.addEventListener('submit', handleSaveVoucherSubmit);
+  document.getElementById('voucher-download-png-btn')?.addEventListener('click', handleVoucherDownloadPng);
+  document.getElementById('voucher-print-btn')?.addEventListener('click', handleVoucherPrint);
+  document.getElementById('voucher-share-wa-btn')?.addEventListener('click', handleVoucherShareWa);
+  document.getElementById('voucher-send-email-btn')?.addEventListener('click', handleVoucherSendEmail);
+}
+
+// Branded Voucher Builder Modal (Reports -> Top 5 Loyal Customers)
+function generateVoucherCode() {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let suffix = '';
+  for (let i = 0; i < 4; i += 1) {
+    suffix += alphabet[Math.floor(Math.random() * alphabet.length)];
+  }
+  return `LOYAL-${suffix}`;
+}
+
+function setVoucherFeedback(message = '', tone = 'ok') {
+  const el = document.getElementById('voucher-feedback-banner');
+  if (!el) return;
+  if (!message) {
+    el.textContent = '';
+    el.className = 'hidden p-3 text-xs font-medium no-print';
+    return;
+  }
+  const cls =
+    tone === 'error' ? 'mt-notice-error' : tone === 'warn' ? 'mt-notice-warn' : 'mt-notice-ok';
+  el.textContent = message;
+  el.className = `${cls} p-3 text-xs font-medium no-print`;
+}
+
+function syncVoucherTypeUI() {
+  const typeEl = document.getElementById('voucher-type-select');
+  const labelEl = document.getElementById('voucher-value-label');
+  const valEl = document.getElementById('voucher-value-input');
+  if (!typeEl || !labelEl || !valEl) return;
+  const isPercent = typeEl.value === 'percent';
+  const currencyMeta = getCurrencyMeta();
+  if (isPercent) {
+    labelEl.textContent = t('voucher.valueLabelPercent');
+    valEl.min = '1';
+    valEl.max = '100';
+    valEl.step = '1';
+    if (Number(valEl.value || 0) > 100 || Number(valEl.value || 0) <= 0) {
+      valEl.value = '10';
+    }
+  } else {
+    labelEl.textContent = `${t('voucher.valueLabelFixedPrefix')}${currencyMeta.shortLabel})`;
+    valEl.min = String(currencyMeta.minPositive);
+    valEl.removeAttribute('max');
+    valEl.step = String(currencyMeta.step);
+    if (Number(valEl.value || 0) <= 100) {
+      valEl.value = currencyMeta.decimals === 0 ? '25000' : '10';
+    }
+  }
+}
+
+function getVoucherFormDraftData() {
+  const customerId = document.getElementById('voucher-customer-id')?.value.trim() || null;
+  const customerName = document.getElementById('voucher-customer-name')?.value.trim() || '';
+  const customerPhone = document.getElementById('voucher-customer-phone')?.value.trim() || '';
+  const customerEmail = normalizeOptionalEmail(document.getElementById('voucher-customer-email')?.value || '');
+  const code = (document.getElementById('voucher-code-input')?.value || '').trim().toUpperCase();
+  const discountType = document.getElementById('voucher-type-select')?.value === 'fixed' ? 'fixed' : 'percent';
+  const rawVal = Number(document.getElementById('voucher-value-input')?.value || 0);
+  const discountValue = discountType === 'percent' ? rawVal : roundCurrencyAmount(rawVal);
+  const expiresAt = document.getElementById('voucher-expires-input')?.value.trim() || null;
+  const notes = document.getElementById('voucher-notes-input')?.value.trim() || '';
+  return {
+    customer_id: customerId,
+    customer_name: customerName,
+    customer_phone: customerPhone,
+    customer_email: customerEmail || null,
+    code,
+    discount_type: discountType,
+    discount_value: discountValue,
+    expires_at: expiresAt,
+    notes,
+  };
+}
+
+function getFormattedVoucherDiscount(discountType, discountValue, withSuffix = true) {
+  const safeVal = Number.isFinite(Number(discountValue)) && Number(discountValue) > 0 ? Number(discountValue) : 0;
+  if (discountType === 'percent') {
+    return withSuffix ? `${safeVal}% ${t('voucher.cardOffSuffix')}` : `${safeVal}%`;
+  }
+  return formatCurrency(safeVal);
+}
+
+function buildVoucherCardPayload() {
+  const data = getVoucherFormDraftData();
+  const displayName = data.customer_name || t('voucher.cardDefaultCustomer');
+  const expiryLabel = data.expires_at
+    ? t('voucher.cardValidUntil', { date: formatDateID(data.expires_at) })
+    : t('voucher.cardNoExpiry');
+  const trackingUrl = getPublicTrackingUrl();
+  return {
+    workshopName: workshopSettings.NAME || 'MendTrack',
+    workshopLogo: workshopSettings.LOGO || '',
+    badgeText: t('voucher.cardBadge'),
+    discountLabel: getFormattedVoucherDiscount(data.discount_type, data.discount_value, true),
+    discountShort: getFormattedVoucherDiscount(data.discount_type, data.discount_value, false),
+    voucherCode: data.code || 'LOYAL-XXXX',
+    forLabel: t('voucher.cardForLabel'),
+    customerName: displayName,
+    codeLabel: t('voucher.cardCodeLabel'),
+    expiryLabel,
+    noteText: data.notes,
+    portalUrl: trackingUrl.replace(/^https?:\/\//, ''),
+    trackingUrl,
+  };
+}
+
+function renderVoucherVisualCard() {
+  const cardEl = document.getElementById('voucher-visual-card');
+  if (!cardEl) return;
+  const p = buildVoucherCardPayload();
+  const logoHTML = p.workshopLogo
+    ? `<img src="${escapeHTML(p.workshopLogo)}" width="36" height="36" alt="${escapeHTML(t('common.logoAlt', { name: p.workshopName }))}" class="mt-voucher-card-logo" />`
+    : `<span class="mt-voucher-card-monogram" aria-hidden="true">${escapeHTML(p.workshopName.slice(0, 2).toUpperCase())}</span>`;
+
+  cardEl.innerHTML = `
+    <div class="mt-voucher-card-head">
+      <div class="mt-voucher-card-brand">
+        ${logoHTML}
+        <div class="min-w-0">
+          <p class="font-bold text-sm truncate">${escapeHTML(p.workshopName)}</p>
+          <p class="mt-voucher-card-badge">${escapeHTML(p.badgeText)}</p>
+        </div>
+      </div>
+    </div>
+    <div class="mt-voucher-card-body">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div class="min-w-0">
+          <p class="mt-voucher-discount-val">${escapeHTML(p.discountLabel)}</p>
+          <p class="mt-voucher-eyebrow mt-2">${escapeHTML(p.forLabel)}</p>
+          <p class="mt-voucher-customer truncate">${escapeHTML(p.customerName)}</p>
+          ${p.noteText ? `<p class="mt-voucher-note">${escapeHTML(p.noteText)}</p>` : ''}
+        </div>
+        <div class="text-left sm:text-right shrink-0">
+          <p class="mt-voucher-eyebrow mb-1">${escapeHTML(p.codeLabel)}</p>
+          <span class="mt-voucher-code-pill">${escapeHTML(p.voucherCode)}</span>
+        </div>
+      </div>
+    </div>
+    <div class="mt-voucher-card-foot">
+      <span class="mt-voucher-foot-expiry">${escapeHTML(p.expiryLabel)}</span>
+      <span class="font-mono-code">${escapeHTML(p.portalUrl)}</span>
+    </div>
+  `;
+}
+
+function setVoucherFieldsLocked(locked) {
+  const fieldIds = [
+    'voucher-customer-name',
+    'voucher-code-input',
+    'voucher-regenerate-code-btn',
+    'voucher-type-select',
+    'voucher-value-input',
+    'voucher-expires-input',
+    'voucher-notes-input',
+  ];
+  fieldIds.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = Boolean(locked);
+  });
+}
+
+function updateVoucherShareControls() {
+  const isSaved = Boolean(currentVoucherModalRecord?.id);
+  const waBtn = document.getElementById('voucher-share-wa-btn');
+  const emailBtn = document.getElementById('voucher-send-email-btn');
+  const hint = document.getElementById('voucher-save-first-hint');
+  if (waBtn) waBtn.disabled = !isSaved;
+  if (emailBtn) emailBtn.disabled = !isSaved;
+  hint?.classList.toggle('hidden', isSaved);
+}
+
+function openVoucherModal(customer = {}) {
+  if (!isAdminOrOwnerRole()) return;
+  const modal = document.getElementById('voucher-modal');
+  if (!modal) return;
+  rememberTrigger();
+  currentVoucherModalRecord = null;
+  setVoucherFeedback('');
+
+  const defaultExpiry = new Date();
+  defaultExpiry.setDate(defaultExpiry.getDate() + 30);
+
+  document.getElementById('voucher-customer-id').value = customer.customer_id || '';
+  document.getElementById('voucher-customer-phone').value = customer.customer_phone || '';
+  document.getElementById('voucher-customer-name').value = customer.customer_name || '';
+  document.getElementById('voucher-customer-email').value = customer.customer_email || '';
+  document.getElementById('voucher-code-input').value = generateVoucherCode();
+  document.getElementById('voucher-type-select').value = 'percent';
+  document.getElementById('voucher-value-input').value = '10';
+  document.getElementById('voucher-expires-input').value = toLocalDateKey(defaultExpiry);
+  document.getElementById('voucher-notes-input').value = '';
+
+  const saveBtn = document.getElementById('save-voucher-btn');
+  if (saveBtn) {
+    saveBtn.disabled = false;
+    saveBtn.classList.remove('hidden');
+  }
+  setVoucherFieldsLocked(false);
+  syncVoucherTypeUI();
+  updateVoucherShareControls();
+  renderVoucherVisualCard();
+  modal.classList.remove('hidden');
+  document.getElementById('voucher-code-input')?.focus();
+  if (window.lucide) window.lucide.createIcons();
+}
+
+function closeVoucherModal() {
+  document.getElementById('voucher-modal')?.classList.add('hidden');
+  document.body.classList.remove('mt-printing-voucher-card');
+  currentVoucherModalRecord = null;
+  restoreTriggerFocus();
+}
+
+async function handleSaveVoucherSubmit(event) {
+  event.preventDefault();
+  const tenantId = getActiveTenantId();
+  if (!tenantId || !isAdminOrOwnerRole()) return;
+
+  const data = getVoucherFormDraftData();
+  if (!/^[A-Z0-9][A-Z0-9_-]{2,31}$/.test(data.code)) {
+    setVoucherFeedback(t('voucher.invalidCode'), 'error');
+    return;
+  }
+  if (
+    !Number.isFinite(data.discount_value) ||
+    data.discount_value <= 0 ||
+    (data.discount_type === 'percent' && data.discount_value > 100)
+  ) {
+    setVoucherFeedback(t('voucher.invalidValue'), 'error');
+    return;
+  }
+  if (data.customer_email && !isValidEmailFormat(data.customer_email)) {
+    setVoucherFeedback(t('customers.emailInvalid'), 'error');
+    return;
+  }
+
+  const saveBtn = document.getElementById('save-voucher-btn');
+  if (saveBtn) saveBtn.disabled = true;
+  setVoucherFeedback('');
+
+  try {
+    const { data: inserted, error } = await supabase
+      .from('vouchers')
+      .insert({
+        tenant_id: tenantId,
+        code: data.code,
+        discount_type: data.discount_type,
+        discount_value: data.discount_value,
+        expires_at: data.expires_at,
+        customer_id: data.customer_id || null,
+        customer_name: data.customer_name || null,
+        customer_phone: data.customer_phone || null,
+        customer_email: data.customer_email || null,
+        notes: data.notes || null,
+        created_by: activeSessionUser?.id || null,
+      })
+      .select('*')
+      .single();
+
+    if (error) {
+      if (error.code === '23505' || String(error.message || '').toLowerCase().includes('duplicate')) {
+        setVoucherFeedback(t('voucher.duplicateCode'), 'error');
+        if (saveBtn) saveBtn.disabled = false;
+        return;
+      }
+      throw error;
+    }
+
+    currentVoucherModalRecord = inserted;
+    setVoucherFieldsLocked(true);
+    renderVoucherVisualCard();
+    updateVoucherShareControls();
+    setVoucherFeedback(t('voucher.savedBanner', { code: inserted.code }), 'ok');
+    if (saveBtn) saveBtn.classList.add('hidden');
+  } catch (err) {
+    setVoucherFeedback(t('voucher.saveFailed', { message: err.message || t('common.genericError') }), 'error');
+    if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
+async function handleVoucherDownloadPng() {
+  const btn = document.getElementById('voucher-download-png-btn');
+  if (btn) btn.disabled = true;
+  try {
+    await downloadVoucherCardPng(buildVoucherCardPayload());
+  } catch (err) {
+    setVoucherFeedback(err.message || t('common.genericError'), 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function handleVoucherPrint() {
+  document.body.classList.add('mt-printing-voucher-card');
+  const cleanup = () => {
+    document.body.classList.remove('mt-printing-voucher-card');
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  setTimeout(cleanup, 4000);
+  window.print();
+}
+
+function handleVoucherShareWa() {
+  if (!currentVoucherModalRecord) return;
+  const data = getVoucherFormDraftData();
+  const phone = normalizePhone(data.customer_phone || currentVoucherModalRecord.customer_phone || '');
+  if (!phone) {
+    setVoucherFeedback(t('voucher.phoneMissingWarn'), 'warn');
+    return;
+  }
+  const p = buildVoucherCardPayload();
+  const msg = t('voucher.waShareMessage', {
+    customer: p.customerName,
+    store: p.workshopName,
+    discount: p.discountShort,
+    code: currentVoucherModalRecord.code,
+    expiry: p.expiryLabel,
+    trackingUrl: p.trackingUrl,
+  });
+  window.location.href = buildWhatsAppLink(phone, msg);
+}
+
+async function handleVoucherSendEmail() {
+  if (!currentVoucherModalRecord?.id) return;
+  const tenantId = getActiveTenantId();
+  if (!tenantId) return;
+
+  const email = normalizeOptionalEmail(
+    document.getElementById('voucher-customer-email')?.value || currentVoucherModalRecord.customer_email || ''
+  );
+  if (!email) {
+    setVoucherFeedback(t('voucher.emailMissingWarn'), 'warn');
+    document.getElementById('voucher-customer-email')?.focus();
+    return;
+  }
+  if (!isValidEmailFormat(email)) {
+    setVoucherFeedback(t('customers.emailInvalid'), 'error');
+    return;
+  }
+
+  const emailBtn = document.getElementById('voucher-send-email-btn');
+  if (emailBtn) emailBtn.disabled = true;
+  setVoucherFeedback(t('voucher.sendingEmail'), 'warn');
+
+  try {
+    if (email !== normalizeOptionalEmail(currentVoucherModalRecord.customer_email || '')) {
+      await supabase
+        .from('vouchers')
+        .update({ customer_email: email, updated_at: new Date().toISOString() })
+        .eq('id', currentVoucherModalRecord.id)
+        .eq('tenant_id', tenantId);
+      currentVoucherModalRecord.customer_email = email;
+    }
+
+    const res = await dispatchTransactionalEmail({
+      tenant_id: tenantId,
+      event_type: 'voucher_issued',
+      voucher_id: currentVoucherModalRecord.id,
+    });
+
+    if (res?.status === 'sent') {
+      setVoucherFeedback(t('voucher.emailSent', { email: res.recipient_email || email }), 'ok');
+    } else if (res?.status === 'skipped') {
+      setVoucherFeedback(t('voucher.emailSkipped'), 'warn');
+    } else {
+      setVoucherFeedback(t('voucher.emailFailed'), 'error');
+    }
+  } catch (_) {
+    setVoucherFeedback(t('voucher.emailFailed'), 'error');
+  } finally {
+    if (emailBtn) emailBtn.disabled = false;
+  }
 }
